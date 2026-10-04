@@ -82,6 +82,13 @@ Links were checked in October 2026. Classic papers and talks are cited by title,
 - B. Huang et al. — 2D Gaussian Splatting for Geometrically Accurate Radiance Fields, SIGGRAPH 2024.
 - Virtualized 3D Gaussians (cluster LOD for composed scenes), SIGGRAPH 2025: https://arxiv.org/abs/2505.06523
 - StochasticSplats: sorting-free stochastic rasterization, ICCV 2025: https://arxiv.org/abs/2503.24366
+- Sort-free Gaussian Splatting via Weighted Sum Rendering, ICLR 2025: https://arxiv.org/abs/2410.18931
+- Gaussian Frosting (mesh + adaptive Gaussian layer, animatable), ECCV 2024: https://arxiv.org/abs/2403.14554
+- HaloGS: loose coupling of compact geometry and Gaussian splats (2025): https://arxiv.org/abs/2505.20267
+- Extreme Views: 3DGS for out-of-distribution camera poses (2025): https://arxiv.org/abs/2510.20027
+- J. Ross — The Radiation Regime and Architecture of Plant Stands (1981) — turbid-medium canopy model.
+- W. Verhoef — Light scattering by leaf layers with application to canopy reflectance modeling: the SAIL model,
+  Remote Sensing of Environment, 1984.
 - LeafFit: Plant Assets Creation from 3D Gaussian Splatting, Eurographics 2026: https://arxiv.org/abs/2602.11577
 - GaussianPlant: structure-aligned splatting for plants (2025): https://arxiv.org/abs/2512.14087
 - Wind on Trees: Testing Physical Grounding in Dynamic 4D Gaussian Splatting (Sep 2026):

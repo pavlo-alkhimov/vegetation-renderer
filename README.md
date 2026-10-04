@@ -33,7 +33,7 @@ mapping to hardware; per sub-problem one technique is chosen and the alternative
 | 6  | Memory | CPU arenas; GPU: few large blocks + own sub-allocators; buffer device addresses everywhere | VMA, per-resource allocations | [02](docs/02-architecture.md), [03](docs/03-hardware-mapping.md) |
 | 7  | Geometry | Cluster LOD DAG (Nanite-like), GPU-driven two-phase culling, 64-bit visibility buffer, HW mesh-shader + SW compute raster | discrete LODs + multi-draw-indirect + G-buffer | [05](docs/05-frame-pipeline.md) |
 | 8  | Foliage geometry | Geometric leaves/needles, assemblies (instanced twigs), alpha cards only as fallback | alpha-tested cards | [06](docs/06-vegetation.md) |
-| 9  | Far vegetation | Octahedral impostors (phase A) → pixel-sized voxels (phase B) → canopy layer in terrain | billboards | [06](docs/06-vegetation.md) |
+| 9  | Far vegetation, aggregates | Octahedral impostors (phase A) → voxels or material Gaussians (phase B); needle/twig parts switch to aggregates by element size | billboards | [06](docs/06-vegetation.md), [09](docs/09-gaussian-splatting.md) |
 | 10 | Grass | Per-frame procedural Bézier blades from mesh shaders; regenerated from ID in material resolve; nothing stored | stored instances / grass cards | [06](docs/06-vegetation.md) |
 | 11 | Wind | GPU wind field with travelling gust fronts + per-tree bone rig; stateless evaluation → exact motion vectors | vertex-shader sine waves | [06](docs/06-vegetation.md) |
 | 12 | Seasons | First-class: per-species colour ramps, leaf density (autumn → leaf-off winter), snow | fixed summer look | [06](docs/06-vegetation.md) |
@@ -63,5 +63,5 @@ Shipping "4K60" titles render ~1080p–1440p internally and upscale, so the prac
 | [06 Vegetation](docs/06-vegetation.md) | **Survey of vegetation/grass techniques (2017–2026) and the chosen design**, biome, seasons |
 | [07 Techniques survey](docs/07-techniques-survey.md) | Non-vegetation state of the art per domain with chosen option |
 | [08 Validation and roadmap](docs/08-validation-roadmap.md) | Measurement, reference path tracer, benchmark scenes, milestones, open questions |
-| [09 Gaussian splatting](docs/09-gaussian-splatting.md) | Applicability of 3DGS to vegetation: runtime no, far-field experiment, offline capture yes |
+| [09 Gaussian splatting](docs/09-gaussian-splatting.md) | 3DGS by subset: needle/twig aggregates and far field as candidates; captured splats offline or fixed-lighting only |
 | [References](docs/references.md) | Talks, papers, specs, SDKs |

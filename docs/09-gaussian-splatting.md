@@ -2,99 +2,154 @@
 
 State: October 2026. Checked against the requirements in [00](00-task.md) and the design in [06](06-vegetation.md).
 
-## Verdict
+## Two different things called "Gaussians"
 
-| Use | Verdict | Reason in one line |
+| | Captured splats | Material Gaussians |
 |---|---|---|
-| Runtime near/mid-field trees, shrubs | **No** | baked lighting, no seasons, research-grade animation, sorting/overdraw, memory |
-| Runtime grass and ground cover | **No** | procedural blades cost zero memory and are fully dynamic |
-| Runtime far field (4–40 px) | **Experiment (M7)** | "material Gaussians" fitted from our own assets compete with voxels; voxels stay default |
-| RT / GI proxies | **No** | Gaussian ray tracing needs proxy geometry + per-hit evaluation; triangle proxies are cheaper |
-| Offline capture of real plants | **Yes** | best available capture of thin, fuzzy foliage → look-dev ground truth and asset source |
-| Fixed-lighting captured backdrops | Only if dynamic time of day is dropped | lighting is baked into the colours |
+| Source | photographs (trained radiance field) | fitted offline to **our own** assets (differentiable rendering against the reference path tracer) |
+| Per-Gaussian data | radiance as spherical harmonics (lighting, shadows, occlusion of the capture moment) | albedo, normal distribution, leaf-area density / coverage, transmission, leaf/wood class, leaf bucket |
+| Dynamic lighting, seasons | no | yes |
+| Valid view directions | only inside the capture's view cone | all |
+| Animation | research (learned deformation) | rigid with a wind bone (positions + covariances rotate) |
+| Advantage | photographic realism | compact, prefiltered primitive for sub-pixel aggregates |
 
-## What 3DGS is
+## Verdict by subset
 
-- Scene = millions of anisotropic 3D Gaussians: position, rotation, scale, opacity, view-dependent colour (spherical
-  harmonics degree 3) = 59 floats = **236 B** each. SPZ quantizes to **64 B** (~10× smaller files).
-- Rendering: project to screen-space ellipses → tile binning → **global depth sort** → front-to-back alpha blending.
-  Trained from photographs by differentiable rendering; the colour is the **captured radiance**, i.e. lighting,
-  shadows and occlusion of the capture moment.
-- Reference cost: the original paper reports ~3 M Gaussians (734 MB) at 134 FPS, 1080p on an RTX A6000 (Mip-NeRF 360
-  average). Scaled by compute and bandwidth (~2.5–2.8×) that is **≈ 20 ms on an RTX 4060** — for one captured scene
-  with frozen lighting, before anything else in the frame.
+| Subset | Verdict |
+|---|---|
+| Conifer needle masses, beyond ~10–20 m | **Promising** — material Gaussians per needle spray, bound to the wind rig (§1) |
+| Leafless (winter) twig crowns, beyond ~15–30 m | **Promising** — elongated Gaussians for the twig haze, branches stay geometry |
+| Broadleaf leaf clusters, hedgerows, shrubs, beyond ~50–100 m | Candidate |
+| Whole-tree far field, 0.5–5 km (4–40 px) | Candidate, competes with voxels/impostors |
+| Ridge-line forest silhouettes beyond ~5 km | Niche candidate (forest-patch Gaussians vs terrain canopy layer) |
+| Fixed-lighting content seen from restricted viewpoints (cutscenes, photo mode, backdrops behind barriers) | **Fits** with captured or baked splats |
+| Overcast-only scenes | Captured splats roughly transferable (§3); dynamic weather breaks it |
+| Aerial / top-down only views | Fits with drone captures under fixed lighting |
+| Near-field broadleaf leaves (< ~50 m), hero trees close up | No — geometry |
+| Grass, crops, flowers (any distance, any angle) | No — procedural blades + terrain shading |
+| Switching representation by camera angle at runtime | No — pops during camera rotation |
+| Ray tracing / GI proxies | No — triangle proxies |
+| Offline capture: look-dev reference, asset source | **Yes** |
 
-## Why it is attractive for vegetation
+## 1. By element scale and distance: the aggregate band
 
-- Thin, fuzzy, semi-transparent aggregates are exactly what photogrammetry meshes fail on; a soft volumetric
-  primitive prefilters them, so distant foliage stays stable (Mip-Splatting).
-- Scale is solved in principle: hierarchical 3DGS (2024), Virtualized 3D Gaussians (SIGGRAPH 2025: composed scenes of
-  ~0.1 B Gaussians in real time, up to 6.19× faster at far distances), NanoGS for UE5 (2026, Nanite-style clusters +
-  GPU radix sort).
-- Ecosystem: `KHR_gaussian_splatting` (release candidate Feb 2026, now ratified); Houdini, Nuke 17, OpenUSD, V-Ray;
-  Unreal only through third-party plugins (no first-party module); 4D splats in film final pixels.
-- Plant-specific research is active: LeafFit (Eurographics 2026), GaussianPlant (2025), skeleton extraction from
-  splats, physically parameterized wind (Wind on Trees, Sep 2026).
+Vegetation becomes an *aggregate* once its elements are thinner than a pixel. At 1080p and 60° vertical FOV one pixel
+is 1.07 mm per metre of distance:
 
-## Requirements check
-
-| Requirement ([00](00-task.md)) | 3DGS state, Oct 2026 | Fit |
+| Element | Thickness | Sub-pixel beyond |
 |---|---|---|
-| Dynamic time of day | Standard 3DGS bakes radiance. Relightable variants (GaRe, DeferredGS, SSD-GS, …) are research; decomposing **translucent, multiply-scattering foliage** from one capture lighting is unsolved | ✗ |
-| Seasons (colour, leaf thinning, leaf-off) | One capture = one season; leaf-off branches are hidden in a leaf-on capture; per-leaf control needs segmentation (LeafFit) | ✗ |
-| Wind animation, exact motion vectors | Bind Gaussians to rigid parts/bones (RigGS, TreeSplat, 4DGS); Wind on Trees (2026) shows damping is not recovered from video and frequency only for sparse trees | ◐ |
-| Shadows | Capture shadows are baked in (double shadowing when relit); casting needs stochastic depth or opacity-threshold depth | ◐ |
-| RT GI | 3DGRT/3DGUT, GRTX: BVH of bounding proxies + per-hit Gaussian evaluation; Vulkan sample exists; far above our ray budget | ✗ |
-| Visibility buffer / deferred | Order-dependent transparency, no single surface per pixel. Sort-free stochastic splatting (StochasticSplats, ICCV 2025: > 4× faster than sorted) maps onto one opaque sample per pixel + TAA | ◐ |
-| Memory (8 GB card, 1 GB geometry pool) | Captured plant 10⁵–10⁶+ Gaussians → 6–64 MB at 64 B; 30 species × 3 seasonal states → **0.6–6 GB**. LeafFit names memory as the main barrier to adoption | ✗ |
-| LOD to 5–10 km | Cluster hierarchies exist (V3DG, NanoGS) | ✔ |
-| Close-up quality | Soft leaf edges, blobs and floaters at close range | ✗ |
-| Variation, procedural placement | Instancing works; per-instance colour/season needs an attribute model, not baked radiance | ◐ |
-| Gameplay / collision | No surfaces → proxies needed (we have them anyway) | — |
+| Spruce/fir needle | 1–1.5 mm | ~1–1.4 m |
+| Scots pine needle | ~2 mm | ~1.9 m |
+| Bare twig | 2–10 mm | ~2–9 m |
+| Leaf (beech, birch, oak) | 4–7 cm | ~37–65 m |
+| Branch | 5–20 cm | ~47–187 m |
+| Needle spray (as a whole) | ~30 cm | ~280 m |
+| Tree crown, 10 m | — | 4 px at ~2.3 km |
 
-The decisive point: **3DGS's main value is photographic capture, and captured radiance is incompatible with dynamic
-lighting and seasons.** Fitting Gaussians to our own assets instead keeps them relightable but leaves only "a
-primitive for aggregate appearance" — which is the far-field problem voxels already address.
+Between "elements sub-pixel" and "whole tree ≈ 4 px", triangles alias and are wasted. Primitive counts for one spruce
+seen at 20 m (≈ 2000 needle sprays, ~500 needles each):
 
-## Far-field experiment: material Gaussians vs voxels
+| Representation | Primitives |
+|---|---|
+| Geometric needles (Witcher 4 approach) | 2–4 M triangles |
+| Pixel-sized voxels (UE Nanite Voxels approach) — 2.1 cm cells, crown ~141 m³, 10–30 % occupied | 1.4–4.3 M voxels |
+| Material Gaussians, 1–10 per spray | 2–20 k Gaussians |
 
-| | Octahedral impostor (phase A) | Voxels (phase B) | Material Gaussians (experiment) |
-|---|---|---|---|
-| Primitive | quad + view atlas per tree | 4×4×4 bricks on a grid | free anisotropic ellipsoids |
-| Memory per species variant | 1–4 MB atlas | ~0.2–0.5 MB sparse | ~0.25 MB (~10k × 24 B, estimate) |
-| Shape per primitive | view-interpolated image | isotropic, blocky at coarse levels | anisotropic: conifer spires, branch directions, bare twig crowns |
-| LOD | atlas mips | mip pyramid, trivial | cluster hierarchy, offline merging |
-| Raster | HW quads + hashed coverage | compute splat, stochastic | compute splat, stochastic, footprint evaluated per pixel |
-| Lighting, seasons | wood/leaf layers, dynamic shading | per-voxel attributes, dynamic | per-Gaussian attributes, dynamic |
-| Risk | low | medium | medium-high |
+Voxels work only where a voxel ≈ a pixel *and* the tree is small (far field). Gaussians scale with the number of
+element groups, not with pixel coverage — that is their real advantage, and it applies **before** the far field:
+conifer foliage and bare twig crowns, where the needles/twigs are sub-pixel but the sprays/branches are still clearly
+resolved. Branches and trunks stay geometry (rigid parts → no aggregate needed until ~50–190 m).
 
-Sketch (only the primitive differs from the voxel path):
-1. **Offline:** per species variant and leaf state, fit Gaussians carrying *material* attributes — albedo, normal
-   distribution, coverage, transmission, leaf/wood class, leaf bucket — to multi-view renders of our own asset from
-   the reference path tracer (Slang autodiff). Build a cluster hierarchy (V3DG-style).
-2. **Runtime:** far-tree list → cluster LOD → stochastic splat: per covered pixel α = opacity · G(x),
-   `hash(gaussian, pixel, frame) < α` → `atomicMax(depth | payload)` into `vis64` kind 5 (visible cluster | Gaussian).
-   Resolve reads the attributes; standard deferred lighting, GI, fog. VSM pages get the same stochastic splat.
-3. **Animation:** whole-tree sway — rotate positions and covariances about the root.
-4. **Estimated cost:** 2–8 M splat evaluations per frame ≈ 1–2 ms on the RTX 4060, similar to voxels.
+Costs of large splats: a Gaussian covering many pixels loses the inner detail (needle stripes) → synthesize it in
+the resolve from procedural noise and the normal distribution; partial coverage needs blending or stochastic tests.
 
-Measured in M7 against voxels on the same scenes: FLIP vs path-traced reference, temporal stability, memory, ms.
-The fitting pipeline, splat rasterizer and resolve are shared, so the comparison is cheap. Expected: similar cost
-and memory; Gaussians may win on coarse levels (fewer primitives for spires and twig crowns), voxels win on
-simplicity. UE 5.7 chose voxels for the same problem.
+## 2. By view angle
+
+- **Captured splats** degrade outside the training view distribution (holes, noise); ground-level captures have no
+  canopy tops, drone captures no undersides. Use them only where the camera cannot leave the capture cone:
+  backdrops across a valley or lake, aerial-only views, fixed camera paths.
+- **Material Gaussians** have no angle limits: training views are rendered from every direction.
+- **No runtime switching by camera angle:** the representation would change while the camera rotates. Select by
+  projected element size only.
+- **Grazing views over meadows and fields:** the visible effect (sheen waves, layer darkening) is a shading problem
+  of the grass layer, not a representation problem → no Gaussians.
+
+## 3. By lighting and weather
+
+- Captured radiance is valid only under the capture's lighting: fits cutscenes, photo mode, fixed-time benchmark
+  variants. Under overcast skies (common in the biome) appearance ≈ albedo × sky visibility, so an overcast capture
+  can be reused under other overcast conditions with an exposure/colour scale — but weather and time of day are
+  dynamic in our design, so this stays a special case.
+- Material Gaussians are a **turbid medium**: leaf-area density, leaf-angle distribution, leaf reflectance and
+  transmittance — the standard canopy model of remote sensing (Ross 1981; SAIL). That gives physically grounded,
+  dynamic shading including backlit transmission and crown self-shadowing.
+
+## 4. By vegetation type (target biome)
+
+| Type | Fit |
+|---|---|
+| Spruce, fir, pine (Carpathians, sandy pine forests) | best case: needles sub-pixel from ~1–2 m, sprays are compact anisotropic fans |
+| Deciduous trees in winter (leaf-off half the year) | strong case: twig haze from ~10–30 m; branches as geometry |
+| Deciduous trees in leaf, shrubs, hedgerows | from ~50–100 m, as leaf-cluster Gaussians |
+| Grass, cereals, flowers, ferns | no |
+| Landmark trees seen close up | geometry; capture → mesh conversion (LeafFit-style) |
+
+## 5. By render pass
+
+| Pass | Use |
+|---|---|
+| Primary visibility | yes, inside the bands above |
+| Shadows (VSM) | stochastic depth from the same Gaussians → fractional shadows after filtering |
+| RT / GI | no — triangle proxies (as for all vegetation) |
+| Water reflections | same representation via SSR; RT hits proxies |
+
+## Rendering paths inside the bands
+
+| Splat footprint | Path |
+|---|---|
+| ≤ ~2 px | stochastic coverage (`hash < α`) into `vis64` kind 5 → standard resolve and deferred lighting (same as voxels) |
+| > ~2 px | sort-free weighted-sum blending (ICLR 2025: no sorting, no popping), forward-shaded with VSM, sky, radiance cache and fog; composited before TAA |
+
+Sorted 3DGS blending is not needed. Foliage colours are similar, so order-independent blending errors stay small.
+
+## Cost estimates (to be measured)
+
+| Case | Load | RTX 4060 |
+|---|---|---|
+| Conifer slope, near–mid band | 1–6 M visible Gaussians | 2–5 ms (replaces sub-pixel needle triangles) |
+| Whole-tree far field | 2–8 M splat evaluations | 1–2 ms (≈ voxels) |
+| Memory | sprays/twig groups fitted once per species and instanced | ~10–100 KB per species; far field ~0.25 MB per variant |
+
+## Captured splats: requirements check
+
+- Standard 3DGS: 59 floats = 236 B per Gaussian (SPZ: 64 B). Original paper: ~3 M Gaussians, 734 MB, 134 FPS at 1080p
+  on an RTX A6000 → ≈ 20 ms on an RTX 4060 for one scene with frozen lighting.
+- Relighting (GaRe, DeferredGS, SSD-GS, …) is research; decomposing translucent foliage from one capture is unsolved.
+- Wind on captured trees is research (Wind on Trees, Sep 2026: damping not recoverable from video).
+- Memory: a captured plant has 10⁵–10⁶+ Gaussians → 6–64 MB; 30 species × 3 seasonal states → 0.6–6 GB.
+- Ecosystem: `KHR_gaussian_splatting` ratified 2026; Houdini, Nuke 17, OpenUSD, V-Ray; Unreal via third-party
+  plugins only (e.g. NanoGS with Nanite-style LOD); LOD for huge scenes: Virtualized 3D Gaussians (SIGGRAPH 2025).
 
 ## Offline uses (recommended now)
 
-- **Look-dev ground truth:** capture reference specimens — beech, oak, hornbeam, birch, aspen, spruce, fir, Scots
-  pine, meadow patches — with phone or drone, ideally the same specimen per season. Compare silhouette, crown
-  density, colour variation and backlit translucency against our renders (perceptual only: capture lighting differs).
-- **Asset source:** LeafFit-style conversion — segment leaves, fit a template leaf to all instances, extract meshes →
-  instanced leaves = our assemblies; skeleton extraction from splats → wind rig.
-- Interchange: accept `KHR_gaussian_splatting` glTF in the cooker as an input format for these tools.
+- **Look-dev ground truth:** capture beech, oak, hornbeam, birch, aspen, spruce, fir, Scots pine and meadow patches,
+  ideally the same specimen per season; compare silhouette, crown density, colour variation, backlit translucency.
+- **Asset source:** LeafFit-style conversion (segment leaves, fit a template leaf, extract meshes → instanced
+  leaves = our assemblies); skeleton extraction → wind rig.
+- Accept `KHR_gaussian_splatting` glTF in the cooker for these tools.
+
+## Experiment plan (M7)
+
+1. **Conifer foliage band** (10–200 m): geometric needles vs material Gaussians per spray (vs alpha-card baseline).
+2. **Winter twig band**: geometric twigs vs elongated twig-haze Gaussians on geometric branches.
+3. **Far field**: impostors vs voxels vs tree-level Gaussians.
+
+Metrics for all: FLIP vs path-traced reference, temporal stability with wind, ms, MB. Shared infrastructure: fitting
+(Slang autodiff), splat rasterizer, resolve — the extra cost of testing Gaussians is small.
 
 ## Watch list
 
-- Relightable outdoor splats where foliage translucency is decomposed correctly (none convincing as of Oct 2026).
+- Relightable outdoor splats that decompose foliage translucency correctly.
 - Physically grounded wind for captured trees (Wind on Trees 2026, DynamicTree 2025).
-- Gaussian ray tracing performance (GRTX 2026) and occlusion culling (NVGS, CVPR 2026).
-- GPU-friendly compression using texture codecs (2026).
+- Mesh + Gaussian hybrids (Gaussian Frosting 2024, HaloGS 2025).
+- Gaussian ray tracing (GRTX 2026), occlusion culling (NVGS, CVPR 2026), texture-codec compression (2026).

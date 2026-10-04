@@ -122,6 +122,12 @@ occluded by terrain and nearer trees). Far-field culling must cost O(10 ns) per 
 Transitions: within a DAG continuous; parts ↔ merged at matched error; geometry ↔ far field as a dithered swap over
 ~0.3–0.5 s (resolved by TAA); far field ↔ canopy layer by coverage blend.
 
+**Per-part aggregate switch** (refinement from [09](09-gaussian-splatting.md)): inside the assembly range, part types
+switch by *element* size, not tree size — conifer needle sprays beyond ~10–20 m, bare twig groups beyond ~15–30 m,
+leaf clusters beyond ~50–100 m; trunk and branches stay geometry. Needles are sub-pixel from ~1–2 m, so simplifying
+needle geometry is wasted work. Candidate aggregate: material Gaussians per part (instanced, bone-attached);
+compared against geometric needles and voxels in M7.
+
 ### 5.4 Far field
 
 - **Phase A — octahedral impostors** per species variant: albedo + coverage, normal + depth, transmission; separate
@@ -253,6 +259,6 @@ visible blades per frame; budget ≤ 2 ms for generation + raster + resolve.
 - Mega Geometry path on NVIDIA; portable alternative when cross-vendor cluster AS appears.
 - Neural texture compression for leaf/bark atlases (NVIDIA RTXNTC: on Vulkan "inference on load" and "on sample";
   no shipping game as of April 2026).
-- 3D Gaussian splatting: not for runtime near/mid field; fitted "material Gaussians" as a far-field alternative to
-  voxels (experiment in M7); captures of real plants as look-dev reference and asset source — see
-  [09](09-gaussian-splatting.md).
+- 3D Gaussian splatting: captured splats only offline or for fixed-lighting content from restricted viewpoints;
+  fitted material Gaussians as the aggregate representation for needle sprays, twig crowns and the far field
+  (experiments in M7) — see [09](09-gaussian-splatting.md).
