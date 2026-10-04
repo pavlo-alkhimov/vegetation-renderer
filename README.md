@@ -54,6 +54,7 @@ Shipping "4K60" titles render ~1080p–1440p internally and upscale, so the prac
 
 | Doc | Content |
 |-----|---------|
+| [00 Task](docs/00-task.md) | The task as understood: goal, scope, targets, constraints, assumptions to confirm |
 | [01 Platform and API](docs/01-platform-and-api.md) | Linux vs Windows on NVIDIA (2026), Vulkan feature baseline, shader language, toolchain |
 | [02 Architecture](docs/02-architecture.md) | Subsystems, threads, frame timeline, memory, game ↔ renderer data contract, code conventions |
 | [03 Hardware mapping](docs/03-hardware-mapping.md) | RTX 4060 numbers, GPU ms budget, VRAM budget, queues, occupancy rules, CPU mapping |
