@@ -2,8 +2,7 @@
 
 ## Recommendation
 
-- **Vulkan 1.4 as the only GPU API.** One backend, no RHI abstraction layer. A second API (D3D12, Metal) would be a
-  second implementation of the same ~30 renderer-backend functions, selected at compile time — not a virtual interface.
+- **Vulkan 1.4 as the only GPU API.** One backend, no rendering hardware interface (RHI) abstraction layer. A second API (D3D12, Metal) would be a second implementation of the same ~30 renderer-backend functions, selected at compile time — not a virtual interface.
 - **Develop on Linux; keep Windows building and benchmarked from day one.** Only the platform layer (~2–3k lines)
   differs, so the choice of primary OS stays cheap to reverse.
 - **Shaders in Slang**, compiled offline to SPIR-V; runtime compilation only for hot reload in dev builds.
@@ -32,9 +31,7 @@ percent of Windows. We will verify this ourselves — identical code makes a cle
 | Async file I/O | io_uring | IoRing / DirectStorage 1.4 (Zstd, open-source GPU Zstd shader, GACL) | Own path: io_uring/IoRing → staging → GPU or CPU decompression |
 | Market reach | SteamOS / Steam Machine (Jun 2026) are AMD-only; SteamOS NVIDIA support not before 2027 | dominant PC gaming OS | Shipping would require Windows; research does not |
 
-Portability bonus: Vulkan also covers macOS via KosmicKrisp (LunarG, Vulkan 1.4-conformant on Apple Silicon, in the
-Vulkan SDK since Sep 2026, needs macOS 26) or MoltenVK, and Android. Consoles would need their own backends — out of
-scope.
+Portability bonus: Vulkan also covers macOS via KosmicKrisp (LunarG, Vulkan 1.4-conformant on Apple Silicon, in the Vulkan SDK since Sep 2026, needs macOS 26) or MoltenVK, and Android. Consoles would need their own backends — out of scope.
 
 **Second test GPU:** an AMD RDNA2+/RDNA3 card under Linux (RADV) is the cheapest way to keep the code vendor-neutral and
 covers the Steam Machine class.

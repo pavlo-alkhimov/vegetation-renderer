@@ -1,18 +1,15 @@
 # vegetation-renderer
 
-Research real-time renderer for dense **temperate vegetation of Central and Eastern Europe** — meadows, steppe grass,
-crop fields, beech/oak/hornbeam/birch forests, spruce/fir/pine stands — targeting the best achievable image quality at
-**1920×1080, ≥ 30 FPS** on current consumer GPUs.
+Research real-time renderer for dense **temperate vegetation of Central and Eastern Europe** — meadows, steppe grass, crop fields, beech/oak/hornbeam/birch forests, spruce/fir/pine stands — targeting the best achievable image quality at **1920×1080, ≥ 30 FPS** on current consumer GPUs.
 
-**Status:** design draft v0.1 (2026-10-04). No code yet. The documents fix the data flow between subsystems and the
-mapping to hardware; per sub-problem one technique is chosen and the alternatives are recorded.
+**Status:** design draft v0.1 (2026-10-04). No code yet. The documents fix the data flow between subsystems and the mapping to hardware; per sub-problem one technique is chosen and the alternatives are recorded.
 
 ## Scope
 
 1. Engine structure: renderer pipeline and its contract with the simulation ("game").
 2. Data representation: DCC sources → cooked assets → GPU runtime layouts.
 3. Techniques: best available (October 2026) for 1080p30 — vegetation and grass first.
-4. Style: data-oriented, hardware-aligned, no unnecessary abstraction (Muratori/Blow); C-style C++.
+4. Style: data-oriented, hardware-aligned, no unnecessary abstraction (Muratori/Blow et al.); C-style C++.
 
 ## Hardware, OS, API
 
@@ -46,10 +43,7 @@ mapping to hardware; per sub-problem one technique is chosen and the alternative
 
 ## Throughput note
 
-4K60 vs 1080p30 is **8×**, not 16× (4× pixels × 2× frame time). Only per-pixel work gains 8×. Per-frame work —
-culling, geometry, animation, BVH maintenance, shadow rasterization, i.e. most of the vegetation cost — gains only 2×.
-Shipping "4K60" titles render ~1080p–1440p internally and upscale, so the practical per-pixel advantage over them is
-~2–4×. Details: [03](docs/03-hardware-mapping.md).
+4K60 vs 1080p30 is 8× (4× pixels × 2× frame time). Only per-pixel work gains 8×. Per-frame work — culling, geometry, animation, BVH maintenance, shadow rasterization, i.e. most of the vegetation cost — gains only 2×. Shipping "4K60" titles render ~1080p–1440p internally and upscale, so the practical per-pixel advantage over them is ~2–4×. Details: [03](docs/03-hardware-mapping.md).
 
 ## Documents
 
