@@ -253,4 +253,6 @@ visible blades per frame; budget ≤ 2 ms for generation + raster + resolve.
 - Mega Geometry path on NVIDIA; portable alternative when cross-vendor cluster AS appears.
 - Neural texture compression for leaf/bark atlases (NVIDIA RTXNTC: on Vulkan "inference on load" and "on sample";
   no shipping game as of April 2026).
-- Neural/Gaussian representations for distant vegetation (watch only).
+- 3D Gaussian splatting: not for runtime near/mid field; fitted "material Gaussians" as a far-field alternative to
+  voxels (experiment in M7); captures of real plants as look-dev reference and asset source — see
+  [09](09-gaussian-splatting.md).

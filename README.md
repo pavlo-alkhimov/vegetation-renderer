@@ -63,4 +63,5 @@ Shipping "4K60" titles render ~1080p–1440p internally and upscale, so the prac
 | [06 Vegetation](docs/06-vegetation.md) | **Survey of vegetation/grass techniques (2017–2026) and the chosen design**, biome, seasons |
 | [07 Techniques survey](docs/07-techniques-survey.md) | Non-vegetation state of the art per domain with chosen option |
 | [08 Validation and roadmap](docs/08-validation-roadmap.md) | Measurement, reference path tracer, benchmark scenes, milestones, open questions |
+| [09 Gaussian splatting](docs/09-gaussian-splatting.md) | Applicability of 3DGS to vegetation: runtime no, far-field experiment, offline capture yes |
 | [References](docs/references.md) | Talks, papers, specs, SDKs |

@@ -71,7 +71,8 @@ bits 31..29  kind
   2 impostor  : [28:0] visible far-tree index        (resolve re-derives the atlas sample from the pixel ray)
   3 voxel     : [28:6] visible brick index (8 M)     | [5:0] voxel in a 4×4×4 brick
   4 terrain   : [28:7] terrain patch index (4 M)     | [6:0] triangle
-  5..7 reserved
+  5 gaussian  : reserved for the far-field Gaussian experiment (09)
+  6..7 reserved
 Clear value 0 = far plane, nothing.
 ```
 Per-frame lists give each index meaning: `VisibleCluster` (8 B), visible blade `(tile, blade)` (8 B), visible far

@@ -73,6 +73,24 @@ Links were checked in October 2026. Classic papers and talks are cited by title,
 - I. Castaño — Computing Alpha Mipmaps (2010).
 - B. Golus — Anti-aliased Alpha Test: The Esoteric Alpha to Coverage (2017).
 
+## Gaussian splatting
+
+- B. Kerbl et al. — 3D Gaussian Splatting for Real-Time Radiance Field Rendering, SIGGRAPH 2023.
+- B. Kerbl et al. — A Hierarchical 3D Gaussian Representation for Real-Time Rendering of Very Large Datasets,
+  SIGGRAPH 2024.
+- Z. Yu et al. — Mip-Splatting: Alias-free 3D Gaussian Splatting, CVPR 2024.
+- B. Huang et al. — 2D Gaussian Splatting for Geometrically Accurate Radiance Fields, SIGGRAPH 2024.
+- Virtualized 3D Gaussians (cluster LOD for composed scenes), SIGGRAPH 2025: https://arxiv.org/abs/2505.06523
+- StochasticSplats: sorting-free stochastic rasterization, ICCV 2025: https://arxiv.org/abs/2503.24366
+- LeafFit: Plant Assets Creation from 3D Gaussian Splatting, Eurographics 2026: https://arxiv.org/abs/2602.11577
+- GaussianPlant: structure-aligned splatting for plants (2025): https://arxiv.org/abs/2512.14087
+- Wind on Trees: Testing Physical Grounding in Dynamic 4D Gaussian Splatting (Sep 2026):
+  https://arxiv.org/abs/2609.17810
+- NVIDIA sample — rasterization, 3DGRT and 3DGUT in Vulkan: https://github.com/nvpro-samples/vk_gaussian_splatting
+- Khronos — `KHR_gaussian_splatting`: https://www.khronos.org/news/press/gltf-gaussian-splatting-press-release
+- NanoGS (Nanite-style splats in UE5): https://github.com/TimChen1383/NanoGaussianSplatting
+- Niantic — SPZ format: https://dev.scaniverse.com/news/spz-gaussian-splat-open-source-file-format
+
 ## Geometry and visibility
 
 - C. Burns, W. Hunt — The Visibility Buffer: A Cache-Friendly Approach to Deferred Shading, JCGT 2013.

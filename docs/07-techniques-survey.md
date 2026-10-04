@@ -13,6 +13,7 @@ Legend: **✔** chosen · **◐** optional tier / later · **✗** not used. Veg
 | Virtualized geometry (cluster LOD DAG + streaming) | Nanite (UE5); meshoptimizer `clusterlod.h` (v1.0, Dec 2025); nvpro `vk_lod_clusters` | open-source tooling now mature | ✔ |
 | Software rasterization of micro-triangles | Nanite | ~3× over HW for tiny triangles (Nanite) | ✔ |
 | GPU tessellation / displacement | Nanite tessellation (UE 5.4+); SIGGRAPH 2026 adaptive tessellation talk | terrain/rock detail | ◐ |
+| 3D Gaussian splatting (captured radiance) | film/VFX, viewers, UE third-party plugins; `KHR_gaussian_splatting` ratified 2026 | baked lighting, sorting, memory; see [09](09-gaussian-splatting.md) | ✗ runtime, ◐ far-field experiment, ✔ offline capture |
 | D3D12 work graphs / mesh nodes | demos (AMD 2024), HPG 2025 trees | Microsoft drops them from SM 6.10, replaced by "Work Lists" (expanded ExecuteIndirect); Vulkan only AMDX | ✗ |
 | Device-generated commands | D3D12 ExecuteIndirect, `VK_EXT_device_generated_commands` | unnecessary with mesh shaders + indirect dispatch | ✗ |
 

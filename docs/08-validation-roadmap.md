@@ -45,7 +45,7 @@ check licences of Fab/Megascans/Megaplants assets before using them outside Unre
 | M4 Ray tracing | RT proxies + OMM, TLAS, RT GI (cache, ReSTIR GI, denoiser), reflections, reference path tracer, FLIP tooling | GI within budget; reference diffs |
 | M5 Atmosphere and weather | clouds, froxel fog, valley mist, rain/wetness, snow, basic water | scenes 2–3 all variants |
 | M6 Output | DLAA/RR option, HDR10, post stack, latency pacing | — |
-| M7 Vegetation II (research) | voxel far field, stateful wind, Mega Geometry path, NTC experiment | measured against M3 |
+| M7 Vegetation II (research) | voxel far field vs fitted material Gaussians ([09](09-gaussian-splatting.md)), stateful wind, Mega Geometry path, NTC experiment | measured against M3 |
 | M8 Scaling | low tier without RT, 60 FPS tier, AMD (RADV) and Intel validation | — |
 
 ## Open questions (assumptions in brackets)
