@@ -60,4 +60,5 @@ Research real-time renderer for dense **temperate vegetation of Central and East
 | [08 Validation and roadmap](docs/08-validation-roadmap.md) | Measurement, reference path tracer, benchmark scenes, milestones, open questions |
 | [09 Gaussian splatting](docs/09-gaussian-splatting.md) | 3DGS by subset: needle/twig aggregates and far field as candidates; captured splats offline or fixed-lighting only |
 | [10 Mil-sim survey](docs/10-milsim-survey.md) | Grass/vegetation in Arma Reforger and five other photoreal mil-sims; concealment fairness; statistical grass occlusion |
+| [11 Architecture review](docs/11-architecture-review.md) | Adversarial review of 02–05: 3 structural gaps, 8 decisions, 8 corrections, proposed edits (not yet applied) |
 | [References](docs/references.md) | Talks, papers, specs, SDKs |
