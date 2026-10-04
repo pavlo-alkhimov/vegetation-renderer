@@ -56,6 +56,10 @@ This is the core of the project: survey of what shipped or was shown up to Octob
 | Ghost of Yōtei (2025) | GPU compute grass renderer, doubled density and renderable count; weapon sweeps written into a "cut buffer" | interaction as screen/world-space buffers |
 | Kingdom Come: Deliverance II (2025) | Dense Central European vegetation in heavily modified CryEngine; SVOGI voxel GI without HW RT; plant animation at half frame rate | same biome; vegetation density + voxel GI as non-RT fallback reference |
 
+Mil-sims (Arma Reforger, Gray Zone Warfare, Squad, Hell Let Loose: Vietnam, Delta Force, Escape from Tarkov):
+instanced alpha-tested grass clumps cut off at 100–200 m, plus concealment workarounds — see
+[10](10-milsim-survey.md).
+
 ### Trees and foliage
 
 | System | Technique | Takeaway |
@@ -163,6 +167,10 @@ compared against geometric needles and voxels in M7.
 9. **Other ground cover** (flowers, ferns, crops like sunflower and maize, small shrubs): same placement, but emitted
    as instances of small cluster meshes into the regular cluster pipeline. Crops use field-aligned row grids instead of
    random jitter.
+10. **Beyond the blade radius:** objects standing or lying in grass are occluded statistically — turbid-layer
+    transmittance from grass height, density and view elevation, applied stochastically in the resolve and
+    evaluated identically on the CPU for AI ([10](10-milsim-survey.md)). Quality settings change cost, never
+    concealment.
 
 Density is an art parameter: 50–300 blades/m² near, 10–30 % of that with wider blades beyond 30 m. Expect 0.3–1 M
 visible blades per frame; budget ≤ 2 ms for generation + raster + resolve.

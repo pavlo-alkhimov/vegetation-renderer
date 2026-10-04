@@ -42,6 +42,7 @@ mapping to hardware; per sub-problem one technique is chosen and the alternative
 | 15 | RT for vegetation | Per-species RT proxies (rest pose, opacity micromaps); grass not in BVH | animated BVH via RTX Mega Geometry (NVIDIA-only) | [06](docs/06-vegetation.md) |
 | 16 | AA / upscaling | Native 1080p + own TAA; DLAA / DLSS-RR as NVIDIA option | upscale from 720p | [05](docs/05-frame-pipeline.md) |
 | 17 | Validation | Built-in reference path tracer + FLIP; deterministic benchmark camera paths | visual inspection | [08](docs/08-validation-roadmap.md) |
+| 18 | Concealment | Statistical grass occlusion beyond the blade radius, identical for rendering and AI; settings never change information | per-setting grass distance (genre default) | [10](docs/10-milsim-survey.md) |
 
 ## Throughput note
 
@@ -64,4 +65,5 @@ Shipping "4K60" titles render ~1080p–1440p internally and upscale, so the prac
 | [07 Techniques survey](docs/07-techniques-survey.md) | Non-vegetation state of the art per domain with chosen option |
 | [08 Validation and roadmap](docs/08-validation-roadmap.md) | Measurement, reference path tracer, benchmark scenes, milestones, open questions |
 | [09 Gaussian splatting](docs/09-gaussian-splatting.md) | 3DGS by subset: needle/twig aggregates and far field as candidates; captured splats offline or fixed-lighting only |
+| [10 Mil-sim survey](docs/10-milsim-survey.md) | Grass/vegetation in Arma Reforger and five other photoreal mil-sims; concealment fairness; statistical grass occlusion |
 | [References](docs/references.md) | Talks, papers, specs, SDKs |

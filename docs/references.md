@@ -98,6 +98,26 @@ Links were checked in October 2026. Classic papers and talks are cited by title,
 - NanoGS (Nanite-style splats in UE5): https://github.com/TimChen1383/NanoGaussianSplatting
 - Niantic — SPZ format: https://dev.scaniverse.com/news/spz-gaussian-splat-open-source-file-format
 
+## Mil-sims
+
+- Arma Reforger 1.8 update (Far Hide, AI vision through grass, Aug 2026):
+  https://reforger.armaplatform.com/news/update-august-13-2026 ;
+  summary: https://www.dualshockers.com/arma-reforger-1-8-major-update-patch-notes/
+- Arma Reforger 1.7.0.24 experimental (grass distance preset change): https://reforger.armaplatform.com/news/experimental-april-21-2026
+- Arma Reforger 1.1 / 1.2 notes (helicopter and tripod grass flattening):
+  https://reforger.armaplatform.com/news/update-march-13-2024 , https://reforger.armaplatform.com/news/experimental-may-16-2024
+- Arma Reforger terrain tutorial (surface masks, clutter): https://community.bistudio.com/wiki/Arma_Reforger:Terrain_Tutorial
+- 80 Level — The Development Process Behind Bohemia Interactive's Enfusion Engine:
+  https://80.lv/articles/the-development-process-behind-bohemia-interactive-s-enfusion-engine
+- Bohemia feedback tracker T61872 (Arma 3 ground sinking, proposed blending): https://feedback.bistudio.com/T61872
+- J. Javůrek — Arma Reforger vegetation: https://www.artstation.com/artwork/038rnw
+- Squad 9.0 release notes (UE 5.5, Nanite, new GI): https://www.joinsquad.com/updates/squad-9-0-release-notes
+- Gray Zone Warfare — DLSS 3 and ray-traced Lumen: https://wccftech.com/gray-zone-warfare-to-support-nvidia-dlss-3-and-ray-traced-enhanced-lumen/
+- Hell Let Loose: Vietnam: https://en.wikipedia.org/wiki/Hell_Let_Loose:_Vietnam
+- Delta Force — Warfare moving to UE5:
+  https://idcgames.com/en/delta-force/news/the-battlefield-starts-reacting-delta-force-pushes-warfare-deeper-into-unreal-engine-5-2026-09-29-07-45-13966
+- Escape from Tarkov forum — grass rendering distance: https://forum.escapefromtarkov.com/topic/33393-grass-rendering-distance/
+
 ## Geometry and visibility
 
 - C. Burns, W. Hunt — The Visibility Buffer: A Cache-Friendly Approach to Deferred Shading, JCGT 2013.

@@ -133,6 +133,9 @@ Rules:
   48 B = 480 KB) — cheaper and simpler than dirty tracking.
 - Gameplay never waits for the GPU. Vegetation queries the game needs ("grass height here", "tree positions in this
   cell") use the cooked data and the same deterministic placement functions the GPU uses (shared header).
+- **Information fairness:** local quality settings may change rendering cost, never what a player can see of other
+  players. Concealment by vegetation is computed by shared functions (e.g. statistical grass occlusion,
+  [10](10-milsim-survey.md)) used both by the renderer and by AI.
 
 ### Draft layouts (sizes compile-checked)
 
