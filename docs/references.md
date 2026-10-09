@@ -137,6 +137,24 @@ Links were checked in October 2026. Classic papers and talks are cited by title,
 - Unity — Terrain.basemapDistance: https://docs.unity3d.com/ScriptReference/Terrain-basemapDistance.html
 - F. Strugar — Continuous Distance-Dependent Level of Detail for Rendering Heightmaps (CDLOD), JGT 2009.
 
+## Reference maps and source data
+
+- Arma Reforger samples (APL licence summary): https://github.com/BohemiaInteractive/Arma-Reforger-Samples/blob/main/LICENSE
+- Arma Reforger Tools EULA: https://store.steampowered.com/eula/1874910_eula_1 ; EULA FAQ: https://reforger.armaplatform.com/news/eula-faq
+- Reforger mod publishing (licence options): https://community.bistudio.com/wiki/Arma_Reforger:Mod_Publishing_Process
+- ČÚZK DMR 5G (CC BY 4.0): https://data.gov.cz/dataset?iri=https%3A%2F%2Fdata.gov.cz%2Fzdroj%2Fdatov%C3%A9-sady%2F00025712%2Fa460213d6abb2ac5d5aabbccb3d7ba96
+- ČÚZK open data overview: https://ags.cuzk.gov.cz/opendata/
+- GUGiK digital elevation model: https://www.geoportal.gov.pl/en/data/digital-elevation-model-dem/ ; data terms: https://www.gov.pl/web/gugik-en/data
+- Bank Danych o Lasach (Polish forest stands): https://www.bdl.lasy.gov.pl/portal/o-udostepnianiu?v=3
+- Bavaria DGM1 (CC BY 4.0): https://data.gov.de/suche/daten/digitales-gelandemodell-dgm-bayern
+- Copernicus HRL Dominant Leaf Type 2021: https://land.copernicus.eu/en/products/high-resolution-layer-forests-and-tree-cover/dominant-leaf-type-2021-raster-10-m-europe-yearly
+- ForestPaths European tree genus map: https://zenodo.org/records/13341104
+- ESA WorldCover: https://registry.opendata.aws/esa-worldcover-vito/
+- ETH global canopy height: https://langnico.github.io/globalcanopyheight/ ; Meta/WRI canopy height: https://registry.opendata.aws/dataforgood-fb-forests/
+- Copernicus DEM: https://dataspace.copernicus.eu/explore-data/data-collections/copernicus-contributing-missions/collections-description/COP-DEM
+- TreeScanPL10K: https://www.nature.com/articles/s41597-026-07269-1 ; data: https://zenodo.org/records/19127709
+- Fab transition FAQ (Megascans licence): https://support.fab.com/s/article/Fab-Transition-FAQs?language=en_US
+
 ## Geometry and visibility
 
 - C. Burns, W. Hunt — The Visibility Buffer: A Cache-Friendly Approach to Deferred Shading, JCGT 2013.
