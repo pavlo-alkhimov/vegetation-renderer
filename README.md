@@ -2,7 +2,7 @@
 
 Research real-time renderer for dense **temperate vegetation of Central and Eastern Europe** — meadows, steppe grass, crop fields, beech/oak/hornbeam/birch forests, spruce/fir/pine stands — targeting the best achievable image quality at **1920×1080, ≥ 30 FPS** on current consumer GPUs.
 
-**Status:** design draft v0.1 (2026-10-04). No code yet. The documents fix the data flow between subsystems and the mapping to hardware; per sub-problem one technique is chosen and the alternatives are recorded.
+**Status:** design draft v0.2 (2026-10-09, architecture review applied). No code yet. The documents fix the data flow between subsystems and the mapping to hardware; per sub-problem one technique is chosen and the alternatives are recorded.
 
 ## Scope
 
@@ -40,6 +40,8 @@ Research real-time renderer for dense **temperate vegetation of Central and East
 | 16 | AA / upscaling | Native 1080p + own TAA; DLAA / DLSS-RR as NVIDIA option | upscale from 720p | [05](docs/05-frame-pipeline.md) |
 | 17 | Validation | Built-in reference path tracer + FLIP; deterministic benchmark camera paths | visual inspection | [08](docs/08-validation-roadmap.md) |
 | 18 | Concealment | Statistical grass occlusion beyond the blade radius, identical for rendering and AI; settings never change information | per-setting grass distance (genre default) | [10](docs/10-milsim-survey.md) |
+| 19 | Terrain | Quadtree heightfield patches (CDLOD morphing) as procedural clusters in the same cull/raster/resolve pipeline; adaptive runtime virtual texture; one shared height function for rendering, grass and gameplay | cooked cluster DAG per cell; Nanite-style landscape | [12](docs/12-terrain.md) |
+| 20 | Coordinates | Render origin snapped to the camera's 256 m cell; all GPU world-space data relative to it, so persistent caches survive camera motion | camera-relative every frame | [02](docs/02-architecture.md) |
 
 ## Throughput note
 
@@ -60,5 +62,6 @@ Research real-time renderer for dense **temperate vegetation of Central and East
 | [08 Validation and roadmap](docs/08-validation-roadmap.md) | Measurement, reference path tracer, benchmark scenes, milestones, open questions |
 | [09 Gaussian splatting](docs/09-gaussian-splatting.md) | 3DGS by subset: needle/twig aggregates and far field as candidates; captured splats offline or fixed-lighting only |
 | [10 Mil-sim survey](docs/10-milsim-survey.md) | Grass/vegetation in Arma Reforger and five other photoreal mil-sims; concealment fairness; statistical grass occlusion |
-| [11 Architecture review](docs/11-architecture-review.md) | Adversarial review of 02–05: 3 structural gaps, 8 decisions, 8 corrections, proposed edits (not yet applied) |
+| [11 Architecture review](docs/11-architecture-review.md) | Adversarial review of 02–05 and its resolution: 16 findings applied, 1 withdrawn, 2 open decisions with defined closing criteria |
+| [12 Terrain](docs/12-terrain.md) | Terrain techniques in the surveyed titles (Enfusion, Far Cry 4/5, Call of Duty, Tsushima, UE5, Unity) and the chosen design |
 | [References](docs/references.md) | Talks, papers, specs, SDKs |

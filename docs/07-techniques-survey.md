@@ -17,6 +17,17 @@ Legend: **✔** chosen · **◐** optional tier / later · **✗** not used. Veg
 | D3D12 work graphs / mesh nodes | demos (AMD 2024), HPG 2025 trees | Microsoft drops them from SM 6.10, replaced by "Work Lists" (expanded ExecuteIndirect); Vulkan only AMDX | ✗ |
 | Device-generated commands | D3D12 ExecuteIndirect, `VK_EXT_device_generated_commands` | unnecessary with mesh shaders + indirect dispatch | ✗ |
 
+## Terrain
+
+| Technique | Production use | Note | Us |
+|---|---|---|---|
+| Heightfield quadtree, GPU-driven LOD/culling/stitching | Far Cry 5, Call of Duty "Super Terrain", Enfusion blocks, Tsushima tile hierarchy, UE Landscape, Unity | industry standard; cliffs/overhangs as meshes | ✔ as procedural clusters with CDLOD morphing ([12](12-terrain.md)) |
+| Nanite landscape / cooked terrain DAG | UE5 (optional) | keeps both representations (~2× data) | ✗ |
+| Volumetric mesh terrain | UE 5.8 Mesh Terrain (experimental) | caves, overhangs | ✗ |
+| Adaptive virtual texture, runtime compositing | Far Cry 4, Call of Duty; UE RVT | layers + decals baked into pages | ✔ |
+| Pre-composited basemap at distance | Unity, Far Cry 4 far terrain | visible pop | ◐ as season-aware canopy layer |
+| Parallax / geometric displacement for ground detail | Enfusion (parallax), Tsushima (tessellation), UE Nanite tessellation | detail near the camera | ◐ parallax first |
+
 ## Shadows
 
 | Technique | Production use | Note | Us |

@@ -114,21 +114,26 @@ forest edges (shrub belts), paths and roads, species clustering, crop rows align
 
 | Projected tree height | Distance (20 m tree) | Representation | Raster | Shadow | RT |
 |---|---|---|---|---|---|
-| > 200 px | < ~93 m | wood + parts (assemblies), DAG per part, full rig | HW + SW | VSM, animated | proxy, rest pose |
-| 40–200 px | 93–465 m | merged whole-tree DAG, reduced rig | mostly SW | VSM, rest pose beyond ~50 m (cached) | proxy |
+| > ~500 px | < ~37 m | wood + parts (assemblies), DAG per part, full rig | HW + SW | VSM, animated | proxy, rest pose |
+| 40–500 px | 37–465 m | merged whole-tree DAG (coarse levels only), reduced rig | mostly SW | VSM, rest pose beyond ~50 m (cached) | proxy |
 | 4–40 px | 0.47–4.7 km | far field: impostor (phase A) → voxels (phase B) | compute splat | VSM cached | coarse proxy or none |
 | < 4 px | > 4.7 km | canopy layer in terrain (per-tree colour, canopy height) | terrain | terrain + canopy height | terrain heightfield |
 
 Visible-count estimate for dense forest (one tree per 25 m², ~¼ of the disc in the frustum, before occlusion):
-~275 assembly trees (~0.5 M part instances at ~2000 parts/tree), ~6.5k merged trees, ~680k far-field trees (mostly
+~43 assembly trees (~0.1 M part instances at ~2000 parts/tree), ~6.7k merged trees, ~680k far-field trees (mostly
 occluded by terrain and nearer trees). Far-field culling must cost O(10 ns) per tree.
+
+Why the switch is at ~500 px, not lower: the parts switch when the **median part** drops below ~8–16 px. At 93 m a
+30 cm needle spray is 3 px tall but still owns at least its DAG root cluster (8–32 triangles), i.e. ~2 triangles per
+pixel over the whole crown. The merged DAG therefore stores only levels coarser than the switch (~100k triangles at
+its finest level for a spruce); the full 2–4 M-triangle assembly is never stored merged.
 
 Transitions: within a DAG continuous; parts ↔ merged at matched error; geometry ↔ far field as a dithered swap over
 ~0.3–0.5 s (resolved by TAA); far field ↔ canopy layer by coverage blend.
 
-**Per-part aggregate switch** (refinement from [09](09-gaussian-splatting.md)): inside the assembly range, part types
-switch by *element* size, not tree size — conifer needle sprays beyond ~10–20 m, bare twig groups beyond ~15–30 m,
-leaf clusters beyond ~50–100 m; trunk and branches stay geometry. Needles are sub-pixel from ~1–2 m, so simplifying
+**Per-part aggregate switch** (refinement from [09](09-gaussian-splatting.md)): foliage switches by *element* size,
+not tree size — conifer needle sprays beyond ~10–20 m and bare twig groups beyond ~15–30 m (inside the assembly
+range), leaf clusters beyond ~50–100 m (in the merged tree's foliage); trunk and branches stay geometry. Needles are sub-pixel from ~1–2 m, so simplifying
 needle geometry is wasted work. Candidate aggregate: material Gaussians per part (instanced, bone-attached);
 compared against geometric needles and voxels in M7.
 
@@ -189,7 +194,8 @@ visible blades per frame; budget ≤ 2 ms for generation + raster + resolve.
   are re-evaluated, giving exact motion vectors; no per-tree state memory; deterministic.
 - **Leaves/needles:** per-vertex flutter (3-bit weight), high-frequency rotation about the attachment; aspen/poplar
   flag → strong flutter at low wind speed. Parts follow their bone rigidly + flutter.
-- Merged LOD: reduced rig (trunk + primary branches) as single-bone skinning (9-bit index). Far field: trunk sway only.
+- Merged LOD: reduced rig (trunk + primary branches); one bone per cluster (`GpuCluster.bone`), clusters partitioned per
+  rig level by the cooker ([04](04-data-representation.md)). Far field: trunk sway only.
 - v2 option: stateful springs for near trees (state pool keyed by tree id, seeded from the stateless pose on entry)
   for realistic gust after-sway.
 
@@ -257,7 +263,7 @@ visible blades per frame; budget ≤ 2 ms for generation + raster + resolve.
 | VSM, vegetation share | 2.0 |
 | Resolve, foliage + grass share | 1.5 |
 | GI/reflection rays hitting vegetation proxies | ~2.0 |
-| **Total vegetation-attributable** | **~10.3 of 27** |
+| **Total vegetation-attributable** | **~10.3 of 27.4** |
 
 ## 6. Research items and watch list
 

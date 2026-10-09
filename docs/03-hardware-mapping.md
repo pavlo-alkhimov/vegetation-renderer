@@ -51,7 +51,7 @@ All numbers here are **initial allocations to be replaced by measurements** (M0�
 | Queue | Family | Work |
 |---|---|---|
 | Graphics ×1 | graphics+compute+transfer | culling, visibility raster, VSM, resolve, direct lighting, transparents, TAA, post, present |
-| Async compute ×1 | compute-only | TLAS build, GI, reflections, clouds, volumetric fog |
+| Async compute ×1 | compute-only | TLAS build, GI, reflections, clouds, volumetric fog (initial split — rebalanced in M4, see [05](05-frame-pipeline.md)) |
 | Transfer ×1 | transfer-only (copy engines) | streaming uploads |
 
 One timeline semaphore per queue. Frame N signals well-defined values at hand-off points; the CPU waits on the graphics
@@ -82,8 +82,9 @@ timeline for frame N-2 before reusing a frame slot.
 | Stage | ms |
 |---|---|
 | Frame begin: upload scatter, wind field, tree bone poses | 0.5 |
-| Culling + LOD: objects, trees, assembly parts, clusters (phase 1 + 2) | 1.5 |
-| Visibility raster: HW + SW clusters, grass blades, far-field vegetation | 4.0 |
+| Terrain RVT: page compositing + runtime BC compression | 0.4 |
+| Culling + LOD: objects, trees, transient part instances (~0.1 M), terrain patches, clusters (phase 1 + 2) | 1.5 |
+| Visibility raster: HW + SW clusters, terrain patches, grass blades, far-field vegetation | 4.0 |
 | HiZ build, depth export | 0.3 |
 | Virtual shadow maps: page marking + raster of invalidated pages | 3.0 |
 | Material classify + resolve → G-buffer, motion vectors | 2.5 |
@@ -96,8 +97,11 @@ timeline for frame N-2 before reusing a frame slot.
 | Transparents, particles, water | 1.0 |
 | TAA (or DLAA) | 1.0 |
 | Post: exposure, bloom, tone mapping / HDR, grading, UI | 0.9 |
-| **Total** | **27.0** |
-| Headroom (spikes, streaming, clock variance) | 6.3 |
+| **Total** | **27.4** |
+| Headroom (spikes, streaming, clock variance) | 5.9 |
+
+Grass is the tightest line inside "visibility raster": ~1.2 ms assumes HW raster variant B (early-Z); with variant A
+(atomics only) expect ~2 ms ([05](05-frame-pipeline.md), open decision closed in M3).
 
 A 60 FPS tier (16.7 ms) halves GI resolution again, drops RT reflections, renders clouds at lower rate and limits VSM
 page updates (~14 ms). Async-compute overlap may return 1–3 ms; the budget does not count on it.
@@ -111,9 +115,9 @@ page updates (~14 ms). Async-compute overlap may return 1–3 ms; the budget doe
 |---|---|
 | Render targets (aliased) + VSM physical pool + DLSS internals | 500 |
 | Geometry page pool | 1000 |
-| Texture pool | 2000 |
+| Texture pool (incl. 128 MB terrain RVT physical cache) | 2000 |
 | Ray tracing: BLAS, TLAS, opacity micromaps, scratch | 800 |
-| Vegetation: cells, part/cluster lists, bone poses, transient grass lists | 300 |
+| Vegetation + terrain: cells, height mips, transient part instances (~7 MB), cluster lists, bone poses, transient grass lists | 300 |
 | GI caches, atmosphere/cloud LUTs and noise volumes | 150 |
 | Upload/readback rings (device-local part) | 100 |
 | Pipelines, descriptors, driver internals | 200 |

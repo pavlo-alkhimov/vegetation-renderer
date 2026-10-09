@@ -3,18 +3,25 @@
 ## Passes and queues
 
 ```
-GRAPHICS  |Begin|VegInst|Wind+Bones|Cull P1|Raster P1|HiZ|Cull+Raster P2|HiZ|>g1|VSM mark|VSM raster|>g2|<c1 Direct|<c2 Composite|Transp|TAA|Post|UI|Present
+GRAPHICS  |Begin|RVT|VegInst|Wind+Bones|Cull P1|Raster P1|HiZ|Cull+Raster P2|HiZ|>g1|VSM mark|VSM raster|>g2|<c1 Direct|<c2 Composite|Transp|TAA|Post|UI|Present
 ASYNC     |<g0 TLAS build ........................|<g1 Classify|Resolve|>c1|GI|Reflections|Clouds|<g2 Fog|>c2
 TRANSFER  |streaming uploads (continuous) ---------------------------------------------------------------------->
            >x = signal timeline point x, <x = wait for it.  g0 = Begin done (instance data scattered).
 ```
 
+**The queue split is an initial guess.** Serialized, the frame is ~27.4 ms; on this split the critical path is
+Begin, RVT and visibility (6.7) → classify + resolve (2.5) → GI + reflections + clouds/fog (9.5) →
+composite/TAA/post (3.2) ≈ 21.9 ms, and the graphics queue idles ~7 ms after direct lighting waiting for `c2`. Balancing moves, decided by GPU
+Trace in M4: reflections, SSILVB and the GI denoiser to graphics; async keeps TLAS build, GI rays + ReSTIR, clouds,
+fog and atmosphere LUTs.
+
 | # | Pass | Q | Reads | Writes | Technique |
 |---|---|---|---|---|---|
-| 0 | Begin | G | upload ring | instance arrays, view constants, cell-origin table, residency tables | scatter copies of dynamic data and scene commands |
-| 1 | Vegetation instances | G | vegetation cells, species, HiZ(prev) | near-tree list, part-instance list, far-field list, grass tile list | per-tree LOD class by projected height (bounds padded for wind sway); two-phase culling like all instances |
+| 0 | Begin | G | upload ring, completed transfers | instance arrays, view constants, cell offsets, residency tables, deferred frees | scatter copies of dynamic data, scene commands, cell patches; the only place residency changes ([02](02-architecture.md)) |
+| 0b | RVT update | G | RVT page requests (readback N-2), layer textures, masks, decals, dynamic layers | RVT physical cache, indirection | composite + runtime BC compression of missing/invalidated pages ([12](12-terrain.md)) |
+| 1 | Vegetation instances | G | vegetation cells, species, HiZ(prev) | near-tree list, **transient part instances + `TransientRef`**, far-field list, grass tile list | per-tree LOD class by projected height (bounds padded for wind sway); two-phase culling like all instances; surviving assembly parts appended to the unified instance table ([04](04-data-representation.md)) |
 | 2 | Wind + bones | G | `WindGlobal`, interactors, wind bones, near-tree list | wind field, trample map, `BonePose` cur/prev | stateless evaluation ([06](06-vegetation.md)) |
-| 3 | Cull P1 | G | instances, hierarchy nodes, HiZ(prev) | cluster bins {HW, SW}, P2 lists | two-phase occlusion, DAG cut |
+| 3 | Cull P1 | G | unified instance table, hierarchy nodes, terrain quadtree, HiZ(prev) | cluster bins {HW, SW}, P2 lists, page requests | two-phase occlusion, DAG cut, terrain patch selection |
 | 4 | Raster P1 | G | cluster bins, pages, bone poses | `vis64` | mesh shaders (HW) + compute (SW), grass mesh shaders, far-field splats |
 | 5 | HiZ | G | `vis64` | HiZ | min-depth pyramid (reversed Z) |
 | 6 | Cull + Raster P2 | G | P2 lists, HiZ | `vis64` | retest occluded items, raster newly visible |
@@ -61,6 +68,21 @@ Per visible cluster, estimate triangle edge length in pixels (projected cluster 
 - **< ~8 px → SW:** compute, 1 workgroup per cluster, edge functions over the triangle bounding box, `atomicMax`.
 - Thresholds tuned by measurement. Long thin triangles (grass blades) always go HW.
 
+**Open decision — HW raster target** (closed by measurement on benchmark scene 1, meadow, in M3):
+
+| Variant | HW path | Trade-off |
+|---|---|---|
+| A (Nanite-style) | fragment shader `atomicMax` into `vis64`, no attachments | one target for HW and SW; no early-Z — every hidden grass fragment still costs an L2 atomic (~30 M atomics ≈ 1 ms for 1 M blades) |
+| B (classic visibility buffer) | `D32` depth + `R32_UINT` payload attachments, early-Z | hidden fragments rejected in the ROP; SW raster keeps the atomic buffer and a merge step (or SW tests against HW depth) unifies them |
+
+Both are implemented in M1 (B is about a day of extra work); the loser is deleted after M3.
+
+### Terrain
+
+Terrain patches are procedural clusters: quadtree nodes selected by projected geometric error, 8×8-quad patches
+generated from the height mips in the mesh shader, CDLOD morphing for crack-free transitions. They share culling
+phases, raster bins, HiZ and VSM with all other geometry ([12](12-terrain.md)).
+
 ### `vis64` layout
 
 ```
@@ -70,7 +92,7 @@ bits 31..29  kind
   1 grass     : [28:4] visible-blade index (32 M)    | [3:0] blade segment
   2 impostor  : [28:0] visible far-tree index        (resolve re-derives the atlas sample from the pixel ray)
   3 voxel     : [28:6] visible brick index (8 M)     | [5:0] voxel in a 4×4×4 brick
-  4 terrain   : [28:7] terrain patch index (4 M)     | [6:0] triangle
+  4 terrain   : [28:7] terrain patch index (4 M)     | [6:0] triangle  (vertices regenerated from height mips)
   5 gaussian  : reserved for the far-field Gaussian experiment (09)
   6..7 reserved
 Clear value 0 = far plane, nothing.
@@ -89,6 +111,12 @@ A storage buffer (not an image) with 8×8-tile addressing; 64-bit buffer atomics
 - **Caching:** static geometry pages persist until the sun direction or streaming invalidates them. Animated
   vegetation is re-rendered each frame only within the near levels (≈ < 50 m); farther levels use the rest pose.
 - **Time of day:** sun direction updates are quantized and page re-rendering is amortized over frames.
+- **Level range check:** with footprint-based marking, a receiver at distance `d` uses the coarsest level with
+  texel ≤ 1.07 mm × `d`, i.e. level width ≈ 16 `d`: the 8 m level serves receivers at ~0.5 m (prone view, weapon),
+  16 m and 32 m serve 1–2 m. All 12 levels are used. Low sun (the biome's normal case) stretches shadows over more
+  receiver pixels and multiplies page demand — the 2048-page pool is sized for that and measured in M2.
+- **Render origin:** clipmaps are snapped to texel grids in render-origin space; an origin change shifts page tables
+  by whole pages, cached pages survive ([02](02-architecture.md)).
 - **Filtering:** penumbra from the sun's angular size (blocker search + PCF; SMRT-style marching as an upgrade).
   Physically sized penumbrae are required for dappled light under canopies ([06](06-vegetation.md)).
 - **Contact shadows:** screen-space ray march (Bend Studio style) for blade- and leaf-scale detail.
@@ -101,14 +129,16 @@ A storage buffer (not an image) with 8×8-tile addressing; 64-bit buffer atomics
 
 1. **Classify** 8×8 tiles by shading model → indirect dispatch per model; mixed tiles go to an ubershader.
 2. **Resolve** per pixel:
-   - kind 0: fetch cluster, 3 vertices, decode, apply instance transform and bone poses for **current and previous**
-     frame → exact motion vectors for wind-animated foliage.
+   - kind 0: fetch cluster, 3 vertices, decode, apply instance transform and the cluster's bone pose for **current
+     and previous** frame → exact motion vectors for wind-animated foliage (transient part instances recompute the
+     previous transform from `TransientRef` and the previous `BonePose`).
    - Intersect the pixel ray with the triangle → barycentrics; derivatives from neighbouring pixel rays → texture
      gradients (Burns & Hunt 2013).
    - kind 1 (grass): regenerate the blade from its id, intersect the ribbon → position along the blade, side, normal.
    - kind 2 (impostor): view-cell selection + atlas sample from the pixel ray.
    - kind 3 (voxel): voxel attributes (albedo, normal, coverage, transmission).
-   - kind 4 (terrain): height patch + runtime virtual texture.
+   - kind 4 (terrain): regenerate the patch triangle from the height mips, normal from height differences, colour
+     and material from the RVT (writes RVT page requests).
 3. Write thin G-buffer (albedo/transmission, normal, roughness/specular/translucency/model), motion vectors, and
    texture mip feedback.
 4. Geometric specular anti-aliasing (normal-variance → roughness widening) here — crucial for foliage shimmer.

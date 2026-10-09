@@ -50,23 +50,24 @@ synchronized at runtime — only events ("tree 123456 cut down") travel through 
 // Exported by the game module (hot-reloadable). Platform passes memory and input; game fills the packet.
 void game_update(GameMemory* mem, const Input* input, const Readbacks* rb, FramePacket* out);
 
-// Renderer API used by the platform main loop and (for handles) by the game.
+// Renderer API, called only by the platform main loop. The game never calls the renderer.
 Renderer* render_init(PlatformApi* p, Arena* perm, const RenderConfig* cfg);
-RHandle   render_alloc_handle(Renderer* r);               // CPU free list; GPU slot filled by the next upload
 void      render_frame(Renderer* r, const FramePacket* fp, Readbacks* out);
 void      render_resize(Renderer* r, u32 width, u32 height);
 ```
 
 `PlatformApi` is a struct of function pointers only because it crosses the hot-reload boundary (Handmade Hero
-pattern) — not to abstract anything.
+pattern) — not to abstract anything. Render-object handles are allocated by the **game** (its own index + generation
+free list); `SCMD_CREATE` carries the handle and the renderer maps handle → GPU slot. Nothing crosses the hot-reload
+boundary from game to renderer.
 
 ## Threads and frame timeline
 
 | Thread | Work |
 |---|---|
 | Main | input → `game_update` → `render_frame` (prepare uploads, record ~200 commands, submit, present) |
-| Workers (cores − 2) | job system: `parallel_for` over arrays (sim, packet building, streaming decisions) |
-| I/O | io_uring/IoRing submission + completion, CPU decompression jobs, transfer-queue submits |
+| Workers (cores − 2) | job system: `parallel_for` over arrays (sim, packet building, streaming decisions), Zstd decompression |
+| I/O | io_uring/IoRing submission + completion, transfer-queue submits; no decompression (Zstd runs 1–2 GB/s per core, a 3 GB/s burst needs 2–3 workers) |
 
 **No render thread.** With GPU-driven rendering the CPU records a few hundred commands per frame (< 0.5 ms); a
 dedicated render thread would add a frame of latency for nothing. **2 frames in flight.**
@@ -81,8 +82,10 @@ Readback                                  results of N-2 read here ^
 ```
 
 Latency at 30 FPS: input is sampled after a pacing wait chosen so that the submit lands just before the GPU becomes
-free (Reflex-style; `VK_NV_low_latency2` or own estimate from present timing) → ~1.3–1.6 frames (45–55 ms) to scanout.
-The camera is written to the upload ring last, immediately before submit ("late latch" at CPU level).
+free (Reflex-style; `VK_NV_low_latency2` or own estimate from present timing). With FIFO presentation on a 60 Hz
+display: CPU ~4 ms + GPU ~27 ms + vblank wait 0–16 ms + scanout ~16 ms ≈ **50–65 ms** (1.5–2 frames). VRR displays and
+`VK_EXT_present_timing` remove most of the vblank term. The camera is written to the upload ring last, immediately
+before submit ("late latch" at CPU level).
 
 Simulation timestep is the game's business; the renderer only needs a monotonic `time` and `dt`. Wind and vegetation
 animation are stateless functions of time (see [06](06-vegetation.md)), so variable `dt` is harmless.
@@ -108,14 +111,43 @@ third-party code and offline tools.
 | Geometry pages | `DEVICE_LOCAL` | fixed 64 KB page pool | cluster pages (streamed), hierarchy nodes, mesh headers |
 | Textures | `DEVICE_LOCAL` (images) | TLSF over a few large blocks | material textures, mip-streamed by reallocation |
 | Ray tracing | `DEVICE_LOCAL` | TLSF + per-frame scratch ring | BLAS, TLAS, opacity micromaps, build scratch |
-| Scene buffers | `DEVICE_LOCAL` | linear at init | instance arrays, vegetation cells, wind/bone buffers, radiance cache, VSM physical pool |
-| Render targets | `DEVICE_LOCAL` | static aliasing plan from pass lifetimes (recomputed on resize) | transient + history targets |
+| Scene buffers | `DEVICE_LOCAL` | linear at init | instance arrays (persistent + per-frame transient part instances), vegetation cells, wind/bone buffers, radiance cache, VSM physical pool |
+| Render targets | `DEVICE_LOCAL` | aliasing plan derived from the passes' declared resource lists for the active configuration (RT on/off, DLSS, 60 FPS tier, single queue, debug views); recomputed on resize or configuration change, never hand-written | transient + history targets |
 | Upload ring | `DEVICE_LOCAL \| HOST_VISIBLE` (ReBAR) | ring per frame slot | packet constants, dynamic transforms, scene-command payloads, debug/UI geometry |
 | Streaming staging | `HOST_VISIBLE` (system RAM) | ring | compressed pages/mips in flight → transfer queue |
 | Readback | `HOST_VISIBLE \| HOST_CACHED` | per frame slot | picking, stats, streaming feedback |
 
 CPU writes to the ReBAR ring are sequential and write-only (write-combined memory). Without ReBAR (256 MB BAR) the
 same ring fits; the large pools never need CPU mapping. Sizes: [03](03-hardware-mapping.md).
+
+### Residency and lifetime rules
+
+Each rule closes a class of GPU hangs or corruption:
+
+1. Residency tables (geometry pages, texture mips, RVT pages, cells) are changed **only in pass 0** (Begin), and only
+   for transfers whose timeline value the graphics queue has waited on in this frame.
+2. Every GPU resource release — evicted page, reallocated texture, pipeline replaced by hot reload, reused bindless
+   slot — goes through the **deferred-free list of the current frame slot** and executes when that slot's fence (two
+   frames later) has signalled.
+3. When culling wants to descend into a non-resident page it draws the coarsest resident ancestor (error > τ
+   accepted) and appends a **page request**; requests are read back together with texture and RVT feedback.
+4. Bindless descriptors use `updateAfterBind` + `partiallyBound`; a slot is rewritten only after its deferred free
+   has run.
+
+## Coordinates: the render origin
+
+The GPU never sees absolute world coordinates, but camera-relative coordinates that change every frame would
+invalidate every persistent world-space structure (radiance cache, cached VSM pages, trample/cut map, wind field,
+RVT). Therefore:
+
+- The **render origin** is the corner of the camera's 256 m cell (`i32[3]`); it changes only when the camera crosses a
+  cell boundary. The renderer derives it from `views[0].eye`; the game never sees it.
+- All GPU world-space data is relative to the render origin in `f32`: ≤ ±512 m for content near the camera (sub-mm
+  precision), larger for far cells where the precision loss is invisible.
+- The per-cell offset table ("cell offset from render origin") is constant between crossings.
+- On a crossing: radiance-cache keys include the origin cell, so stale entries age out; VSM clipmap page tables, the
+  trample map, the wind field and the RVT indirection shift by integer pages/texels; motion vectors use the previous
+  frame's origin for the previous transforms.
 
 ## Game ↔ renderer contract
 
@@ -136,6 +168,14 @@ Rules:
 - **Information fairness:** local quality settings may change rendering cost, never what a player can see of other
   players. Concealment by vegetation is computed by shared functions (e.g. statistical grass occlusion,
   [10](10-milsim-survey.md)) used both by the renderer and by AI.
+- **Views:** `views[0]` is the main camera. `views[1..3]` are optional secondary views (picture-in-picture scopes,
+  mirrors): each is a reduced-resolution visibility + resolve + lighting chain with its own `vis64` and depth,
+  sharing scene state but not the culling output, composited into the main view before TAA. Not before M8; whether
+  PiP scopes are needed at all is a gameplay decision ([08](08-validation-roadmap.md)).
+- **Editor edits** (height sculpting, density painting, tree placement) do not go through the pak files: the editor
+  (game module) applies an edit to its in-memory cell data and sends a **cell patch** (cell, section, byte range)
+  with the frame packet; the renderer uploads it through the streaming path. Terrain height edits need no re-cook
+  ([12](12-terrain.md)); the pak is rewritten only on save.
 
 ### Draft layouts (sizes compile-checked)
 
@@ -186,7 +226,7 @@ typedef struct {                                          // 56 B
 
 typedef struct {                                          // 64 B
     u32 kind;               // SCMD_CREATE | SCMD_DESTROY | SCMD_SET_FLAGS | SCMD_REMOVE_TREE
-    RHandle h;
+    RHandle h;              // allocated by the game
     u32 asset;              // mesh asset (CREATE) or cooked tree id (REMOVE_TREE)
     u32 flags;
     WorldPos pos;
@@ -202,11 +242,12 @@ typedef struct {
     f64 time;               // seconds, monotonic (wind and vegetation animation)
     f32 dt;
     u32 view_count;
-    ViewDesc views[4];      // [0] = main camera
+    ViewDesc views[4];      // [0] = main camera, [1..3] = optional secondary views (PiP scopes, mirrors)
     Environment env;
     WindGlobal wind;
     Interactor*   interactors;  u32 interactor_count;
     SceneCmd*     cmds;         u32 cmd_count;
+    CellPatch*    patches;      u32 patch_count;     // editor only: { cell, section, offset, size, data }
     DynamicXform* dyn;          u32 dyn_count;
     SkinPalette*  skins;        u32 skin_count;      // 3x4 bone matrices per skinned object
     DebugPrim*    debug;        u32 debug_count;
@@ -227,7 +268,7 @@ Readbacks returned to the game: `PickResult { id, frame, RHandle object, u32 tre
 | `r_device` | instance, device, queues, swapchain, memory pools |
 | `r_upload` | upload ring, staging ring, transfer submissions, timeline values |
 | `r_stream` | residency of geometry pages, texture mips, world cells; GPU feedback processing |
-| `r_scene` | handle tables, instance arrays, cell-origin table, scene-command application |
+| `r_scene` | handle tables, instance arrays, render origin + cell offsets, scene-command application |
 | `r_veg` | species/grass tables, vegetation cells, wind field, bone evaluation inputs |
 | `r_frame` | the frame: pass order, dispatches, barriers, queue hand-offs |
 | `r_pipelines` | pipeline creation, shader hot reload |

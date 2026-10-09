@@ -41,8 +41,9 @@ heavier — accepted later via conversion if needed. FBX is avoided (proprietary
 | per-leaf connected components | leaves/needles are geometry (no alpha cards); the cooker assigns each leaf a random bucket for seasonal thinning |
 | `*.species` text side-car | LOD thresholds, season colour ramps, material mapping, RT proxy settings, far-field settings |
 
-Cooker outputs per species: part meshes with cluster DAGs, `wood` DAG, merged whole-tree DAG (parts baked in, rig
-reduced), far-field representation (impostor atlas, later voxel mips), RT proxy, wind rig.
+Cooker outputs per species: part meshes with cluster DAGs, `wood` DAG (partitioned per bone and rig level), merged
+whole-tree DAG (parts baked in, rig reduced, only the levels coarser than the parts → merged switch), far-field
+representation (impostor atlas, later voxel mips), RT proxy, wind rig.
 
 ## Pack files
 
@@ -62,11 +63,26 @@ TOC sorted by key (binary search). Entries of one world cell are stored contiguo
 
 ## World cells
 
-256 m × 256 m terrain columns (`WorldPos` uses 3D cells of 256 m so altitude never loses precision). One cell blob:
+256 m × 256 m terrain columns (`WorldPos` uses 3D cells of 256 m so altitude never loses precision). Every cell blob
+starts with a header:
+
+```c
+typedef struct {                // 64 B
+    i32 cell[2];                // column coordinates (256 m)
+    f32 base_altitude;          // metres; tree/prop heights in the cell are relative to it
+    u32 tier;                   // FULL | FAR (which sections are present)
+    u32 section_offset[8];      // height, layers, density, trees, props, canopy, quadtree errors, reserved
+    u32 section_count;
+    u32 pad[3];
+} CellHeader;
+```
+
+**Residency tiers:** `FULL` cells (all sections) within ~5 km of the camera; `FAR` cells (canopy layer + coarse height
+mips only) out to the horizon. One cell blob:
 
 | Section | Format | Size (typ.) | Consumers |
 |---|---|---|---|
-| Height tile | 257×257 `u16` | 130 KB | renderer, game (collision) |
+| Height tile | 257×257 `u16` + mip pyramid + per-node min/max/error ([12](12-terrain.md)) | ~175 KB | renderer (terrain patches, grass), game (collision) |
 | Terrain layer weights | 512×512 (0.5 m) RGBA8 | 1 MB → compressed | renderer (RVT compositing) |
 | Ground-cover density maps | per type, 512×512 BC4 | 128 KB each | renderer (grass/plant generation), game (queries) |
 | Tree instances | `TreeInstance[]` | 16 B/tree, ~40 KB in dense forest | renderer, game (collision, AI) |
@@ -77,8 +93,9 @@ Dense temperate forest ≈ 1 tree / 25 m² → ~2600 trees per cell.
 
 ## Precision
 
-- Absolute positions: `WorldPos { i32 cell[3]; f32 local[3]; }`. The GPU never sees absolute world coordinates:
-  per frame, a cell-origin table stores each resident cell's offset **relative to the camera** in `f32`.
+- Absolute positions: `WorldPos { i32 cell[3]; f32 local[3]; }`. The GPU never sees absolute world coordinates: all
+  GPU world-space data is relative to the **render origin** (the corner of the camera's cell, changing only on cell
+  crossings — [02](02-architecture.md)), and a table stores each resident cell's offset from it in `f32`.
   Reason: at 8 km from the origin a `f32` has ~1 mm resolution, which at 1 m viewing distance is ~1 pixel — enough
   to make near geometry shimmer.
 - Mesh positions: quantized to a mesh-wide grid (`pos_step`, e.g. 1/1024 m) → identical vertices at cluster
@@ -90,8 +107,14 @@ Built with meshoptimizer 1.x (`clusterlod.h`): cluster → group → simplify wi
 repeat to a single root (Nanite-style DAG). A BVH over cluster groups prunes culling and LOD tests.
 
 - Cluster limits: **≤ 128 triangles, ≤ 128 vertices** (leaf quads need 2 vertices per triangle), one material per
-  cluster.
+  cluster, **one bone per cluster**.
+- **Skinned (wind-rigged) meshes:** the cooker partitions the mesh by bone before clustering and builds the DAG per
+  rig level — fine levels partitioned by the fine bones, coarser levels by the reduced rig; at the level where the rig
+  coarsens (twig bones → branch bone) the groups are re-partitioned. Every cluster therefore has one rigid transform,
+  and its bound can be posed for culling. Part meshes use bone 0 (rigid to `PartInstance.bone`).
 - Geometry pages: **64 KB**, ~25 clusters each; unit of streaming and pool allocation. Root pages always resident.
+  A DAG group never straddles pages (groups of 8–16 clusters at ≤ 2.6 KB each fit), so one residency check per
+  hierarchy leaf suffices.
 
 ```c
 typedef struct {                // 48 B, one per mesh, always resident
@@ -125,14 +148,15 @@ typedef struct {                // 64 B, inside a geometry page
     u8  vertex_count;           // 1..128
     u8  triangle_count;         // 1..128
     u16 material_slot;
-    u32 flags;                  // LEAF_CLUSTER | WOOD_CLUSTER | TWO_SIDED | ...
+    u16 flags;                  // LEAF_CLUSTER | WOOD_CLUSTER | TWO_SIDED | ...
+    u16 bone;                   // the single wind bone of this cluster (0 for rigid meshes and parts)
 } GpuCluster;
 
 typedef struct {                // 16 B, fixed stride
     u32 tangent_frame;          // oct normal 2x10 | tangent angle 11 | bitangent sign 1
     u16 pos[3];                 // offset from pos_base (cluster extent <= 65535 grid steps)
     u16 uv[2];                  // unorm16, mapped by GpuMeshHeader uv range
-    u16 wind;                   // bone:9 | flutter weight:3 | leaf bucket:4 (0 = wood, 1..15 = leaf drop order)
+    u16 wind;                   // flutter weight:3 | leaf bucket:4 (0 = wood, 1..15 = leaf drop order) | spare:9
 } PackedVertex;
 
 // Triangles: u32 each = three 8-bit cluster-local vertex indices + 8 spare bits.
@@ -150,15 +174,28 @@ unique foliage geometry small; variable-bit-width packing is a later optimizatio
 ```c
 typedef struct {                // 64 B; previous transform in a parallel 48 B array for moving objects
     f32 m[12];                  // 3x4 affine, relative to the cell origin
-    u32 cell;                   // index into the per-frame camera-relative cell-origin table
+    u32 cell;                   // index into the cell-offset table (offsets from the render origin)
     u32 mesh;                   // GpuMeshHeader index
     u32 material_remap;         // offset into slot → material table
     u32 flags;                  // DYNAMIC | CAST_SHADOW | IN_BVH | ...
 } GpuInstance;
 ```
 
+**One instance table, two parts.** Indices `[0, P)` are persistent instances (props, dynamic objects, written by
+scene commands and dynamic transforms). Indices `[P, P + T)` are **transient part instances**, rebuilt every frame by
+the vegetation-instances pass ([05](05-frame-pipeline.md)) for every assembly part that survives tree-level culling:
+`m = cell offset × tree × BonePose(part.bone) × part local`, `mesh = part mesh`, `flags |= TRANSIENT`. A parallel
+array gives the resolve what it needs to recompute the previous-frame transform for motion vectors:
+
+```c
+typedef struct { u32 tree; u32 part; } TransientRef;   // 8 B, indexed by (instance - P)
+```
+
+Culling, rasterization, VSM and resolve see one table and one code path. Cost at ~0.1 M visible parts: 6.4 MB + 0.8 MB
+per frame.
+
 Per frame the GPU produces `VisibleCluster { u32 instance; u32 cluster_ref; }` (8 B; `cluster_ref` = page:18 |
-cluster-in-page:6 | flags) lists consumed by rasterization and material resolve.
+cluster-in-page:6 | flags) lists consumed by rasterization and material resolve; `instance` indexes the unified table.
 
 ## Materials
 
@@ -200,14 +237,15 @@ typedef struct {                // 48 B
 - **Streaming:** the material resolve writes the required mip per texture into a feedback buffer (atomic min); read
   back after two frames; the streamer reallocates the image with the new mip count, copies resident mips, uploads the
   missing ones, swaps the bindless index. No sparse residency.
-- **Terrain:** runtime virtual texture (page table + physical page cache, 128² pages) composited on the GPU from
-  layer weights, layer textures and decals; the same RVT gives grass and far-forest colour matching.
+- **Terrain:** adaptive runtime virtual texture (page table + 8192² physical cache, 128² pages, runtime BC
+  compression) composited on the GPU from layer weights, layer textures, decals and dynamic layers (snow, litter,
+  trample marks); the same RVT gives grass and far-forest colour matching. Details: [12](12-terrain.md).
 
 ## Vegetation layouts
 
 ```c
 typedef struct {                // 16 B per tree, cooked per cell
-    u16 pos[3];                 // cell-local, 256 m / 65536 = 3.9 mm
+    u16 pos[3];                 // x, z: cell-local, 256 m / 65536 = 3.9 mm; y: 0..512 m above base_altitude (7.8 mm)
     u16 species;
     u8  yaw;                    // 256 steps
     i8  lean[2];                // small tilt, snorm8
@@ -270,7 +308,8 @@ typedef struct {                // 64 B per grass / ground-cover type
 
 - **RT proxies:** per species variant a merged, simplified tree (~10–100k triangles), rest pose, vertex colours instead
   of textures, leaves either simplified geometry or cards with opacity micromaps. Built once at load, compacted.
-- **Terrain:** per resident cell inside the RT range, a coarse (2 m) height mesh BLAS.
+- **Terrain:** per resident cell inside the RT range, a BLAS built on the GPU from the 2 m quadtree patches when the
+  cell streams in ([12](12-terrain.md)).
 - **Props/rocks:** BLAS from a fixed DAG cut (target error ~1–2 cm), compacted.
 - **TLAS:** rebuilt every frame from instance lists (no refit bookkeeping).
 - Experimental NVIDIA tier: BLAS directly from geometry pages via cluster acceleration structures (RTX Mega Geometry),

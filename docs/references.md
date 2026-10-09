@@ -118,6 +118,25 @@ Links were checked in October 2026. Classic papers and talks are cited by title,
   https://idcgames.com/en/delta-force/news/the-battlefield-starts-reacting-delta-force-pushes-warfare-deeper-into-unreal-engine-5-2026-09-29-07-45-13966
 - Escape from Tarkov forum — grass rendering distance: https://forum.escapefromtarkov.com/topic/33393-grass-rendering-distance/
 
+## Terrain
+
+- J. Moore — Terrain Rendering in Far Cry 5, GDC 2018: https://gdcvault.com/play/1025480/Terrain-Rendering-in-Far-Cry ;
+  slides: https://media.gdcvault.com/gdc2018/presentations/TerrainRenderingFarCry5.pdf
+- K. Chen — Adaptive Virtual Texture Rendering in Far Cry 4, GDC 2015:
+  https://gdcvault.com/play/1021761/Adaptive-Virtual-Texture-Rendering-in ;
+  slides: https://media.gdcvault.com/gdc2015/presentations/Chen_Ka_AdaptiveVirtualTexture.pdf
+- S. Etienne — Large Scale Terrain Rendering in Call of Duty, SIGGRAPH 2023 Advances:
+  https://advances.realtimerendering.com/s2023/index.html
+- M. Pohlmann — Samurai Landscapes: Building and Rendering Tsushima Island on PS4, GDC 2021:
+  https://gdcvault.com/play/1027352/Samurai-Landscapes-Building-and-Rendering
+- Sucker Punch terrain height map tiles (Rockenbeck, GDC 2021), summary:
+  https://www.gamedeveloper.com/design/using-vorticles-to-simulate-wind-in-i-ghost-of-tsushima-i-
+- Arma Reforger — Terrain Entity (blocks, tiles, LOD): https://community.bistudio.com/wiki/Arma_Reforger:Terrain:_Terrain_Entity
+- Epic — Using Nanite with Landscapes: https://dev.epicgames.com/documentation/unreal-engine/using-nanite-with-landscapes-in-unreal-engine
+- UE 5.8 Mesh Terrain overview: https://www.projprod.com/post/mesh-terrain-unreal-engine-5-8
+- Unity — Terrain.basemapDistance: https://docs.unity3d.com/ScriptReference/Terrain-basemapDistance.html
+- F. Strugar — Continuous Distance-Dependent Level of Detail for Rendering Heightmaps (CDLOD), JGT 2009.
+
 ## Geometry and visibility
 
 - C. Burns, W. Hunt — The Visibility Buffer: A Cache-Friendly Approach to Deferred Shading, JCGT 2013.

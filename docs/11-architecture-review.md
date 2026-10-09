@@ -3,7 +3,32 @@
 Scope: [02](02-architecture.md), [03](03-hardware-mapping.md), [04](04-data-representation.md),
 [05](05-frame-pipeline.md), with the vegetation design in [06](06-vegetation.md) where it drives the architecture.
 Method: read as a reviewer, trace every per-frame data item from producer to consumer, recompute the numbers.
-Nothing here has been applied to the design docs yet; each finding ends with a proposed change.
+
+## Status (2026-10-09)
+
+| Finding | Status | Where |
+|---|---|---|
+| H1 part instances | applied: unified instance table, transient part instances + `TransientRef` | 04, 05 |
+| H2 render origin | applied | 02, 04, 05 |
+| H3 terrain | applied **with a revised choice** after the terrain survey: quadtree heightfield patches as procedural clusters in the same pipeline (not cooked DAGs) + adaptive RVT; `vis64` kind 4 stays | [12](12-terrain.md), 04, 05 |
+| M1 clusters vs bones | applied: one bone per cluster, DAG per rig level, `GpuCluster.bone` | 04 |
+| M2 HW raster | open decision with defined closing measurement (scene 1, M3); both variants in M1 | 05, 08 |
+| M3 parts → merged | applied: ~500 px, coarse-only merged DAG, ~0.1 M part instances | 06, 04 |
+| M4 async schedule | applied: split labelled initial, balancing moves listed | 05, 03 |
+| M5 multi-view | design added; scope is open question 9 | 02, 08 |
+| M6 GI v0 | applied: M4a cache-only GI, M4b ReSTIR | 08 |
+| M7 residency rules | applied | 02 |
+| M8 handles | applied: game-owned handles | 02 |
+| L1 latency | applied | 02 |
+| L2 decompression | applied | 02 |
+| L3 VSM levels | **withdrawn** — recomputed with footprint-based marking: the 8 m level serves receivers at ~0.5 m (prone view, weapon), all 12 levels are used; the low-sun page-demand note is kept | 05 |
+| L4 cells | applied: `CellHeader` with base altitude, FULL/FAR tiers | 04 |
+| L5 aliasing plan | applied | 02 |
+| L6 groups and pages | applied | 04 |
+| L7 editor edits | applied: cell patches in the packet; scope is open question 11 | 02, 08 |
+| L8 grass budget | applied as a note tied to M2 | 03 |
+
+The findings below are kept as written for the record.
 
 ## Verdict
 
