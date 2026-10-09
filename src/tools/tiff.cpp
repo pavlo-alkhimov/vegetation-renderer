@@ -1,7 +1,7 @@
 // Minimal GeoTIFF reader for single-band elevation rasters.
 // Supports: classic TIFF (II/MM), strips or tiles, compression none/LZW/Deflate, predictor 1/2/3,
 // 8/16/32-bit integer or 32/64-bit float samples, ModelTiepoint + ModelPixelScale, RasterType, GDAL_NODATA.
-// Not supported: BigTIFF, multi-band, planar config 2, ModelTransformation with rotation.
+// Not supported: BigTIFF, multi-band, ModelTransformation with rotation.
 
 typedef struct {
     u32 width, height;
@@ -112,7 +112,9 @@ static const char* tiff_open(Tiff* t, const u8* file, size_t size)
         }
     }
     if (!t->width || !t->height || !t->chunk_count) return "missing image tags";
-    if (samples != 1 || planar != 1) return "only single-band rasters supported";
+    // PlanarConfiguration is irrelevant with one sample per pixel (Bavarian DGM1 tiles write 2).
+    if (samples != 1) return "only single-band rasters supported";
+    (void)planar;
     if (t->compression != 1 && t->compression != 5 && t->compression != 8 && t->compression != 32946)
         return "unsupported compression (supported: none, LZW, Deflate)";
     if (t->predictor < 1 || t->predictor > 3) return "unsupported predictor";
