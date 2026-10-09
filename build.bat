@@ -13,7 +13,7 @@ if "%SDL3_DIR%"=="" (echo SDL3_DIR not set ^(SDL3-devel-*-VC.zip unpacked^) & ex
 if not exist build\shaders mkdir build\shaders
 "%VULKAN_SDK%\Bin\slangc.exe" shaders\terrain.slang -target spirv -o build\shaders\terrain.spv || exit /b 1
 clang++ %COMMON% %OPT% -I"%VULKAN_SDK%\Include" -I"%SDL3_DIR%\include" src\vr.cpp -o build\vr.exe ^
-    -L"%VULKAN_SDK%\Lib" -L"%SDL3_DIR%\lib\x64" -lvulkan-1 -lSDL3 -Xlinker /subsystem:console || exit /b 1
+    -L"%SDL3_DIR%\lib\x64" -lSDL3 -Xlinker /subsystem:console || exit /b 1
 copy /y "%SDL3_DIR%\lib\x64\SDL3.dll" build\ >nul
 clang++ %COMMON% -g -O2 src\tools\cook_terrain.cpp -o build\cook_terrain.exe || exit /b 1
 echo built (%MODE%)

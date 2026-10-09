@@ -47,7 +47,7 @@ Research real-time renderer for dense **temperate vegetation of Central and East
 
 Fly or walk over real 1 m LiDAR terrain (Bavarian DGM1, [13](docs/13-reference-maps.md)). CDLOD heightfield patches (8×8 quads, morphing, [12](docs/12-terrain.md)) selected on the CPU and drawn through the vertex pipeline: an interim path until the GPU-driven visibility buffer of M1. Placeholder shading: procedural meadow/forest patches, slope soil/rock, sun + sky + aerial fog.
 
-Dependencies (Linux): clang, Vulkan headers + loader (`libvulkan-dev`), SDL3 (`libsdl3-dev` on Debian 13 / Ubuntu 25.04+, `SDL3-devel` on Fedora, `sdl3` on Arch; on Ubuntu 24.04 build it from source and set `PKG_CONFIG_PATH`), `slangc` (LunarG Vulkan SDK ≥ 1.3.296 or a Slang release; set `SLANGC` if it is not on `PATH`).
+Dependencies (Linux): clang, Vulkan headers + loader (`libvulkan-dev`; the loader is opened at runtime through SDL), SDL3 (`libsdl3-dev` on Debian 13 / Ubuntu 25.04+, `SDL3-devel` on Fedora, `sdl3` on Arch; on Ubuntu 24.04 build it from source and set `PKG_CONFIG_PATH`), `slangc` (LunarG Vulkan SDK ≥ 1.3.296 or a Slang release; set `SLANGC` if it is not on `PATH`).
 
 ```sh
 ./build.sh release                                   # build/vr, build/cook_terrain, build/shaders/terrain.spv
@@ -65,7 +65,19 @@ build/vr                                             # or: build/vr <file.vrh> [
 | G | walk (eye 1.75 m above ground) / fly |
 | 1–4, L | shaded, LOD levels, 10 m contours, normals; wireframe |
 | [ / ] | finer / coarser terrain (target triangle size in pixels) |
-| V, F12, P | vsync toggle, screenshot (`shot_NNNN.ppm`), print camera as `--cam` arguments |
+| V, F12 / K, P | vsync toggle, screenshot (`shot_NNNN.ppm`), print camera as `--cam` arguments |
+
+**macOS (Apple Silicon, e.g. MacBook Air M4):** same code and script, Vulkan via KosmicKrisp (LunarG's conformant Vulkan-on-Metal driver) or MoltenVK. Install the [LunarG Vulkan SDK for macOS](https://vulkan.lunarg.com/sdk/home#mac) with KosmicKrisp selected (it also provides `slangc` and the validation layer; check its release notes for the minimum macOS version), plus `brew install sdl3 pkg-config`. Then:
+
+```sh
+source ~/VulkanSDK/<version>/setup-env.sh            # sets VULKAN_SDK, PATH, DYLD_LIBRARY_PATH
+./build.sh release
+tools/fetch-bavaria.sh bbox 701 5503 716 5518        # needs curl only (aria2 for metalink: brew install aria2)
+build/cook_terrain data/external/bavaria/dgm1        # ~3 GB RAM; on 16 GB machines fine, else --step 2
+build/vr                                             # --hidpi for native Retina resolution (4x the pixels)
+```
+
+On the Mac the window is sized in points and rendered at 1 pixel per point unless `--hidpi` is given; the title bar shows the actual render resolution. If both KosmicKrisp and MoltenVK are installed, the conformant driver is preferred; `VK_DRIVER_FILES=<icd.json>` forces one. Missing Vulkan features are reported by name at startup. F12 needs fn on a MacBook keyboard; `K` also takes a screenshot. Not yet run on a Mac.
 
 The window title shows CPU/GPU ms, patch and triangle counts, UTM position and height above ground. `build/vr --frames N [--shot f.ppm]` runs N frames and prints average timings (deterministic camera via `--cam`). The cooker accepts any single-band GeoTIFF tiles sharing one CRS and pixel size (uncompressed/LZW/Deflate, predictors 1–3, strips or tiles); missing tiles and nodata are filled by pull-push interpolation and reported; `--step 2` halves the resolution for smaller GPUs. `build.bat` mirrors `build.sh` for Windows but is untested.
 

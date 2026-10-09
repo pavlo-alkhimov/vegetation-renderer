@@ -74,7 +74,7 @@ static void vk_create_instance(Vk* vk, const char* const* extensions, u32 extens
 {
     const char* exts[32];
     u32 n = 0;
-    for (u32 i = 0; i < extension_count && n < 30; i++) exts[n++] = extensions[i];
+    for (u32 i = 0; i < extension_count && n < 29; i++) exts[n++] = extensions[i];
     const char* layers[1] = {"VK_LAYER_KHRONOS_validation"};
     u32 layer_count = 0;
     if (validation) {
@@ -87,16 +87,30 @@ static void vk_create_instance(Vk* vk, const char* const* extensions, u32 extens
         if (layer_count) exts[n++] = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
         else fprintf(stderr, "validation layer not found, continuing without\n");
     }
+    // macOS: KosmicKrisp (conformant) or MoltenVK (portability driver, only enumerated with this extension + flag).
+    bool portability = false;
+    {
+        u32 count = 0;
+        vkEnumerateInstanceExtensionProperties(NULL, &count, NULL);
+        VkExtensionProperties props[256];
+        count = MIN(count, 256u);
+        vkEnumerateInstanceExtensionProperties(NULL, &count, props);
+        for (u32 i = 0; i < count; i++)
+            if (!strcmp(props[i].extensionName, VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME)) portability = true;
+        if (portability) exts[n++] = VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
+    }
     VkApplicationInfo app = {VK_STRUCTURE_TYPE_APPLICATION_INFO};
     app.pApplicationName = "vegetation-renderer";
     app.apiVersion = VK_API_VERSION_1_3;
     VkInstanceCreateInfo ci = {VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+    ci.flags = portability ? VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR : 0;
     ci.pApplicationInfo = &app;
     ci.enabledExtensionCount = n;
     ci.ppEnabledExtensionNames = exts;
     ci.enabledLayerCount = layer_count;
     ci.ppEnabledLayerNames = layers;
     VK_CHECK(vkCreateInstance(&ci, NULL, &vk->instance));
+    vk_load_instance(vk->instance);
     if (layer_count) {
         VkDebugUtilsMessengerCreateInfoEXT mi = {VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT};
         mi.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
@@ -210,13 +224,25 @@ static void vk_init_device(Vk* vk, VkSurfaceKHR surface)
     VkPhysicalDevice devs[16];
     count = MIN(count, 16u);
     VK_CHECK(vkEnumeratePhysicalDevices(vk->instance, &count, devs));
-    // Prefer a discrete GPU with Vulkan 1.3 and a graphics queue that can present.
+    // Prefer a discrete GPU with Vulkan 1.3 and a graphics queue that can present; among equals prefer a conformant
+    // driver over a portability one (macOS: KosmicKrisp over MoltenVK when both are installed).
     int best = -1, best_score = -1;
     u32 best_family = 0;
     for (u32 i = 0; i < count; i++) {
         VkPhysicalDeviceProperties p;
         vkGetPhysicalDeviceProperties(devs[i], &p);
+        printf("Vulkan device %u: %s, Vulkan %u.%u.%u\n", i, p.deviceName, VK_API_VERSION_MAJOR(p.apiVersion),
+               VK_API_VERSION_MINOR(p.apiVersion), VK_API_VERSION_PATCH(p.apiVersion));
         if (p.apiVersion < VK_API_VERSION_1_3) continue;
+        bool portability_subset = false;
+        {
+            u32 n = 0;
+            vkEnumerateDeviceExtensionProperties(devs[i], NULL, &n, NULL);
+            VkExtensionProperties* props = (VkExtensionProperties*)malloc(MAX(n, 1u) * sizeof(VkExtensionProperties));
+            vkEnumerateDeviceExtensionProperties(devs[i], NULL, &n, props);
+            for (u32 e = 0; e < n; e++) if (!strcmp(props[e].extensionName, "VK_KHR_portability_subset")) portability_subset = true;
+            free(props);
+        }
         u32 fam_count = 0;
         vkGetPhysicalDeviceQueueFamilyProperties(devs[i], &fam_count, NULL);
         VkQueueFamilyProperties fams[16];
@@ -226,12 +252,13 @@ static void vk_init_device(Vk* vk, VkSurfaceKHR surface)
             VkBool32 present = VK_FALSE;
             vkGetPhysicalDeviceSurfaceSupportKHR(devs[i], q, surface, &present);
             if (!(fams[q].queueFlags & VK_QUEUE_GRAPHICS_BIT) || !present) continue;
-            int score = p.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ? 3 : p.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU ? 2 : 1;
+            int score = (p.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU ? 3 : p.deviceType == VK_PHYSICAL_DEVICE_TYPE_INTEGRATED_GPU ? 2 : 1) * 2
+                      + (portability_subset ? 0 : 1);
             if (score > best_score) { best = (int)i; best_score = score; best_family = q; }
             break;
         }
     }
-    if (best < 0) FATAL("no Vulkan 1.3 GPU with graphics + present");
+    if (best < 0) FATAL("no Vulkan 1.3 GPU with graphics + present (macOS: install the Vulkan SDK with KosmicKrisp, see README)");
     vk->phys = devs[best];
     vk->queue_family = best_family;
     vkGetPhysicalDeviceProperties(vk->phys, &vk->props);
@@ -247,44 +274,69 @@ static void vk_init_device(Vk* vk, VkSurfaceKHR surface)
     printf("GPU: %s (Vulkan %u.%u.%u)\n", vk->props.deviceName, VK_API_VERSION_MAJOR(vk->props.apiVersion),
            VK_API_VERSION_MINOR(vk->props.apiVersion), VK_API_VERSION_PATCH(vk->props.apiVersion));
 
-    VkPhysicalDeviceFeatures supported;
-    vkGetPhysicalDeviceFeatures(vk->phys, &supported);
-    vk->wireframe_supported = supported.fillModeNonSolid;
+    // Query, check and enable exactly the features this code uses; name what is missing instead of failing in
+    // vkCreateDevice. Portability drivers (MoltenVK) are the likely place for gaps.
+    VkPhysicalDeviceVulkan13Features s13 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+    VkPhysicalDeviceVulkan12Features s12 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
+    VkPhysicalDeviceVulkan11Features s11 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
+    VkPhysicalDeviceFeatures2 s2 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
+    s2.pNext = &s11; s11.pNext = &s12; s12.pNext = &s13;
+    vkGetPhysicalDeviceFeatures2(vk->phys, &s2);
+    struct { VkBool32 ok; const char* name; } required[] = {
+        {s13.dynamicRendering, "dynamicRendering"},
+        {s13.synchronization2, "synchronization2"},
+        {s12.bufferDeviceAddress, "bufferDeviceAddress"},
+        {s12.runtimeDescriptorArray, "runtimeDescriptorArray"},
+        {s12.descriptorBindingPartiallyBound, "descriptorBindingPartiallyBound"},
+        {s12.descriptorBindingSampledImageUpdateAfterBind, "descriptorBindingSampledImageUpdateAfterBind"},
+        {s11.shaderDrawParameters, "shaderDrawParameters"},
+        {s2.features.shaderInt64, "shaderInt64"},
+    };
+    char missing[512] = "";
+    for (u32 i = 0; i < ARRAY_COUNT(required); i++)
+        if (!required[i].ok) { strncat(missing, " ", sizeof(missing) - strlen(missing) - 1); strncat(missing, required[i].name, sizeof(missing) - strlen(missing) - 1); }
+    if (missing[0]) FATAL("%s lacks required Vulkan features:%s", vk->props.deviceName, missing);
+    vk->wireframe_supported = s2.features.fillModeNonSolid;
 
     VkPhysicalDeviceVulkan13Features f13 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
     f13.dynamicRendering = VK_TRUE;
     f13.synchronization2 = VK_TRUE;
-    f13.maintenance4 = VK_TRUE;
     VkPhysicalDeviceVulkan12Features f12 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
     f12.pNext = &f13;
     f12.bufferDeviceAddress = VK_TRUE;
-    f12.descriptorIndexing = VK_TRUE;
     f12.runtimeDescriptorArray = VK_TRUE;
     f12.descriptorBindingPartiallyBound = VK_TRUE;
     f12.descriptorBindingSampledImageUpdateAfterBind = VK_TRUE;
-    f12.shaderSampledImageArrayNonUniformIndexing = VK_TRUE;
-    f12.scalarBlockLayout = VK_TRUE;
-    f12.timelineSemaphore = VK_TRUE;
-    f12.hostQueryReset = VK_TRUE;
     VkPhysicalDeviceVulkan11Features f11 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
     f11.pNext = &f12;
     f11.shaderDrawParameters = VK_TRUE;
     VkPhysicalDeviceFeatures2 f2 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     f2.pNext = &f11;
     f2.features.shaderInt64 = VK_TRUE;
-    f2.features.fillModeNonSolid = supported.fillModeNonSolid;
+    f2.features.fillModeNonSolid = s2.features.fillModeNonSolid;
 
     f32 priority = 1.0f;
     VkDeviceQueueCreateInfo qi = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
     qi.queueFamilyIndex = vk->queue_family;
     qi.queueCount = 1;
     qi.pQueuePriorities = &priority;
-    const char* exts[] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    // VK_KHR_portability_subset must be enabled whenever the device exposes it (MoltenVK).
+    const char* exts[2] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    u32 ext_count = 1;
+    {
+        u32 count = 0;
+        vkEnumerateDeviceExtensionProperties(vk->phys, NULL, &count, NULL);
+        VkExtensionProperties* props = (VkExtensionProperties*)malloc(MAX(count, 1u) * sizeof(VkExtensionProperties));
+        vkEnumerateDeviceExtensionProperties(vk->phys, NULL, &count, props);
+        for (u32 i = 0; i < count; i++)
+            if (!strcmp(props[i].extensionName, "VK_KHR_portability_subset")) exts[ext_count++] = "VK_KHR_portability_subset";
+        free(props);
+    }
     VkDeviceCreateInfo ci = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     ci.pNext = &f2;
     ci.queueCreateInfoCount = 1;
     ci.pQueueCreateInfos = &qi;
-    ci.enabledExtensionCount = ARRAY_COUNT(exts);
+    ci.enabledExtensionCount = ext_count;
     ci.ppEnabledExtensionNames = exts;
     VK_CHECK(vkCreateDevice(vk->phys, &ci, NULL, &vk->device));
     vkGetDeviceQueue(vk->device, vk->queue_family, 0, &vk->queue);
@@ -308,8 +360,7 @@ static void vk_init_device(Vk* vk, VkSurfaceKHR surface)
         VkQueryPoolCreateInfo qpi = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
         qpi.queryType = VK_QUERY_TYPE_TIMESTAMP;
         qpi.queryCount = 2;
-        VK_CHECK(vkCreateQueryPool(vk->device, &qpi, NULL, &f->queries));
-        vkResetQueryPool(vk->device, f->queries, 0, 2);
+        VK_CHECK(vkCreateQueryPool(vk->device, &qpi, NULL, &f->queries));   // reset in the command buffer before use
         f->upload = vk_buffer(vk, UPLOAD_BYTES, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true);
     }
 

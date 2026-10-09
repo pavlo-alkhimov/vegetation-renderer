@@ -62,8 +62,9 @@ cmd_bbox() {
     xargs -P "$jobs" -L 1 bash -c 'fetch_tile "$0" "$1"' < "$list" || rc=$?
     rm -f "$list"
     echo "done: $(find "$dir" -name '*.tif' | wc -l) tiles present"
-    # xargs returns 123 if any tile was missing or failed; missing tiles (e.g. inside military areas) are reported above.
-    [[ $rc -eq 0 || $rc -eq 123 ]] || exit "$rc"
+    # If any tile was missing or failed, xargs returns 123 (GNU) or 1 (BSD/macOS); those tiles are reported above
+    # (missing ones are expected inside military areas).
+    [[ $rc -eq 0 || $rc -eq 123 || $rc -eq 1 ]] || exit "$rc"
 }
 
 cmd_metalink() {

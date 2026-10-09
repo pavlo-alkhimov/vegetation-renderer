@@ -7,12 +7,13 @@ static const char* USAGE =
     "  --frames N                exit after N frames and print average timings\n"
     "  --shot FILE.ppm           save the last frame (with --frames)\n"
     "  --novsync                 present without vsync (for timing)\n"
+    "  --hidpi                   render at native pixel density (Retina / scaled displays; default: 1 pixel per point)\n"
     "  --validation              enable the Vulkan validation layer\n"
     "  --debug N                 start in view mode N (0 shaded, 1 LOD, 2 contours, 3 normals); --wire: wireframe\n"
     "\n"
     "controls: click = capture mouse, Esc = release (again = quit), WASD move, Q/E down/up (Space = up),\n"
     "  Shift x8, Ctrl x1/8, wheel = speed, G walk/fly, 1-4 shaded/LOD/contours/normals, L wireframe,\n"
-    "  [ ] finer/coarser terrain LOD, V vsync, F12 screenshot, P print camera\n";
+    "  [ ] finer/coarser terrain LOD, V vsync, F12 or K screenshot, P print camera\n";
 
 static ViewerCommand map_key(SDL_Scancode sc)
 {
@@ -27,6 +28,7 @@ static ViewerCommand map_key(SDL_Scancode sc)
     case SDL_SCANCODE_RIGHTBRACKET: return CMD_LOD_COARSER;
     case SDL_SCANCODE_V: return CMD_TOGGLE_VSYNC;
     case SDL_SCANCODE_F12: return CMD_SCREENSHOT;
+    case SDL_SCANCODE_K: return CMD_SCREENSHOT;    // laptops: F12 needs fn (macOS)
     case SDL_SCANCODE_P: return CMD_PRINT_CAMERA;
     default: return CMD_NONE;
     }
@@ -37,7 +39,7 @@ int main(int argc, char** argv)
     const char* terrain_path = "data/cooked/terrain.vrh";
     u32 width = 1920, height = 1080, max_frames = 0;
     const char* shot_path = NULL;
-    bool validation = false, vsync = true, have_cam = false, wire = false;
+    bool validation = false, vsync = true, have_cam = false, wire = false, hidpi = false;
     u32 debug_mode = 0;
     f64 cam_args[5] = {};
 #ifdef VR_DEBUG
@@ -49,6 +51,7 @@ int main(int argc, char** argv)
         else if (!strcmp(argv[i], "--frames") && i + 1 < argc) max_frames = (u32)atoi(argv[++i]);
         else if (!strcmp(argv[i], "--shot") && i + 1 < argc) shot_path = argv[++i];
         else if (!strcmp(argv[i], "--novsync")) vsync = false;
+        else if (!strcmp(argv[i], "--hidpi")) hidpi = true;
         else if (!strcmp(argv[i], "--validation")) validation = true;
         else if (!strcmp(argv[i], "--debug") && i + 1 < argc) debug_mode = (u32)atoi(argv[++i]);
         else if (!strcmp(argv[i], "--wire")) wire = true;
@@ -60,8 +63,21 @@ int main(int argc, char** argv)
     terrain_load(&v.terrain, terrain_path);
 
     if (!SDL_Init(SDL_INIT_VIDEO)) FATAL("SDL_Init: %s", SDL_GetError());
+
+    // One Vulkan loader for SDL and us (vk_functions.cpp). SDL's default search covers Linux, Windows and a
+    // system-wide macOS SDK install; the fallbacks cover a non-global macOS SDK and Homebrew.
+    bool vulkan_loaded = SDL_Vulkan_LoadLibrary(NULL);
+#ifdef __APPLE__
+    char sdk_path[1024];
+    const char* fallbacks[] = {sdk_path, "/usr/local/lib/libvulkan.1.dylib", "/opt/homebrew/lib/libvulkan.1.dylib"};
+    snprintf(sdk_path, sizeof(sdk_path), "%s/lib/libvulkan.1.dylib", getenv("VULKAN_SDK") ? getenv("VULKAN_SDK") : ".");
+    for (u32 i = 0; i < ARRAY_COUNT(fallbacks) && !vulkan_loaded; i++) vulkan_loaded = SDL_Vulkan_LoadLibrary(fallbacks[i]);
+#endif
+    if (!vulkan_loaded) FATAL("cannot load the Vulkan loader: %s", SDL_GetError());
+    vk_load_global((PFN_vkGetInstanceProcAddr)SDL_Vulkan_GetVkGetInstanceProcAddr());
+
     SDL_Window* window = SDL_CreateWindow("vegetation-renderer", (int)width, (int)height,
-                                          SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+                                          SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE | (hidpi ? SDL_WINDOW_HIGH_PIXEL_DENSITY : 0));
     if (!window) FATAL("SDL_CreateWindow: %s", SDL_GetError());
     Uint32 ext_count = 0;
     const char* const* exts = SDL_Vulkan_GetInstanceExtensions(&ext_count);
@@ -163,8 +179,8 @@ int main(int argc, char** argv)
         if ((f64)(now - title_time) / freq > 0.25) {
             const Camera* c = &v.cam;
             char title[256];
-            snprintf(title, sizeof(title), "vr | %.2f ms (gpu %.2f) | %u patches %.2f Mtri | E %.0f N %.0f alt %.1f (+%.1f) | %.1f m/s %s%s",
-                     title_cpu_ms / title_frames, v.gpu_ms, v.node_count, v.node_count * TERRAIN_PATCH_QUADS * TERRAIN_PATCH_QUADS * 2 / 1e6,
+            snprintf(title, sizeof(title), "vr %ux%u | %.2f ms (gpu %.2f) | %u patches %.2f Mtri | E %.0f N %.0f alt %.1f (+%.1f) | %.1f m/s %s%s",
+                     v.vk.extent.width, v.vk.extent.height, title_cpu_ms / title_frames, v.gpu_ms, v.node_count, v.node_count * TERRAIN_PATCH_QUADS * TERRAIN_PATCH_QUADS * 2 / 1e6,
                      th->origin_e + c->pos[0], th->origin_n + c->pos[2], c->pos[1], c->pos[1] - terrain_height(&v.terrain, c->pos[0], c->pos[2]),
                      c->speed, c->walk ? "walk" : "fly", captured ? "" : " | click to look");
             SDL_SetWindowTitle(window, title);
@@ -177,7 +193,7 @@ int main(int argc, char** argv)
     vkDeviceWaitIdle(v.vk.device);
     if (max_frames) viewer_print_camera(&v);
     if (frames > 1)
-        printf("%u frames: avg %.2f ms frame, %.2f ms gpu, %u patches\n", frames, sum_cpu_ms / (frames - 1), sum_gpu_ms / (frames - 1), v.node_count);
+        printf("%u frames at %ux%u: avg %.2f ms frame, %.2f ms gpu, %u patches\n", frames, v.vk.extent.width, v.vk.extent.height, sum_cpu_ms / (frames - 1), sum_gpu_ms / (frames - 1), v.node_count);
     // Process exit releases the rest (no per-object teardown; docs/02 lifetime rules).
     SDL_DestroyWindow(window);
     SDL_Quit();

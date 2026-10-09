@@ -33,6 +33,8 @@ percent of Windows. We will verify this ourselves — identical code makes a cle
 
 Portability bonus: Vulkan also covers macOS via KosmicKrisp (LunarG, Vulkan 1.4-conformant on Apple Silicon, in the Vulkan SDK since Sep 2026, needs macOS 26) or MoltenVK, and Android. Consoles would need their own backends — out of scope.
 
+**macOS (Apple Silicon, e.g. MacBook Air M4) as a secondary dev platform:** the same code and `build.sh` via KosmicKrisp; SDL3 handles the window and Metal surface, the platform layer loads the Vulkan loader through SDL and enables `VK_KHR_portability_enumeration`/`_subset` when present (MoltenVK fallback). Required features are checked at startup and missing ones are named. Not a measurement target (thermal throttling, shared memory). Later milestones need mesh shaders, ray query and 64-bit image atomics; whether KosmicKrisp exposes them decides how far the Mac follows past M0a — beyond that, M1+ paths need a fallback or stay Windows/Linux-only.
+
 **Second test GPU:** an AMD RDNA2+/RDNA3 card under Linux (RADV) is the cheapest way to keep the code vendor-neutral and
 covers the Steam Machine class.
 
