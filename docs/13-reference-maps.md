@@ -50,6 +50,36 @@ LiDAR terrain at 1 m, orthophotos, forest masks and even per-stand tree species.
 
 The first two cover the biome extremes (managed hill forest, natural lowland forest); one of them is enough for M1–M3.
 
+## Downloading the Bavarian data (local only)
+
+Data goes to `data/external/` (git-ignored) or to `$VR_DATA`. Script: [`tools/fetch-bavaria.sh`](../tools/fetch-bavaria.sh).
+
+```sh
+# 16 x 16 km DGM1 core around Grafenwöhr (Upper Palatinate): 256 tiles of 1 km, GeoTIFF, EPSG:25832, ~1 GB
+tools/fetch-bavaria.sh bbox 701 5503 716 5518
+
+# Official bulk route: Metalink per municipality (8-digit key) or all of Bavaria (09, ~240 GB), needs aria2c
+tools/fetch-bavaria.sh metalink 09277140
+# Other products by path below /odd/a/, e.g. 40 cm orthophotos per administrative region (091..097, ~1.2 TB total)
+tools/fetch-bavaria.sh metalink 093 dop40
+
+DRY_RUN=1 tools/fetch-bavaria.sh bbox 701 5503 716 5518   # list URLs only
+```
+
+- **bbox** fetches tiles directly from `https://download1.bayernwolke.de/a/dgm/dgm1/{E_km}_{N_km}.tif` (south-west
+  corner in km, UTM zone 32 for the whole state). This URL scheme comes from a third-party library (geokachel),
+  not from LDBV documentation; it is cross-checked by the tile of Munich's Marienplatz (`691_5334`).
+- **metalink** uses the officially documented route (`https://geodaten.bayern.de/odd/a/<product>/meta/metalink/<code>.meta4`,
+  `aria2c -V`); re-running fetches only changed files. Municipality keys and other products are listed on
+  geodaten.bayern.de/opengeodata.
+- The script validates every tile (HTTP 200 + TIFF magic), skips tiles already present, reports missing ones (tiles
+  inside military training areas may be absent) and writes the required attribution into `ATTRIBUTION.txt`.
+- **Not verified end to end:** the cloud environment this was written in blocks the Bavarian servers; the logic was
+  tested against a local HTTP server. First real run: start with a single tile (`bbox 709 5511 709 5511`).
+
+To get kilometre indices for a place: UTM zone 32 (EPSG:25832) easting/northing of the point, divided by 1000 and
+rounded down (e.g. `gdaltransform -s_srs EPSG:4326 -t_srs EPSG:25832` with lon lat input).
+
 ## How it feeds the cooker
 
 1. **Terrain:** DTM → 257² `u16` tiles per 256 m cell, base altitude per cell; Copernicus DEM for the far ring
