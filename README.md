@@ -2,7 +2,7 @@
 
 Research real-time renderer for dense **temperate vegetation of Central and Eastern Europe** — meadows, steppe grass, crop fields, beech/oak/hornbeam/birch forests, spruce/fir/pine stands — targeting the best achievable image quality at **1920×1080, ≥ 30 FPS** on current consumer GPUs.
 
-**Status:** design draft v0.2 (2026-10-09, architecture review applied). No code yet. The documents fix the data flow between subsystems and the mapping to hardware; per sub-problem one technique is chosen and the alternatives are recorded.
+**Status:** design draft v0.2 (2026-10-09, architecture review applied). The documents fix the data flow between subsystems and the mapping to hardware; per sub-problem one technique is chosen and the alternatives are recorded. First code: a reference terrain viewer (milestone M0a in [08](docs/08-validation-roadmap.md)) — see below.
 
 ## Scope
 
@@ -42,6 +42,32 @@ Research real-time renderer for dense **temperate vegetation of Central and East
 | 18 | Concealment | Statistical grass occlusion beyond the blade radius, identical for rendering and AI; settings never change information | per-setting grass distance (genre default) | [10](docs/10-milsim-survey.md) |
 | 19 | Terrain | Quadtree heightfield patches (CDLOD morphing) as procedural clusters in the same cull/raster/resolve pipeline; adaptive runtime virtual texture; one shared height function for rendering, grass and gameplay | cooked cluster DAG per cell; Nanite-style landscape | [12](docs/12-terrain.md) |
 | 20 | Coordinates | Render origin snapped to the camera's 256 m cell; all GPU world-space data relative to it, so persistent caches survive camera motion | camera-relative every frame | [02](docs/02-architecture.md) |
+
+## Terrain viewer (first code)
+
+Fly or walk over real 1 m LiDAR terrain (Bavarian DGM1, [13](docs/13-reference-maps.md)). CDLOD heightfield patches (8×8 quads, morphing, [12](docs/12-terrain.md)) selected on the CPU and drawn through the vertex pipeline: an interim path until the GPU-driven visibility buffer of M1. Placeholder shading: procedural meadow/forest patches, slope soil/rock, sun + sky + aerial fog.
+
+Dependencies (Linux): clang, Vulkan headers + loader (`libvulkan-dev`), SDL3 (`libsdl3-dev` on Debian 13 / Ubuntu 25.04+, `SDL3-devel` on Fedora, `sdl3` on Arch; on Ubuntu 24.04 build it from source and set `PKG_CONFIG_PATH`), `slangc` (LunarG Vulkan SDK ≥ 1.3.296 or a Slang release; set `SLANGC` if it is not on `PATH`).
+
+```sh
+./build.sh release                                   # build/vr, build/cook_terrain, build/shaders/terrain.spv
+tools/fetch-bavaria.sh bbox 701 5503 716 5518        # once: 256 DGM1 tiles, ~1 GB
+build/cook_terrain data/external/bavaria/dgm1        # -> data/cooked/terrain.vrh (16000², u16, 512 MB; ~15 s, ~3 GB RAM)
+build/vr                                             # or: build/vr <file.vrh> [--cam E N ALT YAW PITCH] [--novsync] ...
+```
+
+| Input | Action |
+|---|---|
+| click / Esc | capture mouse / release (Esc again quits) |
+| mouse, WASD | look, move (physical key positions, so QWERTZ works) |
+| Q / E (Space) | down / up |
+| Shift / Ctrl, wheel | ×8 / ×⅛, change base speed |
+| G | walk (eye 1.75 m above ground) / fly |
+| 1–4, L | shaded, LOD levels, 10 m contours, normals; wireframe |
+| [ / ] | finer / coarser terrain (target triangle size in pixels) |
+| V, F12, P | vsync toggle, screenshot (`shot_NNNN.ppm`), print camera as `--cam` arguments |
+
+The window title shows CPU/GPU ms, patch and triangle counts, UTM position and height above ground. `build/vr --frames N [--shot f.ppm]` runs N frames and prints average timings (deterministic camera via `--cam`). The cooker accepts any single-band GeoTIFF tiles sharing one CRS and pixel size (uncompressed/LZW/Deflate, predictors 1–3, strips or tiles); missing tiles and nodata are filled by pull-push interpolation and reported; `--step 2` halves the resolution for smaller GPUs. `build.bat` mirrors `build.sh` for Windows but is untested.
 
 ## Throughput note
 

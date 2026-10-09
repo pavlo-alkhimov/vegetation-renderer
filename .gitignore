@@ -1,2 +1,6 @@
 # Downloaded third-party data (see docs/13-reference-maps.md); never committed
 /data/external/
+
+# Build output and cooked data
+/build/
+/data/cooked/

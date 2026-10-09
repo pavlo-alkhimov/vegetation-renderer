@@ -145,6 +145,8 @@ RVT). Therefore:
 - All GPU world-space data is relative to the render origin in `f32`: ≤ ±512 m for content near the camera (sub-mm
   precision), larger for far cells where the precision loss is invisible.
 - The per-cell offset table ("cell offset from render origin") is constant between crossings.
+- Axes: x east, y up, z north (left-handed); yaw 0 = north. Source geodata stays in its projected CRS (EPSG:25832
+  for Bavaria); the cooker stores the CRS origin of the map, so world x/z are metres east/north of it.
 - On a crossing: radiance-cache keys include the origin cell, so stale entries age out; VSM clipmap page tables, the
   trample map, the wind field and the RVT indirection shift by integer pages/texels; motion vectors use the previous
   frame's origin for the previous transforms.
