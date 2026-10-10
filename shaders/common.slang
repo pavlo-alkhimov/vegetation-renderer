@@ -52,6 +52,34 @@ float4 project(float3 rel)
     return xform(pc.view->view_proj, rel);
 }
 
+// Clip position of a point (or of a direction, w = 0) in the previous frame, for motion vectors.
+float4 project_prev(float3 rel)
+{
+    return xform(pc.view->prev_view_proj, rel);
+}
+
+float4 project_prev_dir(float3 dir)
+{
+    float4 q = float4(dir, 0.0);
+    v4 m[4] = pc.view->prev_view_proj;
+    return float4(dot(m[0], q), dot(m[1], q), dot(m[2], q), dot(m[3], q));
+}
+
+// Scene pass output: colour + motion (uv of this frame - uv of the previous frame, without jitter).
+struct SceneOut {
+    float4 color : SV_Target0;
+    float2 motion : SV_Target1;
+};
+
+SceneOut scene_out(FrameConstants f, float3 c, float4 pos, float4 prev)
+{
+    SceneOut o;
+    o.color = float4(c, 1.0);
+    float2 ndc = pos.xy * f.screen.zw * 2.0 - 1.0 - pc.view->jitter.xy;
+    o.motion = prev.w > 1e-6 ? (ndc - prev.xy / prev.w) * 0.5 : float2(0, 0);
+    return o;
+}
+
 // Sphere against the view's planes.
 bool sphere_visible(float3 c, float r)
 {
@@ -149,9 +177,9 @@ float3 grass_tint(FrameConstants f, float2 pm)
 }
 
 // Same gust as the grass blades: a travelling wave along the wind direction (pm = terrain-local metres).
-float wind_gust(FrameConstants f, float2 pm, float phase)
+float wind_gust(FrameConstants f, float time, float2 pm, float phase)
 {
-    return 0.35 + 0.3 * sin(f.cam_fwd.w * 1.7 + dot(pm, f.wind.xz) * 0.35 + phase * 1.5);
+    return 0.35 + 0.3 * sin(time * 1.7 + dot(pm, f.wind.xz) * 0.35 + phase * 1.5);
 }
 
 static const float3 DEBUG_TINT[6] = { float3(1, 0.3, 0.3), float3(1, 0.7, 0.2), float3(0.9, 1, 0.3), float3(0.3, 1, 0.4),

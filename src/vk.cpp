@@ -7,7 +7,7 @@
 #define UPLOAD_BYTES (4u << 20)     // per frame in flight, layout below
 #define UPLOAD_VIEWS_OFFSET 1024    // FrameConstants at 0 (<= 1 KB), then ViewConstants[MAX_VIEWS]
 #define UPLOAD_NODES_OFFSET 4096    // TerrainNode array, then TreeChunk array (vegetation.cpp), then OverlayData
-#define GPU_TIMESTAMPS 6            // frame start, after terrain, trees, grass blades, plants; frame end
+#define GPU_TIMESTAMPS 7            // frame start, after terrain, trees, grass blades, plants, sky + TAA; frame end
 #define GPU_PASSES (GPU_TIMESTAMPS - 2)
 
 #define VK_CHECK(x) do { VkResult r_ = (x); if (r_ != VK_SUCCESS) FATAL("%s:%d: %s = %d", __FILE__, __LINE__, #x, (int)r_); } while (0)
@@ -19,6 +19,16 @@ typedef struct {
     VkDeviceAddress address;
     VkDeviceSize size;
 } VkBuf;
+
+typedef struct {
+    VkImage image;
+    VkDeviceMemory memory;
+    VkImageView view;
+} VkTarget;
+
+#define SCENE_FORMAT   VK_FORMAT_R16G16B16A16_SFLOAT
+#define MOTION_FORMAT  VK_FORMAT_R16G16_SFLOAT
+#define DEPTH_FORMAT   VK_FORMAT_D32_SFLOAT
 
 typedef struct {
     VkCommandPool pool;
@@ -54,9 +64,9 @@ typedef struct {
     bool vsync;
     bool swap_transfer_src;
 
-    VkImage depth;
-    VkImageView depth_view;
-    VkDeviceMemory depth_memory;
+    // Frame targets, recreated with the swapchain and bound at TEX_SCENE.. (gpu_shared.h).
+    VkTarget depth, scene, motion, history[2];
+    bool history_valid;         // false after (re)creation: the next frame starts TAA from scratch
 
     VkFrame frames[FRAMES_IN_FLIGHT];
     u64 frame_index;
@@ -471,9 +481,36 @@ static void vk_destroy_swapchain_resources(Vk* vk)
         vkDestroyImageView(vk->device, vk->views[i], NULL);
         vkDestroySemaphore(vk->device, vk->rendered[i], NULL);
     }
-    vkDestroyImageView(vk->device, vk->depth_view, NULL);
-    vkDestroyImage(vk->device, vk->depth, NULL);
-    vkFreeMemory(vk->device, vk->depth_memory, NULL);
+    VkTarget* targets[5] = {&vk->depth, &vk->scene, &vk->motion, &vk->history[0], &vk->history[1]};
+    for (u32 i = 0; i < 5; i++) {
+        vkDestroyImageView(vk->device, targets[i]->view, NULL);
+        vkDestroyImage(vk->device, targets[i]->image, NULL);
+        vkFreeMemory(vk->device, targets[i]->memory, NULL);
+    }
+}
+
+static VkTarget vk_target(Vk* vk, VkFormat format, VkImageUsageFlags usage, VkImageAspectFlags aspect, VkExtent2D extent)
+{
+    VkTarget t = {};
+    VkImageCreateInfo ci = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    ci.imageType = VK_IMAGE_TYPE_2D;
+    ci.format = format;
+    ci.extent = {extent.width, extent.height, 1};
+    ci.mipLevels = ci.arrayLayers = 1;
+    ci.samples = VK_SAMPLE_COUNT_1_BIT;
+    ci.usage = usage;
+    VK_CHECK(vkCreateImage(vk->device, &ci, NULL, &t.image));
+    VkMemoryRequirements req;
+    vkGetImageMemoryRequirements(vk->device, t.image, &req);
+    t.memory = vk_alloc(vk, req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, false);
+    VK_CHECK(vkBindImageMemory(vk->device, t.image, t.memory, 0));
+    VkImageViewCreateInfo vi = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    vi.image = t.image;
+    vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vi.format = format;
+    vi.subresourceRange = {aspect, 0, 1, 0, 1};
+    VK_CHECK(vkCreateImageView(vk->device, &vi, NULL, &t.view));
+    return t;
 }
 
 // (Re)creates swapchain and depth buffer for the given pixel size. Returns false if the window is minimized.
@@ -546,24 +583,27 @@ static bool vk_create_swapchain(Vk* vk, u32 width, u32 height)
         VK_CHECK(vkCreateSemaphore(vk->device, &si, NULL, &vk->rendered[i]));
     }
 
-    VkImageCreateInfo di = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-    di.imageType = VK_IMAGE_TYPE_2D;
-    di.format = VK_FORMAT_D32_SFLOAT;
-    di.extent = {extent.width, extent.height, 1};
-    di.mipLevels = di.arrayLayers = 1;
-    di.samples = VK_SAMPLE_COUNT_1_BIT;
-    di.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-    VK_CHECK(vkCreateImage(vk->device, &di, NULL, &vk->depth));
-    VkMemoryRequirements req;
-    vkGetImageMemoryRequirements(vk->device, vk->depth, &req);
-    vk->depth_memory = vk_alloc(vk, req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, false);
-    VK_CHECK(vkBindImageMemory(vk->device, vk->depth, vk->depth_memory, 0));
-    VkImageViewCreateInfo dvi = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-    dvi.image = vk->depth;
-    dvi.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    dvi.format = VK_FORMAT_D32_SFLOAT;
-    dvi.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1};
-    VK_CHECK(vkCreateImageView(vk->device, &dvi, NULL, &vk->depth_view));
+    const VkImageUsageFlags sampled = VK_IMAGE_USAGE_SAMPLED_BIT;
+    vk->depth = vk_target(vk, DEPTH_FORMAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | sampled, VK_IMAGE_ASPECT_DEPTH_BIT, extent);
+    vk->scene = vk_target(vk, SCENE_FORMAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | sampled, VK_IMAGE_ASPECT_COLOR_BIT, extent);
+    vk->motion = vk_target(vk, MOTION_FORMAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | sampled, VK_IMAGE_ASPECT_COLOR_BIT, extent);
+    for (u32 i = 0; i < 2; i++)
+        vk->history[i] = vk_target(vk, SCENE_FORMAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | sampled, VK_IMAGE_ASPECT_COLOR_BIT, extent);
+    // Every frame target is sampled in SHADER_READ_ONLY_OPTIMAL; frames transition them from and back to it.
+    VkCommandBuffer cmd = vk_begin_once(vk);
+    vk_image_barrier(cmd, vk->depth.image, VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, VK_PIPELINE_STAGE_2_NONE, 0, VK_IMAGE_LAYOUT_UNDEFINED,
+                     VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    VkTarget* colour[4] = {&vk->scene, &vk->motion, &vk->history[0], &vk->history[1]};
+    for (u32 i = 0; i < 4; i++)
+        vk_image_barrier(cmd, colour[i]->image, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, VK_PIPELINE_STAGE_2_NONE, 0, VK_IMAGE_LAYOUT_UNDEFINED,
+                         VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    vk_end_once(vk);
+    vk_bind_texture(vk, TEX_SCENE, vk->scene.view);
+    vk_bind_texture(vk, TEX_MOTION, vk->motion.view);
+    vk_bind_texture(vk, TEX_DEPTH, vk->depth.view);
+    vk_bind_texture(vk, TEX_HISTORY + 0, vk->history[0].view);
+    vk_bind_texture(vk, TEX_HISTORY + 1, vk->history[1].view);
+    vk->history_valid = false;
     return true;
 }
 
@@ -595,6 +635,8 @@ typedef struct {
                                 // with task and mesh shader in one module, the NVIDIA driver (2026-10) passed garbage
                                 // payloads to the mesh shader although the SPIR-V validates.
     bool blend;                 // alpha blending (premultiplied: src * a + dst * (1 - a))
+    u32 color_count;            // 0: scene pass (SCENE_FORMAT colour + MOTION_FORMAT motion, DEPTH_FORMAT depth)
+    VkFormat color_formats[2];  // otherwise these, and no depth attachment
 } PipelineDesc;
 
 static VkPipeline vk_create_pipeline(Vk* vk, const PipelineDesc* d)
@@ -625,31 +667,34 @@ static VkPipeline vk_create_pipeline(Vk* vk, const PipelineDesc* d)
     VkPipelineMultisampleStateCreateInfo ms = {VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
     ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
     VkPipelineDepthStencilStateCreateInfo ds = {VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-    ds.depthTestEnable = VK_TRUE;
+    bool scene = d->color_count == 0;
+    ds.depthTestEnable = scene;
     ds.depthWriteEnable = d->depth_write;
     ds.depthCompareOp = d->depth_compare;
-    VkPipelineColorBlendAttachmentState ba = {};
-    ba.colorWriteMask = 0xf;
+    VkPipelineColorBlendAttachmentState ba[2] = {};
+    ba[0].colorWriteMask = ba[1].colorWriteMask = 0xf;
     if (d->blend) {
-        ba.blendEnable = VK_TRUE;
-        ba.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
-        ba.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-        ba.colorBlendOp = VK_BLEND_OP_ADD;
-        ba.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
-        ba.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-        ba.alphaBlendOp = VK_BLEND_OP_ADD;
+        ba[0].blendEnable = VK_TRUE;
+        ba[0].srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+        ba[0].dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        ba[0].colorBlendOp = VK_BLEND_OP_ADD;
+        ba[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        ba[0].dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        ba[0].alphaBlendOp = VK_BLEND_OP_ADD;
     }
+    const VkFormat scene_formats[2] = {SCENE_FORMAT, MOTION_FORMAT};
+    u32 color_count = scene ? 2 : d->color_count;
     VkPipelineColorBlendStateCreateInfo cb = {VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
-    cb.attachmentCount = 1;
-    cb.pAttachments = &ba;
+    cb.attachmentCount = color_count;
+    cb.pAttachments = ba;
     VkDynamicState dyn[2] = {VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR};
     VkPipelineDynamicStateCreateInfo dy = {VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO};
     dy.dynamicStateCount = 2;
     dy.pDynamicStates = dyn;
     VkPipelineRenderingCreateInfo ri = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
-    ri.colorAttachmentCount = 1;
-    ri.pColorAttachmentFormats = &vk->swap_format;
-    ri.depthAttachmentFormat = VK_FORMAT_D32_SFLOAT;
+    ri.colorAttachmentCount = color_count;
+    ri.pColorAttachmentFormats = scene ? scene_formats : d->color_formats;
+    ri.depthAttachmentFormat = scene ? DEPTH_FORMAT : VK_FORMAT_UNDEFINED;
     VkGraphicsPipelineCreateInfo ci = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     ci.pNext = &ri;
     ci.stageCount = stage_count;

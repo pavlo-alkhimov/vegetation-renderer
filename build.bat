@@ -15,6 +15,7 @@ if not exist build\shaders mkdir build\shaders
 set SLANGC="%VULKAN_SDK%\Bin\slangc.exe"
 %SLANGC% shaders\terrain.slang -target spirv -o build\shaders\terrain.spv || exit /b 1
 %SLANGC% shaders\overlay.slang -target spirv -o build\shaders\overlay.spv || exit /b 1
+%SLANGC% shaders\taa.slang -target spirv -o build\shaders\taa.spv || exit /b 1
 rem Task shaders in their own modules (driver issue with task + mesh in one module, see vk.cpp PipelineDesc).
 for %%v in (trees grass) do (
     %SLANGC% shaders\vegetation.slang -target spirv -fvk-use-entrypoint-name -entry as_%%v -stage amplification ^

@@ -13,6 +13,7 @@ typedef enum {
     CMD_TREE_DIST_LESS, CMD_TREE_DIST_MORE,
     CMD_TOGGLE_OVERLAY,
     CMD_STANCE_CROUCH, CMD_STANCE_PRONE,
+    CMD_TOGGLE_TAA,
 } ViewerCommand;
 
 typedef struct {
@@ -54,6 +55,14 @@ typedef struct {
     f32 grass_radius;           // m
     f32 target_px;              // terrain triangle edge target (pixels)
     f32 time;
+    // TAA: jitter sequence index; previous frame's camera (absolute) for motion vectors
+    bool taa;
+    VkPipeline pipe_taa;
+    u32 taa_frame;
+    bool prev_valid;
+    f64 prev_pos[3];
+    v3 prev_right, prev_up, prev_fwd;
+    f32 prev_px, prev_py, prev_time;
     // Stats
     u32 node_count;
     f32 gpu_ms;                 // whole frame
@@ -112,6 +121,7 @@ static void viewer_update(Viewer* v, const ViewerInput* in, f32 dt)
         case CMD_TREE_DIST_LESS: v->tree_dist = MAX(v->tree_dist / 1.25f, 100.0f); break;
         case CMD_TREE_DIST_MORE: v->tree_dist = MIN(v->tree_dist * 1.25f, 12000.0f); break;
         case CMD_TOGGLE_OVERLAY: v->overlay.visible = !v->overlay.visible; break;
+        case CMD_TOGGLE_TAA: v->taa = !v->taa; v->vk.history_valid = false; break;
         case CMD_NONE: break;
         }
     }
@@ -180,6 +190,7 @@ static void viewer_overlay(const Viewer* v, OverlayData* d)
     overlay_line(d, l++, "1-4", "VIEW        %s", VIEW_NAMES[v->debug_mode & 3]);
     overlay_line(d, l++, "L", "WIREFRAME   %s", v->wireframe ? "ON" : "OFF");
     overlay_line(d, l++, "[ ]", "TERRAIN LOD %.1f PX", v->target_px);
+    overlay_line(d, l++, "J", "TAA         %s", v->taa ? "ON" : "OFF");
     overlay_line(d, l++, "V", "VSYNC       %s", v->vk.vsync ? "ON" : "OFF");
     overlay_line(d, l++, "K", "SCREENSHOT");
     overlay_line(d, l++, "P", "PRINT CAMERA");
@@ -205,6 +216,20 @@ static void view_perspective(ViewConstants* vc, v3 cam, v3 right, v3 up, v3 fwd,
     }
     vc->planes[5] = {0, 0, 0, 1};
     vc->jitter = {jx, jy, 0, 0};
+}
+
+// Full-screen passes after the scene: TAA resolve (writes the swapchain image and the next history).
+static void viewer_init_post(Viewer* v, const char* shader_dir)
+{
+    char path[1024];
+    snprintf(path, sizeof(path), "%staa.spv", shader_dir);
+    VkShaderModule m = vk_load_shader(&v->vk, path);
+    PipelineDesc d = {m, "vs_taa", "fs_taa", VK_COMPARE_OP_ALWAYS, false, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL};
+    d.color_count = 2;
+    d.color_formats[0] = v->vk.swap_format;
+    d.color_formats[1] = SCENE_FORMAT;
+    v->pipe_taa = vk_create_pipeline(&v->vk, &d);
+    vkDestroyShaderModule(v->vk.device, m, NULL);
 }
 
 // Records and submits one frame. Returns false if the swapchain must be recreated.
@@ -254,6 +279,10 @@ static bool viewer_render(Viewer* v)
     fc->height_tex = TEX_HEIGHT;
     fc->mask_tex = TEX_MASK;
     fc->debug_mode = v->debug_mode;
+    fc->screen = {(f32)vk->extent.width, (f32)vk->extent.height, 1.0f / vk->extent.width, 1.0f / vk->extent.height};
+    u32 history_read = (u32)(vk->frame_index & 1), history_write = history_read ^ 1u;
+    fc->taa = {v->prev_valid ? v->prev_time : v->time, v->taa && vk->history_valid ? 0.1f : 1.0f, 0, 0};
+    fc->history_tex = TEX_HISTORY + history_read;
     terrain_set_ranges(t, proj_y * vk->extent.height * 0.5f, v->target_px, fc);
 
     const VkDeviceSize nodes_offset = UPLOAD_NODES_OFFSET;
@@ -261,8 +290,26 @@ static bool viewer_render(Viewer* v)
     static_assert(UPLOAD_VIEWS_OFFSET + MAX_VIEWS * sizeof(ViewConstants) <= UPLOAD_NODES_OFFSET, "too many views");
     static_assert(UPLOAD_NODES_OFFSET + TERRAIN_MAX_NODES * sizeof(TerrainNode) <= UPLOAD_BYTES, "upload buffer too small");
     ViewConstants* views = (ViewConstants*)((u8*)f->upload.mapped + UPLOAD_VIEWS_OFFSET);
-    view_perspective(&views[0], cam, right, up, fwd, proj_x, proj_y, CAMERA_NEAR, 0, 0);
-    memcpy(views[0].prev_view_proj, views[0].view_proj, sizeof(views[0].view_proj));
+    // TAA jitter: Halton (2, 3), 8 samples, in NDC. The previous view is unjittered and expressed relative to this
+    // frame's render origin, so motion vectors stay valid across origin changes.
+    f32 jx = 0, jy = 0;
+    if (v->taa) {
+        u32 k = v->taa_frame % 8 + 1;
+        f32 hx = 0, hy = 0;
+        for (f32 b = 0.5f, i = (f32)k; i > 0; i = floorf(i / 2), b *= 0.5f) hx += b * fmodf(i, 2);
+        for (f32 b = 1.0f / 3, i = (f32)k; i > 0; i = floorf(i / 3), b /= 3) hy += b * fmodf(i, 3);
+        jx = (hx - 0.5f) * 2.0f / vk->extent.width;
+        jy = (hy - 0.5f) * 2.0f / vk->extent.height;
+    }
+    ViewConstants prev;
+    if (v->prev_valid) {
+        v3 pc_ = v3_make((f32)(v->prev_pos[0] - origin[0]), (f32)(v->prev_pos[1] - origin[1]), (f32)(v->prev_pos[2] - origin[2]));
+        view_perspective(&prev, pc_, v->prev_right, v->prev_up, v->prev_fwd, v->prev_px, v->prev_py, CAMERA_NEAR, 0, 0);
+    } else {
+        view_perspective(&prev, cam, right, up, fwd, proj_x, proj_y, CAMERA_NEAR, 0, 0);
+    }
+    view_perspective(&views[0], cam, right, up, fwd, proj_x, proj_y, CAMERA_NEAR, jx, jy);
+    memcpy(views[0].prev_view_proj, prev.view_proj, sizeof(prev.view_proj));
     TerrainSelect sel = {};
     sel.cam = cam;
     sel.near_d = CAMERA_NEAR;
@@ -309,30 +356,35 @@ static bool viewer_render(Viewer* v)
         vkCmdResetQueryPool(cmd, f->queries, 0, GPU_TIMESTAMPS);
         vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, f->queries, 0);
     }
-    vk_image_barrier(cmd, vk->images[image], VK_IMAGE_ASPECT_COLOR_BIT, 0, 1,
-                     VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, 0, VK_IMAGE_LAYOUT_UNDEFINED,
-                     VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
-    vk_image_barrier(cmd, vk->depth, VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1,
-                     VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_UNDEFINED,
+    // Scene pass: colour + motion + depth into the frame targets (sampled by the previous frame's TAA pass).
+    const VkPipelineStageFlags2 FS = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, COLOR_OUT = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+    const VkAccessFlags2 READ = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, WRITE = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+    const VkImageLayout SAMPLED = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, ATTACHMENT = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    vk_image_barrier(cmd, vk->scene.image, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, FS, 0, SAMPLED, COLOR_OUT, WRITE, ATTACHMENT);
+    vk_image_barrier(cmd, vk->motion.image, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, FS, 0, SAMPLED, COLOR_OUT, WRITE, ATTACHMENT);
+    vk_image_barrier(cmd, vk->depth.image, VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, FS, 0, SAMPLED,
                      VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
                      VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
 
-    VkRenderingAttachmentInfo color = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-    color.imageView = vk->views[image];
-    color.imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-    color.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;   // sky covers every pixel the terrain does not
-    color.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    VkRenderingAttachmentInfo color[2] = {{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO}, {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO}};
+    color[0].imageView = vk->scene.view;
+    color[1].imageView = vk->motion.view;
+    for (u32 i = 0; i < 2; i++) {
+        color[i].imageLayout = ATTACHMENT;
+        color[i].loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;   // sky covers every pixel the terrain does not
+        color[i].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    }
     VkRenderingAttachmentInfo depth = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
-    depth.imageView = vk->depth_view;
+    depth.imageView = vk->depth.view;
     depth.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
     depth.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    depth.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    depth.storeOp = VK_ATTACHMENT_STORE_OP_STORE;     // TAA reads it
     depth.clearValue.depthStencil.depth = 0.0f;       // reversed Z
     VkRenderingInfo ri = {VK_STRUCTURE_TYPE_RENDERING_INFO};
     ri.renderArea.extent = vk->extent;
     ri.layerCount = 1;
-    ri.colorAttachmentCount = 1;
-    ri.pColorAttachments = &color;
+    ri.colorAttachmentCount = 2;
+    ri.pColorAttachments = color;
     ri.pDepthAttachment = &depth;
     vkCmdBeginRendering(cmd, &ri);
     VkViewport vp = {0, 0, (f32)vk->extent.width, (f32)vk->extent.height, 0, 1};
@@ -368,11 +420,40 @@ static bool viewer_render(Viewer* v)
     if (vk->timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, f->queries, 4);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, t->pipeline_sky);
     vkCmdDraw(cmd, 3, 1, 0, 0);
+    vkCmdEndRendering(cmd);
+
+    // TAA resolve: scene + history -> swapchain image + new history (with TAA off it copies the scene).
+    vk_image_barrier(cmd, vk->scene.image, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, COLOR_OUT, WRITE, ATTACHMENT, FS, READ, SAMPLED);
+    vk_image_barrier(cmd, vk->motion.image, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, COLOR_OUT, WRITE, ATTACHMENT, FS, READ, SAMPLED);
+    vk_image_barrier(cmd, vk->depth.image, VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
+                     VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL, FS, READ, SAMPLED);
+    vk_image_barrier(cmd, vk->history[history_write].image, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, FS, 0, SAMPLED, COLOR_OUT, WRITE, ATTACHMENT);
+    vk_image_barrier(cmd, vk->images[image], VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, COLOR_OUT, 0, VK_IMAGE_LAYOUT_UNDEFINED, COLOR_OUT, WRITE, ATTACHMENT);
+    color[0].imageView = vk->views[image];
+    color[1].imageView = vk->history[history_write].view;
+    ri.pDepthAttachment = NULL;
+    vkCmdBeginRendering(cmd, &ri);
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, v->pipe_taa);
+    vkCmdDraw(cmd, 3, 1, 0, 0);
+    vkCmdEndRendering(cmd);
+    vk_image_barrier(cmd, vk->history[history_write].image, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, COLOR_OUT, WRITE, ATTACHMENT, FS, READ, SAMPLED);
+    if (vk->timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, f->queries, 5);
+
     if (v->overlay.visible) {
+        VkRenderingAttachmentInfo display = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+        display.imageView = vk->views[image];
+        display.imageLayout = ATTACHMENT;
+        display.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+        display.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        ri.colorAttachmentCount = 1;
+        ri.pColorAttachments = &display;
+        vk_image_barrier(cmd, vk->images[image], VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, COLOR_OUT, WRITE, ATTACHMENT, COLOR_OUT,
+                         WRITE | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT, ATTACHMENT);
+        vkCmdBeginRendering(cmd, &ri);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, v->overlay.pipeline);
         vkCmdDraw(cmd, 6, 1, 0, 0);
+        vkCmdEndRendering(cmd);
     }
-    vkCmdEndRendering(cmd);
     if (vk->timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, f->queries, GPU_TIMESTAMPS - 1);
 
     VkBuf readback = {};
@@ -414,6 +495,16 @@ static bool viewer_render(Viewer* v)
     VK_CHECK(vkQueueSubmit2(vk->queue, 1, &si, f->fence));
     f->submitted = true;
     vk->frame_index++;
+    vk->history_valid = true;
+    v->taa_frame++;
+    v->prev_valid = true;
+    memcpy(v->prev_pos, c->pos, sizeof(v->prev_pos));
+    v->prev_right = right;
+    v->prev_up = up;
+    v->prev_fwd = fwd;
+    v->prev_px = proj_x;
+    v->prev_py = proj_y;
+    v->prev_time = v->time;
 
     if (shot) {
         VK_CHECK(vkWaitForFences(vk->device, 1, &f->fence, VK_TRUE, UINT64_MAX));

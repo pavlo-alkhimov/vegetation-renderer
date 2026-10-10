@@ -83,6 +83,8 @@ static void overlay_init(Overlay* o, Vk* vk, const char* shader_dir)
     VkShaderModule m = vk_load_shader(vk, path);
     PipelineDesc d = {m, "vs_overlay", "fs_overlay", VK_COMPARE_OP_ALWAYS, false, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL};
     d.blend = true;
+    d.color_count = 1;
+    d.color_formats[0] = vk->swap_format;      // drawn onto the swapchain image after TAA
     o->pipeline = vk_create_pipeline(vk, &d);
     vkDestroyShaderModule(vk->device, m, NULL);
     o->visible = true;

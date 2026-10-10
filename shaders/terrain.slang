@@ -6,6 +6,7 @@ struct TerrainVsOut {
     float4 pos : SV_Position;
     float3 rel : REL;       // relative to render origin
     float2 grid : GRID;     // grid samples, absolute within the terrain
+    float4 prev : PREV;     // previous frame's clip position (motion vectors)
     nointerpolation uint level : LEVEL;
 };
 
@@ -30,13 +31,14 @@ TerrainVsOut vs_terrain(uint vid : SV_VertexID, uint iid : SV_InstanceID)
     TerrainVsOut o;
     o.rel = float3(f.terrain.x + g.x * f.terrain.z, height_at(f, g, 0), f.terrain.y + g.y * f.terrain.z);
     o.pos = project(o.rel);
+    o.prev = project_prev(o.rel);
     o.grid = g;
     o.level = n.level;
     return o;
 }
 
 [shader("fragment")]
-float4 fs_terrain(TerrainVsOut i) : SV_Target
+SceneOut fs_terrain(TerrainVsOut i)
 {
     FrameConstants f = *pc.frame;
     // Normal from the height texture with a footprint-sized difference, so distant terrain does not alias.
@@ -87,7 +89,7 @@ float4 fs_terrain(TerrainVsOut i) : SV_Target
 
     float fog = 1.0 - exp(-dist * f.sun_dir.w);
     c = lerp(c, sky(f, -to_cam / dist), fog);
-    return float4(f.debug_mode == DEBUG_NORMALS ? c : tonemap(c), 1);
+    return scene_out(f, f.debug_mode == DEBUG_NORMALS ? c : tonemap(c), i.pos, i.prev);
 }
 
 struct SkyVsOut {
@@ -105,9 +107,10 @@ SkyVsOut vs_sky(uint vid : SV_VertexID)
 }
 
 [shader("fragment")]
-float4 fs_sky(SkyVsOut i) : SV_Target
+SceneOut fs_sky(SkyVsOut i)
 {
     FrameConstants f = *pc.frame;
-    float3 dir = normalize(f.cam_fwd.xyz + f.cam_right.xyz * (i.ndc.x / f.cam_right.w) - f.cam_up.xyz * (i.ndc.y / f.cam_up.w));
-    return float4(tonemap(sky(f, dir)), 1);
+    float2 ndc = i.ndc - pc.view->jitter.xy;
+    float3 dir = normalize(f.cam_fwd.xyz + f.cam_right.xyz * (ndc.x / f.cam_right.w) - f.cam_up.xyz * (ndc.y / f.cam_up.w));
+    return scene_out(f, tonemap(sky(f, dir)), i.pos, project_prev_dir(dir));
 }

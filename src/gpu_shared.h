@@ -33,6 +33,10 @@ struct TerrainNode {
 #define TEX_HEIGHT 0
 #define TEX_MASK   1        // RG8: r = forest (canopy) density, g = grass density; covers the terrain extent
 #define TEX_PLANTS 2        // per plant species s: TEX_PLANTS + 2s albedo (sRGB + alpha), + 2s + 1 surface (plants_file.h)
+#define TEX_SCENE   64      // frame targets (recreated with the swapchain): scene colour (tonemapped, RGBA16F),
+#define TEX_MOTION  65      // motion (uv of this frame - uv of the previous frame, RG16F),
+#define TEX_DEPTH   66      // depth (D32, reversed Z),
+#define TEX_HISTORY 67      // TAA history, 2 images (ping-pong): TEX_HISTORY + 0/1
 
 // Samplers (bindless sampler array).
 #define SAMPLER_LINEAR_CLAMP 0
@@ -168,6 +172,9 @@ struct FrameConstants {
     v4 wind;                // xz = wind direction (unit), y = strength, w = unused
     v4 grass;               // rgb = meadow grass albedo (linear; mean of the plant assets), w = blade density inside
                             // the plant radius (the plant assets carry the volume there)
+    v4 screen;              // xy = render size (px), zw = 1 / size
+    v4 taa;                 // x = previous frame's time (s, for motion vectors of wind), y = weight of the current
+                            // frame in the TAA blend (1 = no history), z, w = unused
     u32 height_tex;         // bindless index
     u32 debug_mode;         // DEBUG_*
     u32 mask_tex;           // bindless index
@@ -175,7 +182,7 @@ struct FrameConstants {
     i32 grass_tile_x;       // terrain-local tile index of the grass dispatch grid's (0,0)
     i32 grass_tile_z;
     u32 grass_tiles;        // grass dispatch grid side, tiles
-    u32 pad1;
+    u32 history_tex;        // bindless index of the TAA history read this frame
     i32 plant_cell_x[PLANT_LAYERS]; // per layer: terrain-local cell index of the dispatch grid's (0,0)
     i32 plant_cell_z[PLANT_LAYERS];
     u32 plant_cells[PLANT_LAYERS];  // per layer: grid side in cells (the dispatch covers the largest)

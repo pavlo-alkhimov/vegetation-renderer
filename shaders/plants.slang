@@ -83,6 +83,7 @@ void as_plants(uint tid : SV_GroupThreadID, uint3 gid : SV_GroupID)
 struct PlantVsOut {
     float4 pos : SV_Position;
     float3 rel : REL;
+    float4 prev : PREV;                     // previous frame's clip position
     float3 n : NRM;
     float2 uv : UV;
     float t : HEIGHT;                       // 0 at the base .. 1 at the plant's top
@@ -111,8 +112,9 @@ void ms_plants(uint tid : SV_GroupThreadID, uint gid : SV_GroupID, in payload Pl
     float cy = cos(yaw), sy = sin(yaw);
     float hgt = pv.height * scale;
     float2 pm = base.xz - f.terrain.xy;                                 // terrain-local metres (for the gust phase)
-    float gust = wind_gust(f, pm, float((info >> 24) & 255u) / 255.0);
-    float2 bend = f.wind.xz * gust * f.wind.y * sp.shape.w * 0.35 * hgt;
+    float phase = float((info >> 24) & 255u) / 255.0;
+    float2 bend_dir = f.wind.xz * f.wind.y * sp.shape.w * 0.35 * hgt;
+    float2 bend = bend_dir * wind_gust(f, f.cam_fwd.w, pm, phase), bend_prev = bend_dir * wind_gust(f, f.taa.x, pm, phase);
 
     for (uint v = tid; v < m.vertex_count; v += 32) {
         TreeVertex tv = ps.vertices[m.vertex_offset + v];
@@ -122,13 +124,15 @@ void ms_plants(uint tid : SV_GroupThreadID, uint gid : SV_GroupID, in payload Pl
         float3 n = unpack_normal(tv.normal);
         float3 rp = float3(lp.x * cy - lp.z * sy, lp.y, lp.x * sy + lp.z * cy);
         float3 rn = float3(n.x * cy - n.z * sy, n.y, n.x * sy + n.z * cy);
-        float flutter = 0.04 * hgt * sin(f.cam_fwd.w * 5.3 + float(seed) * 0.37) * f.wind.y * sp.shape.w;
-        float2 off = (bend + flutter * float2(-f.wind.z, f.wind.x)) * w;
-        rp.xz += off;
-        rp.y -= dot(off, off) / max(2.0 * max(rp.y, 0.02), 1e-3) * w;    // keep the stem length roughly
+        float flutter_amp = 0.04 * hgt * f.wind.y * sp.shape.w;
+        float2 side = float2(-f.wind.z, f.wind.x);
+        float2 off = (bend + flutter_amp * sin(f.cam_fwd.w * 5.3 + float(seed) * 0.37) * side) * w;
+        float2 off_prev = (bend_prev + flutter_amp * sin(f.taa.x * 5.3 + float(seed) * 0.37) * side) * w;
+        float denom = max(2.0 * max(rp.y, 0.02), 1e-3);              // keep the stem length roughly
         PlantVsOut o;
-        o.rel = base + rp;
+        o.rel = base + rp + float3(off.x, -dot(off, off) / denom * w, off.y);
         o.pos = project(o.rel);
+        o.prev = project_prev(base + rp + float3(off_prev.x, -dot(off_prev, off_prev) / denom * w, off_prev.y));
         o.n = rn;
         o.uv = float2(tv.uv & 0xffffu, tv.uv >> 16) * (8.0 / 65535.0) - 4.0;
         o.t = saturate(lp.y / max(hgt, 1e-3));
@@ -142,7 +146,7 @@ void ms_plants(uint tid : SV_GroupThreadID, uint gid : SV_GroupID, in payload Pl
 }
 
 [shader("fragment")]
-float4 fs_plants(PlantVsOut i, bool front : SV_IsFrontFace) : SV_Target
+SceneOut fs_plants(PlantVsOut i, bool front : SV_IsFrontFace)
 {
     FrameConstants f = *pc.frame;
     PlantSpecies sp = pc.plants->species[i.info & 255u];
@@ -169,8 +173,8 @@ float4 fs_plants(PlantVsOut i, bool front : SV_IsFrontFace) : SV_Target
     float3 c_albedo = albedo.rgb * lerp(float3(0.85, 0.9, 0.95), float3(1.1, 1.08, 0.92), tint);
     float ao = surf.z * lerp(0.4, 1.0, saturate(i.t * 2.5));            // darker towards the ground
     if (f.debug_mode == DEBUG_LOD) c_albedo = DEBUG_TINT[(i.info >> 8) & 255u] * 0.4;
-    if (f.debug_mode == DEBUG_NORMALS) return float4(nm * 0.5 + 0.5, 1);
+    if (f.debug_mode == DEBUG_NORMALS) return scene_out(f, nm * 0.5 + 0.5, i.pos, i.prev);
     float3 to_cam = normalize(f.cam_pos.xyz - i.rel);
     float3 c = shade_foliage(f, c_albedo, nm, to_cam, ao, 0.7);
-    return float4(tonemap(apply_fog(f, c, i.rel)), 1);
+    return scene_out(f, tonemap(apply_fog(f, c, i.rel)), i.pos, i.prev);
 }

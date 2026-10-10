@@ -63,6 +63,7 @@ void as_trees(uint tid : SV_GroupThreadID, uint gid : SV_GroupID)
 struct TreeVsOut {
     float4 pos : SV_Position;
     float3 rel : REL;
+    float4 prev : PREV;                 // previous frame's clip position
     float3 n : NRM;
     float2 uv : UV;
     float3 color : COLOR;           // albedo (leaf or bark), tinted per instance
@@ -95,6 +96,7 @@ void ms_trees(uint tid : SV_GroupThreadID, uint gid : SV_GroupID, in payload Veg
     // Stateless sway: whole tree bends along the wind, phase from position (docs/06 §5.6 has the real rig).
     float phase = dot(base.xz, f.wind.xz) * 0.05 + tint * 6.0;
     float sway = f.wind.y * (0.6 * sin(f.cam_fwd.w * 0.8 + phase) + 0.4 * sin(f.cam_fwd.w * 1.9 + phase * 1.7));
+    float sway_prev = f.wind.y * (0.6 * sin(f.taa.x * 0.8 + phase) + 0.4 * sin(f.taa.x * 1.9 + phase * 1.7));
 
     for (uint v = tid; v < m.vertex_count; v += 32) {
         TreeVertex tv = s.vertices[m.vertex_offset + v];
@@ -104,10 +106,11 @@ void ms_trees(uint tid : SV_GroupThreadID, uint gid : SV_GroupID, in payload Veg
         float3 n = unpack_normal(tv.normal);
         float3 rp = float3(lp.x * cy - lp.z * sy, lp.y, lp.x * sy + lp.z * cy);
         float3 rn = float3(n.x * cy - n.z * sy, n.y, n.x * sy + n.z * cy);
-        rp.xz += f.wind.xz * sway * w * 0.25 * scale;
+        float3 still = base + rp;
         TreeVsOut o;
-        o.rel = base + rp;
+        o.rel = still + float3(f.wind.x, 0, f.wind.z) * sway * w * 0.25 * scale;
         o.pos = project(o.rel);
+        o.prev = project_prev(still + float3(f.wind.x, 0, f.wind.z) * sway_prev * w * 0.25 * scale);
         o.n = rn;
         o.uv = float2(tv.uv & 0xffff, tv.uv >> 16) / 1024.0;
         o.color = mat == MAT_BARK ? tt.bark_color.rgb : leaf;
@@ -179,7 +182,7 @@ float billboard_alpha(float2 uv, float4 shape, uint seed)
 }
 
 [shader("fragment")]
-float4 fs_trees(TreeVsOut i, bool front : SV_IsFrontFace) : SV_Target
+SceneOut fs_trees(TreeVsOut i, bool front : SV_IsFrontFace)
 {
     FrameConstants f = *pc.frame;
     uint mat = i.info & 255, lod = (i.info >> 8) & 255, seed = i.info >> 16;
@@ -212,8 +215,8 @@ float4 fs_trees(TreeVsOut i, bool front : SV_IsFrontFace) : SV_Target
     float3 c = mat == MAT_BARK ? albedo * (SUN_COLOR * saturate(dot(n, f.sun_dir.xyz)) * lerp(0.3, 1.0, c_ao) +
                                            SKY_AMBIENT * (0.6 + 0.4 * n.y) * c_ao)
                                : shade_foliage(f, albedo, n, to_cam, c_ao, 0.6);
-    if (f.debug_mode == DEBUG_NORMALS) return float4(n * 0.5 + 0.5, 1);
-    return float4(tonemap(apply_fog(f, c, i.rel)), 1);
+    if (f.debug_mode == DEBUG_NORMALS) return scene_out(f, n * 0.5 + 0.5, i.pos, i.prev);
+    return scene_out(f, tonemap(apply_fog(f, c, i.rel)), i.pos, i.prev);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -285,6 +288,7 @@ float2 grass_clump(float2 pm, out uint id)
 struct GrassVsOut {
     float4 pos : SV_Position;
     float3 rel : REL;
+    float4 prev : PREV;             // previous frame's clip position
     float3 n : NRM;
     float3 color : COLOR;
     float t : HEIGHT;               // 0 root .. 1 tip
@@ -335,17 +339,19 @@ void ms_grass(uint tid : SV_GroupThreadID, uint gid : SV_GroupID, in payload Veg
     float2 view = normalize(root.xz - f.cam_pos.xz + 1e-4);
     width *= 1.0 + 1.0 * (1.0 - abs(dot(facing.xz, view))) * saturate(dist / 10.0);
     width = max(width, 0.6 * dist / f.veg.z);                           // at least ~1.2 px wide (no AA yet)
-    float gust = wind_gust(f, pm, hash_f(cid + 4u));
-    float3 lean = (float3(out_dir.x, 0, out_dir.y) * (0.25 + 0.35 * hash_f(cid + 5u)) + facing * (h4 - 0.5) * 0.4 +
-                   float3(f.wind.x, 0, f.wind.z) * gust * f.wind.y) * height;
+    float gust = wind_gust(f, f.cam_fwd.w, pm, hash_f(cid + 4u)), gust_prev = wind_gust(f, f.taa.x, pm, hash_f(cid + 4u));
+    float3 lean_still = (float3(out_dir.x, 0, out_dir.y) * (0.25 + 0.35 * hash_f(cid + 5u)) + facing * (h4 - 0.5) * 0.4) * height;
+    float3 wind_dir = float3(f.wind.x, 0, f.wind.z) * f.wind.y * height;
 
     // Quadratic Bézier: root, control straight above, tip displaced by lean.
-    float3 p0 = root, p1 = root + float3(0, height, 0), p2 = root + float3(0, height * 0.85, 0) + lean;
+    float3 p0 = root, p1 = root + float3(0, height, 0), p2 = root + float3(0, height * 0.85, 0) + lean_still + wind_dir * gust;
+    float3 p2_prev = root + float3(0, height * 0.85, 0) + lean_still + wind_dir * gust_prev;
     float3 color = grass_tint(f, pm) * lerp(0.8, 1.15, h0) * lerp(float3(0.9, 0.9, 0.9), float3(1.1, 1.08, 0.95), hash_f(cid + 3u));
     uint v0 = tid * nv;
     for (uint k = 0; k <= segs; k++) {
         float t = float(k) / float(segs);
         float3 pos = (1 - t) * (1 - t) * p0 + 2 * (1 - t) * t * p1 + t * t * p2;
+        float3 pos_prev = (1 - t) * (1 - t) * p0 + 2 * (1 - t) * t * p1 + t * t * p2_prev;
         float3 tangent = normalize(2 * (1 - t) * (p1 - p0) + 2 * t * (p2 - p1) + float3(0, 1e-4, 0));
         float3 n = normalize(cross(across, tangent));
         float w = width * (1.0 - 0.85 * t * t);
@@ -354,6 +360,7 @@ void ms_grass(uint tid : SV_GroupThreadID, uint gid : SV_GroupID, in payload Veg
             GrassVsOut o;
             o.rel = pos + across * w * side;
             o.pos = project(o.rel);
+            o.prev = project_prev(pos_prev + across * w * side);
             o.n = normalize(n + across * side * 0.6);                    // rounded blade normal
             o.color = color;
             o.t = t;
@@ -371,7 +378,7 @@ void ms_grass(uint tid : SV_GroupThreadID, uint gid : SV_GroupID, in payload Veg
 }
 
 [shader("fragment")]
-float4 fs_grass(GrassVsOut i, bool front : SV_IsFrontFace) : SV_Target
+SceneOut fs_grass(GrassVsOut i, bool front : SV_IsFrontFace)
 {
     FrameConstants f = *pc.frame;
     float3 n = normalize(i.n);
@@ -380,7 +387,7 @@ float4 fs_grass(GrassVsOut i, bool front : SV_IsFrontFace) : SV_Target
     float ao = lerp(0.3, 1.0, i.t);
     float3 albedo = i.color * lerp(0.5, 1.05, i.t);
     if (f.debug_mode == DEBUG_LOD) albedo = float3(0.4, 0.4, 0.1);
-    if (f.debug_mode == DEBUG_NORMALS) return float4(n * 0.5 + 0.5, 1);
+    if (f.debug_mode == DEBUG_NORMALS) return scene_out(f, n * 0.5 + 0.5, i.pos, i.prev);
     float3 c = shade_foliage(f, albedo, n, to_cam, ao, 0.8);
-    return float4(tonemap(apply_fog(f, c, i.rel)), 1);
+    return scene_out(f, tonemap(apply_fog(f, c, i.rel)), i.pos, i.prev);
 }
