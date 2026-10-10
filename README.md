@@ -67,6 +67,7 @@ build/vr                                             # or: build/vr <file.vrh> [
 | T, B, - / = | trees on/off, grass on/off, tree draw distance ÷/× 1.25 (default 3 km) |
 | [ / ] | finer / coarser terrain (target triangle size in pixels) |
 | V, F12 / K, P | vsync toggle, screenshot (`shot_NNNN.ppm`), print camera as `--cam` arguments |
+| H | overlay (top right): FPS, FPS graph of the last 5 s, GPU ms, key list |
 
 **macOS (Apple Silicon, e.g. MacBook Air M4):** same code and script, Vulkan via KosmicKrisp (LunarG's conformant Vulkan-on-Metal driver) or MoltenVK. Install the [LunarG Vulkan SDK for macOS](https://vulkan.lunarg.com/sdk/home#mac) with KosmicKrisp selected (it also provides `slangc` and the validation layer; check its release notes for the minimum macOS version), plus `brew install sdl3 pkg-config`. Then:
 

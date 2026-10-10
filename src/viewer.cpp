@@ -11,6 +11,7 @@ typedef enum {
     CMD_PRINT_CAMERA,
     CMD_TOGGLE_TREES, CMD_TOGGLE_GRASS,
     CMD_TREE_DIST_LESS, CMD_TREE_DIST_MORE,
+    CMD_TOGGLE_OVERLAY,
 } ViewerCommand;
 
 typedef struct {
@@ -37,6 +38,7 @@ typedef struct {
     Vk vk;
     Terrain terrain;
     Vegetation veg;
+    Overlay overlay;
     Camera cam;
     u32 debug_mode;
     bool wireframe;
@@ -89,6 +91,7 @@ static void viewer_update(Viewer* v, const ViewerInput* in, f32 dt)
         case CMD_TOGGLE_GRASS: v->show_grass = !v->show_grass; break;
         case CMD_TREE_DIST_LESS: v->tree_dist = MAX(v->tree_dist / 1.25f, 100.0f); break;
         case CMD_TREE_DIST_MORE: v->tree_dist = MIN(v->tree_dist * 1.25f, 12000.0f); break;
+        case CMD_TOGGLE_OVERLAY: v->overlay.visible = !v->overlay.visible; break;
         case CMD_NONE: break;
         }
     }
@@ -137,6 +140,28 @@ static void write_ppm(const char* path, const u8* bgra_or_rgba, u32 w, u32 h, bo
     free(row);
     fclose(f);
     printf("wrote %s\n", path);
+}
+
+// Overlay text: FPS, GPU time, graph legend, keys (movement and camera keys are listed only in the console usage).
+static void viewer_overlay(const Viewer* v, OverlayData* d)
+{
+    static const char* VIEW_NAMES[] = {"SHADED", "LOD", "CONTOURS", "NORMALS"};
+    const Overlay* o = &v->overlay;
+    overlay_begin(o, d, v->vk.extent.width, v->vk.extent.height);
+    overlay_line(d, 0, NULL, "%.1f FPS  %.2f MS", o->fps, o->fps > 0 ? 1000.0f / o->fps : 0.0f);
+    overlay_line(d, 1, NULL, "GPU %.2f MS", v->gpu_ms);
+    overlay_line(d, 10, NULL, "5 S, TOP %.0f, LINES 30/60", d->params.y);
+    u32 l = 12;
+    overlay_line(d, l++, "T", "TREES       %s", v->show_trees ? "ON" : "OFF");
+    overlay_line(d, l++, "B", "GRASS       %s", v->show_grass ? "ON" : "OFF");
+    overlay_line(d, l++, "- =", "TREE DIST   %.0f M", v->tree_dist);
+    overlay_line(d, l++, "1-4", "VIEW        %s", VIEW_NAMES[v->debug_mode & 3]);
+    overlay_line(d, l++, "L", "WIREFRAME   %s", v->wireframe ? "ON" : "OFF");
+    overlay_line(d, l++, "[ ]", "TERRAIN LOD %.1f PX", v->target_px);
+    overlay_line(d, l++, "V", "VSYNC       %s", v->vk.vsync ? "ON" : "OFF");
+    overlay_line(d, l++, "K", "SCREENSHOT");
+    overlay_line(d, l++, "P", "PRINT CAMERA");
+    overlay_line(d, l++, "H", "HIDE OVERLAY");
 }
 
 // Records and submits one frame. Returns false if the swapchain must be recreated.
@@ -226,6 +251,7 @@ static bool viewer_render(Viewer* v)
         vg->grass_groups_x = (n + 7) / 8;
         vg->grass_groups_z = (n + 3) / 4;
     }
+    if (v->overlay.visible) viewer_overlay(v, (OverlayData*)((u8*)f->upload.mapped + OVERLAY_OFFSET));
 
     VkCommandBuffer cmd = f->cmd;
     VK_CHECK(vkResetCommandPool(vk->device, f->pool, 0));
@@ -267,7 +293,8 @@ static bool viewer_render(Viewer* v)
     vkCmdSetViewport(cmd, 0, 1, &vp);
     vkCmdSetScissor(cmd, 0, 1, &sc);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipeline_layout, 0, 1, &vk->set, 0, NULL);
-    PushConstants pcs = {f->upload.address, f->upload.address + nodes_offset, vg->scene.address, f->upload.address + CHUNKS_OFFSET};
+    PushConstants pcs = {f->upload.address, f->upload.address + nodes_offset, vg->scene.address, f->upload.address + CHUNKS_OFFSET,
+                         f->upload.address + OVERLAY_OFFSET};
     vkCmdPushConstants(cmd, vk->pipeline_layout, VK_SHADER_STAGE_ALL, 0, sizeof(pcs), &pcs);
     if (sel.count) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, v->wireframe ? t->pipeline_wire : t->pipeline);
@@ -288,6 +315,10 @@ static bool viewer_render(Viewer* v)
     if (vk->timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, f->queries, 3);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, t->pipeline_sky);
     vkCmdDraw(cmd, 3, 1, 0, 0);
+    if (v->overlay.visible) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, v->overlay.pipeline);
+        vkCmdDraw(cmd, 6, 1, 0, 0);
+    }
     vkCmdEndRendering(cmd);
     if (vk->timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, f->queries, GPU_TIMESTAMPS - 1);
 

@@ -122,9 +122,27 @@ struct FrameConstants {
     u32 pad0;
 };
 
+// Overlay (top right): FPS, FPS graph, key list. One quad; text and graph are evaluated in the fragment shader.
+#define OVERLAY_GRAPH_COLS 160
+#define OVERLAY_TEXT_COLS  28
+#define OVERLAY_TEXT_LINES 24
+#define OVERLAY_GLYPHS     96       // ASCII 32..127, 5 x 7 bits: bit (row * 5 + col), row 0 = top, col 0 = left
+
+struct OverlayData {
+    v4 screen;                      // xy = framebuffer size (px)
+    v4 panel;                       // x, y, w, h (px)
+    v4 graph;                       // x, y, w, h (px)
+    v4 text;                        // xy = first character cell (px), z = cell width, w = cell height
+    v4 params;                      // x = font texel size (px), y = graph full-scale FPS, zw = reference lines (FPS)
+    f32 fps[OVERLAY_GRAPH_COLS];    // oldest to newest; 0 = no data
+    u32 chars[OVERLAY_TEXT_LINES * OVERLAY_TEXT_COLS / 4];   // 1 byte per cell, bit 7 = highlight
+    u32 font[OVERLAY_GLYPHS * 2];
+};
+
 struct PushConstants {
     GPU_PTR(FrameConstants) frame;
     GPU_PTR(TerrainNode) nodes;
     GPU_PTR(VegScene) veg;
     GPU_PTR(TreeChunk) chunks;
+    GPU_PTR(OverlayData) overlay;
 };

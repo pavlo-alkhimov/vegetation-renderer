@@ -16,7 +16,7 @@ static const char* USAGE =
     "controls: click = capture mouse, Esc = release (again = quit), WASD move, Q/E down/up (Space = up),\n"
     "  Shift x8, Ctrl x1/8, wheel = speed, G walk/fly, 1-4 shaded/LOD/contours/normals, L wireframe,\n"
     "  [ ] finer/coarser terrain LOD, T trees, B grass, - = tree distance, V vsync, F12 or K screenshot,\n"
-    "  P print camera\n";
+    "  P print camera, H overlay (FPS graph, keys)\n";
 
 static ViewerCommand map_key(SDL_Scancode sc)
 {
@@ -37,6 +37,7 @@ static ViewerCommand map_key(SDL_Scancode sc)
     case SDL_SCANCODE_B: return CMD_TOGGLE_GRASS;
     case SDL_SCANCODE_MINUS: return CMD_TREE_DIST_LESS;
     case SDL_SCANCODE_EQUALS: return CMD_TREE_DIST_MORE;
+    case SDL_SCANCODE_H: return CMD_TOGGLE_OVERLAY;
     default: return CMD_NONE;
     }
 }
@@ -109,6 +110,7 @@ int main(int argc, char** argv)
     terrain_create_pipelines(&v.terrain, &v.vk, shader_path);
     snprintf(shader_path, sizeof(shader_path), "%sshaders/", SDL_GetBasePath());
     veg_init(&v.veg, &v.terrain, &v.vk, shader_path);
+    overlay_init(&v.overlay, &v.vk, shader_path);
     v.show_trees = trees;
     v.show_grass = grass;
     v.tree_dist = tree_dist;
@@ -180,6 +182,7 @@ int main(int argc, char** argv)
         f32 dt = MIN((f32)((f64)(now - last) / freq), 0.1f);
         f64 frame_ms = (f64)(now - last) * 1000.0 / freq;
         last = now;
+        overlay_frame(&v.overlay, (f32)(frame_ms * 0.001));
         viewer_update(&v, &in, dt);
 
         if (max_frames && frames + 1 == max_frames && shot_path) v.screenshot_path = shot_path;

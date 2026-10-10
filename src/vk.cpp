@@ -4,7 +4,7 @@
 #define FRAMES_IN_FLIGHT 2
 #define MAX_SWAP_IMAGES  8
 #define BINDLESS_TEXTURES 256
-#define UPLOAD_BYTES (4u << 20)     // per frame in flight: FrameConstants + TerrainNode array + TreeChunk array
+#define UPLOAD_BYTES (4u << 20)     // per frame in flight: FrameConstants + TerrainNode array + TreeChunk array + overlay
 #define GPU_TIMESTAMPS 5            // frame start, after terrain, after trees, after grass, frame end
 
 #define VK_CHECK(x) do { VkResult r_ = (x); if (r_ != VK_SUCCESS) FATAL("%s:%d: %s = %d", __FILE__, __LINE__, #x, (int)r_); } while (0)
@@ -584,6 +584,7 @@ typedef struct {
     VkShaderModule task_module; // task shader module if different from module. Task shaders get their own module:
                                 // with task and mesh shader in one module, the NVIDIA driver (2026-10) passed garbage
                                 // payloads to the mesh shader although the SPIR-V validates.
+    bool blend;                 // alpha blending (premultiplied: src * a + dst * (1 - a))
 } PipelineDesc;
 
 static VkPipeline vk_create_pipeline(Vk* vk, const PipelineDesc* d)
@@ -619,6 +620,15 @@ static VkPipeline vk_create_pipeline(Vk* vk, const PipelineDesc* d)
     ds.depthCompareOp = d->depth_compare;
     VkPipelineColorBlendAttachmentState ba = {};
     ba.colorWriteMask = 0xf;
+    if (d->blend) {
+        ba.blendEnable = VK_TRUE;
+        ba.srcColorBlendFactor = VK_BLEND_FACTOR_ONE;
+        ba.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        ba.colorBlendOp = VK_BLEND_OP_ADD;
+        ba.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+        ba.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+        ba.alphaBlendOp = VK_BLEND_OP_ADD;
+    }
     VkPipelineColorBlendStateCreateInfo cb = {VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
     cb.attachmentCount = 1;
     cb.pAttachments = &ba;

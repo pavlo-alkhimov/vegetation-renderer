@@ -27,6 +27,7 @@ command -v "$SLANGC" >/dev/null || { echo "slangc not found (Vulkan SDK or githu
 
 mkdir -p build/shaders
 "$SLANGC" shaders/terrain.slang -target spirv -o build/shaders/terrain.spv
+"$SLANGC" shaders/overlay.slang -target spirv -o build/shaders/overlay.spv
 # Task shaders in their own modules (driver issue with task + mesh in one module, see vk.cpp PipelineDesc).
 for v in trees grass; do
     "$SLANGC" shaders/vegetation.slang -target spirv -fvk-use-entrypoint-name -entry "as_$v" -stage amplification \
