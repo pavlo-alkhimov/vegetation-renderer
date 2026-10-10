@@ -33,6 +33,8 @@ struct TerrainNode {
 #define TEX_HEIGHT 0
 #define TEX_MASK   1        // RG8: r = forest (canopy) density, g = ground-cover density; covers the terrain extent
 #define TEX_GC     2        // per ground-cover species s: TEX_GC + 2s albedo (sRGB + alpha), + 2s + 1 surface (ground_cover_file.h)
+#define TEX_COVER   40      // baked ground-cover top view per habitat h (meadow, edge, floor): TEX_COVER + 2h colour
+                            // (sRGB, premultiplied by coverage, a = coverage), + 2h + 1 surface (normal xz, height, -)
 #define TEX_SCENE   64      // frame targets (recreated with the swapchain): scene colour (tonemapped, RGBA16F),
 #define TEX_MOTION  65      // motion (uv of this frame - uv of the previous frame, RG16F),
 #define TEX_DEPTH   66      // depth (D32, reversed Z),
@@ -107,6 +109,9 @@ struct TreeChunk {                  // ≤ TREE_CHUNK consecutive instances of o
 #define GC_CELL_SLOTS    32
 #define GC_LAYERS        2
 #define GC_NEAR_DISTANCE 16.0    // m; species drawn up to here belong to layer 0
+#define GC_HABITATS      3       // meadow, forest edge, forest floor
+#define GC_BAKE_TILE     6.0     // m, side of the baked top-view tile (a multiple of both layer cells)
+#define GC_BAKE_SIZE     2048    // texels
 static const float GC_LAYER_CELL[GC_LAYERS] = {0.6f, 2.0f};    // m
 
 struct GcVariant {               // 48 B
@@ -170,12 +175,14 @@ struct FrameConstants {
                             // w = unused
     v4 tree_lod;            // projected tree height (px) above which LOD 0 / 1 / 2 is used; w = unused
     v4 wind;                // xz = wind direction (unit), y = strength, w = unused
-    v4 cover;               // rgb = meadow ground-cover albedo (linear; mean of the living grass texels), w = unused
+    v4 cover;               // rgb = meadow ground-cover albedo (linear; mean of the living grass texels), w = greenness:
+                            // how far bleached texels of the meadow grasses are recoloured to living green (season)
     v4 screen;              // xy = render size (px), zw = 1 / size
     v4 taa;                 // x = previous frame's time (s, for motion vectors of wind), y = weight of the current
                             // frame in the TAA blend (1 = no history), z, w = unused
     v4 shadow_split;        // view depth (m) where shadow cascade 0..3 ends; views[1 + c] are the cascades
     v4 shadow_texel;        // world size (m) of a shadow-map texel per cascade
+    v4 gc_bake;             // ground-cover bake (load time only): xyz = habitat weights, w = tile size (0 = normal frame)
     u32 height_tex;         // bindless index
     u32 debug_mode;         // DEBUG_*
     u32 mask_tex;           // bindless index
@@ -185,7 +192,7 @@ struct FrameConstants {
     i32 gc_cell_z[GC_LAYERS];
     u32 gc_cells[GC_LAYERS];  // per layer: grid side in cells (the dispatch covers the largest)
     u32 shadows;            // 1 = sun shadow map valid this frame
-    u32 pad3;
+    u32 gc_bake_pass;       // ground-cover bake: pass index (each pass adds instances with other hashes)
 };
 
 // Overlay (top right): FPS, FPS graph, key list. One quad; text and graph are evaluated in the fragment shader.

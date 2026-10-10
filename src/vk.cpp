@@ -660,6 +660,7 @@ typedef struct {
     u32 color_count;            // 0: scene pass (SCENE_FORMAT colour + MOTION_FORMAT motion, DEPTH_FORMAT depth)
     VkFormat color_formats[2];  // otherwise these, and no depth attachment
     bool depth_only;            // shadow pass: no colour, DEPTH_FORMAT depth (overrides the above)
+    bool with_depth;            // colour_count > 0: add a DEPTH_FORMAT depth attachment
 } PipelineDesc;
 
 static VkPipeline vk_create_pipeline(Vk* vk, const PipelineDesc* d)
@@ -691,7 +692,8 @@ static VkPipeline vk_create_pipeline(Vk* vk, const PipelineDesc* d)
     ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
     VkPipelineDepthStencilStateCreateInfo ds = {VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
     bool scene = d->color_count == 0 && !d->depth_only;
-    ds.depthTestEnable = scene || d->depth_only;
+    bool depth = scene || d->depth_only || d->with_depth;
+    ds.depthTestEnable = depth;
     ds.depthWriteEnable = d->depth_write;
     ds.depthCompareOp = d->depth_compare;
     VkPipelineColorBlendAttachmentState ba[2] = {};
@@ -717,7 +719,7 @@ static VkPipeline vk_create_pipeline(Vk* vk, const PipelineDesc* d)
     VkPipelineRenderingCreateInfo ri = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
     ri.colorAttachmentCount = color_count;
     ri.pColorAttachmentFormats = scene ? scene_formats : d->color_formats;
-    ri.depthAttachmentFormat = scene || d->depth_only ? DEPTH_FORMAT : VK_FORMAT_UNDEFINED;
+    ri.depthAttachmentFormat = depth ? DEPTH_FORMAT : VK_FORMAT_UNDEFINED;
     VkGraphicsPipelineCreateInfo ci = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     ci.pNext = &ri;
     ci.stageCount = stage_count;

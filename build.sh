@@ -39,7 +39,7 @@ done
 "$SLANGC" shaders/ground_cover.slang -target spirv -fvk-use-entrypoint-name -entry as_gc -stage amplification \
     -o build/shaders/veg_gc_task.spv
 "$SLANGC" shaders/ground_cover.slang -target spirv -fvk-use-entrypoint-name -entry ms_gc -stage mesh \
-    -entry fs_gc -stage fragment -entry fs_gc_shadow -stage fragment -o build/shaders/veg_gc.spv
+    -entry fs_gc -stage fragment -entry fs_gc_shadow -stage fragment -entry fs_gc_bake -stage fragment -o build/shaders/veg_gc.spv
 
 vk_cflags=""
 [[ -n "${VULKAN_SDK:-}" ]] && vk_cflags="-I$VULKAN_SDK/include"

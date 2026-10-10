@@ -1,6 +1,8 @@
-// Near-field ground cover: Poly Haven plant assets (src/ground_cover.cpp) placed every frame by hash from the vegetation
-// mask. Task shader: one cell of a layer (gpu_shared.h), GC_CELL_SLOTS candidates (species by habitat, variant, scale, distance
-// fade, frustum cull, LOD by projected height). Mesh shader: meshlets with wind. Fragment: alpha-tested scanned cards.
+// Ground cover near field: Poly Haven scans (src/ground_cover.cpp) placed every frame by hash from the vegetation mask.
+// Task shader: one cell of a layer (gpu_shared.h), GC_CELL_SLOTS candidates (species by habitat, variant, scale,
+// distance fade, frustum cull, LOD by projected height). Mesh shader: meshlets with wind. Fragment: alpha-tested
+// scanned cards. The same shaders bake the top view of each habitat at load time (FrameConstants.gc_bake): a
+// seamless tile on flat ground, every instance at LOD 0, no wind.
 #include "common.slang"
 
 struct GcPayload {
@@ -13,37 +15,39 @@ groupshared GcPayload s_gc;
 
 static const float GC_LOD_PX[2] = { 120.0, 40.0 };   // projected height above which LOD 0 / 1 is used
 
-// Habitat weights from the vegetation mask (r = forest, g = ground cover): meadow, forest edge, forest floor.
-float3 gc_habitat(float2 mask)
-{
-    float forest = mask.x;
-    return float3(mask.y * (1.0 - forest), 4.0 * forest * (1.0 - forest), forest * forest);
-}
-
 [shader("amplification")]
 [numthreads(GC_CELL_SLOTS, 1, 1)]
 void as_gc(uint tid : SV_GroupThreadID, uint3 gid : SV_GroupID)
 {
     FrameConstants f = *pc.frame;
     GcScene ps = *pc.gc;
+    bool bake = f.gc_bake.w > 0.0;
     uint layer = gid.z;
     float cell = GC_LAYER_CELL[layer];
     int cx = f.gc_cell_x[layer] + int(gid.x), cz = f.gc_cell_z[layer] + int(gid.y);
+    // Bake: cells repeat with the tile period (copies beyond the edges make the tile seamless).
+    int hx = cx, hz = cz;
+    if (bake) {
+        int n = int(round(f.gc_bake.w / cell));
+        hx = ((cx % n) + n) % n;
+        hz = ((cz % n) + n) % n;
+    }
     uint meshlets = 0;
-    uint h = hash_u32(uint(cx) * 73856093u ^ uint(cz) * 19349663u ^ (tid + 1u) * 83492791u ^ (layer + 1u) * 0x2f6b1d3u);
-    // Stratified 8 x 4 positions inside the cell, so cover do not pile up.
+    uint h = hash_u32(uint(hx) * 73856093u ^ uint(hz) * 19349663u ^ (tid + 1u) * 83492791u ^ (layer + 1u) * 0x2f6b1d3u ^
+                      f.gc_bake_pass * 0x51ed270bu);
+    // Stratified 8 x 4 positions inside the cell, so instances do not pile up.
     float2 local = (float2(tid & 7u, tid >> 3) + float2(hash_f(h), hash_f(h + 1u))) / float2(8.0, 4.0);
-    float2 pm = (float2(cx, cz) + local) * cell;                           // terrain-local metres
+    float2 pm = (float2(cx, cz) + local) * cell;                           // terrain-local metres (bake: tile-local)
     float2 g = pm / f.terrain.z;
-    // Whole cell first (uniform branch): bounding sphere from the terrain height at the cell centre; cover up to
+    // Whole cell first (uniform branch): bounding sphere from the terrain height at the cell centre; instances up to
     // ~2 m tall, terrain slope within the cell bounded by the radius.
     float2 cm = (float2(cx, cz) + 0.5) * cell;
     float2 cg = clamp(cm / f.terrain.z, 0.0, f.terrain_size.xy - 1.0);
-    float3 cc = float3(f.terrain.x + cm.x, height_at(f, cg, 0) + 1.0, f.terrain.y + cm.y);
+    float3 cc = float3(f.terrain.x + cm.x, bake ? 1.0 : height_at(f, cg, 0) + 1.0, f.terrain.y + cm.y);
     bool cell_visible = gid.x < f.gc_cells[layer] && gid.y < f.gc_cells[layer] && sphere_visible(cc, cell * 1.5 + 2.0) &&
-                        distance(cc, f.cam_pos.xyz) < (layer == 0 ? GC_NEAR_DISTANCE : 45.0) + cell * 1.5;
-    if (cell_visible && all(g >= 0.0) && all(g <= f.terrain_size.xy - 1.0)) {
-        float3 hab = gc_habitat(mask_at(f, g, 0));
+                        (bake || distance(cc, f.cam_pos.xyz) < (layer == 0 ? GC_NEAR_DISTANCE : 45.0) + cell * 1.5);
+    if (cell_visible && (bake || (all(g >= 0.0) && all(g <= f.terrain_size.xy - 1.0)))) {
+        float3 hab = bake ? f.gc_bake.xyz : gc_habitat(mask_at(f, g, 0));
         float slot_area = cell * cell / float(GC_CELL_SLOTS);            // m² per candidate
         float u = hash_f(h + 2u), acc = 0.0;
         int sel = -1;
@@ -55,23 +59,25 @@ void as_gc(uint tid : SV_GroupThreadID, uint3 gid : SV_GroupID)
         }
         if (sel >= 0) {
             GcSpecies sp = ps.species[sel];
-            float3 base = float3(f.terrain.x + pm.x, height_at(f, g, 0), f.terrain.y + pm.y);
-            float dist = distance(base, f.cam_pos.xyz);
+            float3 base = float3(f.terrain.x + pm.x, bake ? 0.0 : height_at(f, g, 0), f.terrain.y + pm.y);
+            float dist = bake ? 1.0 : distance(base, f.cam_pos.xyz);
             float fade = smoothstep(sp.shape.z * 0.75, sp.shape.z, dist);   // dithered: no visible ring
-            // Dense layer: fewer, larger cover with distance (coverage stays, cost falls).
+            // Dense layer: fewer, larger instances with distance (coverage stays, cost falls).
             float keep = layer == 0 ? saturate(pow(6.0 / max(dist, 1e-3), 1.2)) : 1.0;
             if (hash_f(h + 3u) >= fade && hash_f(h + 8u) < keep) {
                 uint variant = sp.first_variant + min(uint(hash_f(h + 4u) * float(sp.variant_count)), sp.variant_count - 1u);
                 GcVariant pv = ps.variants[variant];
                 float scale = lerp(sp.shape.x, sp.shape.y, hash_f(h + 5u)) * min(rsqrt(max(keep, 1e-3)), 1.5);
-                if ((uint(sp.habitat.w) & 2u) != 0) scale *= clamp(meadow_height(pm) / 0.45, 0.5, 1.4);   // tall and short meadow patches
+                // Tall and short meadow patches (the bake shows the average meadow; the terrain varies it).
+                if ((uint(sp.habitat.w) & 2u) != 0 && !bake) scale *= clamp(meadow_height(pm) / 0.45, 0.5, 1.4);
                 float hgt = pv.height * scale, r = pv.radius * scale + 0.05;
                 if (sphere_visible(base + float3(0, hgt * 0.5, 0), sqrt(r * r + hgt * hgt * 0.25))) {
                     float px = hgt * f.veg.z / max(dist, 0.05);
                     uint lod = px > GC_LOD_PX[0] ? 0u : px > GC_LOD_PX[1] ? 1u : 2u;
-                    bool shadow_view = pc.view->jitter.z > 0.0;                     // sparsest cards, tall cover only
+                    bool shadow_view = pc.view->jitter.z > 0.0;                     // sparsest cards, tall instances only
                     if (shadow_view) lod = GC_LODS - 1;
-                    bool draw = shadow_view ? hgt >= 0.35 : px > 8.0;               // below ~8 px the terrain carries it
+                    if (bake) lod = 0;
+                    bool draw = bake || (shadow_view ? hgt >= 0.35 : px > 8.0);     // below ~8 px the terrain carries it
                     meshlets = draw ? pv.meshlet_count[lod] : 0u;
                     s_gc.pos[tid] = float4(base, scale);
                     s_gc.info[tid] = variant | lod << 8 | (hash_u32(h + 6u) & 255u) << 16 | (hash_u32(h + 7u) & 255u) << 24;
@@ -104,7 +110,7 @@ struct GcVsOut {
 [outputtopology("triangle")]
 [numthreads(32, 1, 1)]
 void ms_gc(uint tid : SV_GroupThreadID, uint gid : SV_GroupID, in payload GcPayload p,
-               out indices uint3 tris[TREE_MESHLET_TRIS], out vertices GcVsOut verts[TREE_MESHLET_VERTS])
+           out indices uint3 tris[TREE_MESHLET_TRIS], out vertices GcVsOut verts[TREE_MESHLET_VERTS])
 {
     FrameConstants f = *pc.frame;
     GcScene ps = *pc.gc;
@@ -155,6 +161,41 @@ void ms_gc(uint tid : SV_GroupThreadID, uint gid : SV_GroupID, in payload GcPayl
     }
 }
 
+// Surface of a scanned card at a fragment: albedo (tinted), shading normal (normal map in a cotangent frame from
+// screen derivatives; glTF uv has v down, the OpenGL normal map +y up, hence -B), geometric normal, AO.
+// Returns false where the alpha test discards.
+bool gc_surface(GcVsOut i, bool front, out float3 albedo, out float3 nm, out float3 n, out float ao)
+{
+    GcSpecies sp = pc.gc->species[i.info & 255u];
+    SamplerState smp = g_samplers[SAMPLER_ANISO_REPEAT];
+    float4 a = g_textures[sp.albedo_tex].Sample(smp, i.uv);              // sRGB view: linear rgb
+    albedo = float3(0, 0, 0); nm = float3(0, 1, 0); n = nm; ao = 1.0;
+    if ((uint(sp.habitat.w) & 1u) != 0 && a.a < 0.5) return false;
+    float4 surf = g_textures[sp.surface_tex].Sample(smp, i.uv);           // normal xy, AO, roughness
+    n = normalize(i.n);
+    if (!front) n = -n;
+    float3 dp1 = ddx(i.rel), dp2 = ddy(i.rel);
+    float2 duv1 = ddx(i.uv), duv2 = ddy(i.uv);
+    float3 dp2perp = cross(dp2, n), dp1perp = cross(n, dp1);
+    float3 T = dp2perp * duv1.x + dp1perp * duv2.x;
+    float3 B = dp2perp * duv1.y + dp1perp * duv2.y;
+    float inv = rsqrt(max(max(dot(T, T), dot(B, B)), 1e-20));
+    float2 tn = (surf.xy * 2.0 - 1.0) * 0.8;
+    nm = normalize(T * inv * tn.x - B * inv * tn.y + n * sqrt(saturate(1.0 - dot(tn, tn))));
+    if (any(isnan(nm))) nm = n;
+    float tint = float((i.info >> 16) & 255u) / 255.0;
+    albedo = a.rgb * lerp(float3(0.85, 0.9, 0.95), float3(1.1, 1.08, 0.92), tint);
+    if ((uint(sp.habitat.w) & 2u) != 0) {                                  // meadow grasses: season greenness
+        FrameConstants f = *pc.frame;
+        float3 lw = float3(0.3, 0.6, 0.1);
+        float dry = saturate(1.0 - 4.0 * (albedo.g - albedo.r) / max(albedo.g, 1e-3));   // straw: r ~ g
+        float3 green = f.cover.rgb * (dot(albedo, lw) / max(dot(f.cover.rgb, lw), 1e-4));
+        albedo = lerp(albedo, green, dry * f.cover.w * lerp(0.6, 1.0, tint));
+    }
+    ao = surf.z * lerp(0.4, 1.0, saturate(i.t * 2.5));                     // darker towards the ground
+    return true;
+}
+
 [shader("fragment")]
 void fs_gc_shadow(GcVsOut i)
 {
@@ -166,32 +207,32 @@ void fs_gc_shadow(GcVsOut i)
 SceneOut fs_gc(GcVsOut i, bool front : SV_IsFrontFace)
 {
     FrameConstants f = *pc.frame;
-    GcSpecies sp = pc.gc->species[i.info & 255u];
-    SamplerState smp = g_samplers[SAMPLER_ANISO_REPEAT];
-    float4 albedo = g_textures[sp.albedo_tex].Sample(smp, i.uv);         // sRGB view: linear rgb
-    if ((uint(sp.habitat.w) & 1u) != 0 && albedo.a < 0.5) discard;
-    float4 surf = g_textures[sp.surface_tex].Sample(smp, i.uv);          // normal xy, AO, roughness
-
-    // Normal map in a cotangent frame from screen derivatives (no stored tangents). glTF uv has v down, the
-    // OpenGL normal map has +y up, hence -B.
-    float3 n = normalize(i.n);
-    if (!front) n = -n;
-    float3 dp1 = ddx(i.rel), dp2 = ddy(i.rel);
-    float2 duv1 = ddx(i.uv), duv2 = ddy(i.uv);
-    float3 dp2perp = cross(dp2, n), dp1perp = cross(n, dp1);
-    float3 T = dp2perp * duv1.x + dp1perp * duv2.x;
-    float3 B = dp2perp * duv1.y + dp1perp * duv2.y;
-    float inv = rsqrt(max(max(dot(T, T), dot(B, B)), 1e-20));
-    float2 tn = (surf.xy * 2.0 - 1.0) * 0.8;
-    float3 nm = normalize(T * inv * tn.x - B * inv * tn.y + n * sqrt(saturate(1.0 - dot(tn, tn))));
-    if (any(isnan(nm))) nm = n;
-
-    float tint = float((i.info >> 16) & 255u) / 255.0;
-    float3 c_albedo = albedo.rgb * lerp(float3(0.85, 0.9, 0.95), float3(1.1, 1.08, 0.92), tint);
-    float ao = surf.z * lerp(0.4, 1.0, saturate(i.t * 2.5));            // darker towards the ground
-    if (f.debug_mode == DEBUG_LOD) c_albedo = DEBUG_TINT[(i.info >> 8) & 255u] * 0.4;
+    float3 albedo, nm, n;
+    float ao;
+    if (!gc_surface(i, front, albedo, nm, n, ao)) discard;
+    if (f.debug_mode == DEBUG_LOD) albedo = DEBUG_TINT[(i.info >> 8) & 255u] * 0.4;
     if (f.debug_mode == DEBUG_NORMALS) return scene_out(f, nm * 0.5 + 0.5, i.pos, i.prev);
     float3 to_cam = normalize(f.cam_pos.xyz - i.rel);
-    float3 c = shade_foliage(f, c_albedo, nm, to_cam, ao, 0.7, sun_shadow(f, i.rel, n, i.pos.xy));
+    float3 c = shade_foliage(f, albedo, nm, to_cam, ao, 0.7, sun_shadow(f, i.rel, n, i.pos.xy));
     return scene_out(f, tonemap(apply_fog(f, c, i.rel)), i.pos, i.prev);
+}
+
+// Bake: top view of the topmost surface. colour = albedo x AO with coverage 1 (cleared to 0: ground); surface =
+// upward-facing normal xz and height above the ground.
+struct GcBakeOut {
+    float4 color : SV_Target0;
+    float4 surface : SV_Target1;
+};
+
+[shader("fragment")]
+GcBakeOut fs_gc_bake(GcVsOut i, bool front : SV_IsFrontFace)
+{
+    float3 albedo, nm, n;
+    float ao;
+    if (!gc_surface(i, front, albedo, nm, n, ao)) discard;
+    if (nm.y < 0.0) nm = -nm;                                             // seen from above
+    GcBakeOut o;
+    o.color = float4(albedo * ao, 1.0);
+    o.surface = float4(nm.xz * 0.5 + 0.5, saturate(i.rel.y / 1.5), 1.0);
+    return o;
 }

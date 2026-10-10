@@ -186,6 +186,13 @@ uint find_slot(uint prefix[33], uint gid)
     return lo;
 }
 
+// Habitat weights from the vegetation mask (r = forest, g = ground cover): meadow, forest edge, forest floor.
+float3 gc_habitat(float2 mask)
+{
+    float forest = mask.x;
+    return float3(mask.y * (1.0 - forest), 4.0 * forest * (1.0 - forest), forest * forest);
+}
+
 // Meadow grass height (m) at terrain-local metres: patches of short (grazed, mown) and tall grass. One function for
 // ground-cover scale and terrain shading, so both agree.
 float meadow_height(float2 pm)

@@ -52,6 +52,7 @@
     X(vkDestroyImageView) \
     X(vkDestroySemaphore) \
     X(vkDestroyShaderModule) \
+    X(vkDestroyPipeline) \
     X(vkDestroySwapchainKHR) \
     X(vkDeviceWaitIdle) \
     X(vkEndCommandBuffer) \

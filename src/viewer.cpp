@@ -331,7 +331,7 @@ static bool viewer_render(Viewer* v)
     fc->tree_lod = {400.0f, 120.0f, 30.0f, 0};
     fc->wind = {0.8f, 0.5f, 0.6f, 0};
     v3 gc = v->cover.enabled ? v->cover.grass_color : v3_make(0.11f, 0.15f, 0.05f);
-    fc->cover = {gc.x, gc.y, gc.z, 0};
+    fc->cover = {gc.x, gc.y, gc.z, GC_GREENNESS};
     fc->veg_flags = (trees ? VEG_TREES : 0u) | (cover ? VEG_COVER : 0u);
     vg->chunk_count = vg->tree_candidates = 0;
     if (trees)

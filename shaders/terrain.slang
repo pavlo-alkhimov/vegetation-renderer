@@ -37,6 +37,40 @@ TerrainVsOut vs_terrain(uint vid : SV_VertexID, uint iid : SV_InstanceID)
     return o;
 }
 
+// Baked ground-cover top view of habitat k, stochastically tiled (Heitz & Neyret 2018, Deliot & Heitz 2019): a
+// triangle grid of ~2 m cells; each vertex picks a random offset and 90-degree rotation of the tile; the three copies
+// are blended by sharpened barycentric weights. Normals are rotated back. Accumulates weight * sample.
+float2 rot90(float2 p, uint r)
+{
+    return r == 0 ? p : r == 1 ? float2(-p.y, p.x) : r == 2 ? -p : float2(p.y, -p.x);
+}
+
+void cover_tiled(uint k, float2 uv, float2 duvx, float2 duvy, float weight, inout float4 color, inout float4 surf)
+{
+    float2 skewed = mul(float2x2(1.0, 0.0, -0.57735027, 1.15470054), uv * (GC_BAKE_TILE / 2.0) * 3.464);
+    int2 base = int2(floor(skewed));
+    float3 t = float3(frac(skewed), 0);
+    t.z = 1.0 - t.x - t.y;
+    float3 w;
+    int2 vtx[3];
+    if (t.z > 0.0) { w = float3(t.z, t.y, t.x); vtx[0] = base; vtx[1] = base + int2(0, 1); vtx[2] = base + int2(1, 0); }
+    else { w = float3(-t.z, 1.0 - t.y, 1.0 - t.x); vtx[0] = base + int2(1, 1); vtx[1] = base + int2(1, 0); vtx[2] = base + int2(0, 1); }
+    w = w * w * w * w;
+    w /= w.x + w.y + w.z;
+    SamplerState smp = g_samplers[SAMPLER_ANISO_REPEAT];
+    for (uint j = 0; j < 3; j++) {
+        uint h = hash_u32(uint(vtx[j].x) * 73856093u ^ uint(vtx[j].y) * 19349663u ^ (k + 1u) * 0x9e3779b9u);
+        uint r = h & 3u;
+        float2 off = float2(hash_f(h + 1u), hash_f(h + 2u));
+        float2 uvj = rot90(uv, r) + off;
+        float4 c = g_textures[TEX_COVER + 2 * k].SampleGrad(smp, uvj, rot90(duvx, r), rot90(duvy, r));
+        float4 s = g_textures[TEX_COVER + 2 * k + 1].SampleGrad(smp, uvj, rot90(duvx, r), rot90(duvy, r));
+        s.xy = rot90(s.xy * 2.0 - 1.0, (4u - r) & 3u) * 0.5 + 0.5;     // texture-space normal back to world xz
+        color += c * (w[j] * weight);
+        surf += s * (w[j] * weight);
+    }
+}
+
 [shader("fragment")]
 SceneOut fs_terrain(TerrainVsOut i)
 {
@@ -49,36 +83,44 @@ SceneOut fs_terrain(TerrainVsOut i)
     float hz0 = height_at(f, i.grid - float2(0, e), lod), hz1 = height_at(f, i.grid + float2(0, e), lod);
     float3 n = normalize(float3(hx0 - hx1, 2.0 * e * f.terrain.z, hz0 - hz1));
 
-    // Placeholder materials until the terrain layers and RVT exist (docs/12), driven by the vegetation mask: meadow,
-    // forest floor where trees are drawn, canopy colour beyond the tree draw distance (or with trees off), soil and
-    // rock on slopes. Noise uses absolute grid coordinates so it does not move with the render origin.
+    // Placeholder terrain materials until the terrain layers and RVT exist (docs/12), driven by the vegetation mask.
+    // Ground cover: the baked top view of the habitat mix (ground_cover.cpp), with the bare ground (thatch, litter)
+    // where it has no coverage. Near the camera, under the meshes, it stays as the darker lower layer; towards grazing angles blade sides hide the ground (turbid layer: taller cover hides more). Beyond the
+    // tree draw distance forests take the canopy colour; slopes show soil and rock. Noise and tiling use terrain-local
+    // coordinates, so nothing moves with the render origin.
     float3 to_cam = f.cam_pos.xyz - i.rel;
     float dist = length(to_cam);
+    float3 v = to_cam / dist;
     float2 mask = mask_at(f, i.grid, max(0.0, lod - 2.0));
     float variation = value_noise(i.grid / 45.0) * 0.6 + value_noise(i.grid / 9.0) * 0.4;
-
-    // Meadow as a turbid grass layer (docs/06 §5.5): from steep views soil and thatch show between the blades, at
-    // grazing angles only blade sides; taller and denser grass covers more. Same height, dryness and colour
-    // functions as the blades and plant assets, so the far field matches the near field. Inside the blade radius
-    // the blades are drawn and the terrain shows the ground between them.
     float2 pm = i.grid * f.terrain.z;                                   // terrain-local metres
-    float3 grass_col = cover_tint(f, pm) * lerp(0.85, 1.12, variation);
-    float3 thatch = grass_col * float3(0.6, 0.55, 0.42);
-    float cos_v = saturate(dot(n, to_cam / dist));
-    float cover = 1.0 - exp(-mask.y * (0.4 + 5.0 * meadow_height(pm)) / max(cos_v, 0.05));
-    float3 layer = lerp(thatch, grass_col * (1.0 + 0.25 * pow(1.0 - cos_v, 3.0)), cover);
-    float blades = (f.veg_flags & VEG_COVER) != 0 ? 1.0 - smoothstep(GC_NEAR_DISTANCE * 0.6, GC_NEAR_DISTANCE, dist) : 0.0;
-    float3 meadow = lerp(layer, thatch * 0.85, blades);
+
+    float3 hab = gc_habitat(mask);
+    float hsum = hab.x + hab.y + hab.z;
+    float3 hw = hab / max(hsum, 1e-4);
+    float2 uv = pm / GC_BAKE_TILE, duvx = ddx(uv), duvy = ddy(uv);
+    float4 cover_color = float4(0, 0, 0, 0), cover_surf = float4(0, 0, 0, 0);
+    for (uint k = 0; k < GC_HABITATS; k++)
+        if (hw[k] > 0.03) cover_tiled(k, uv, duvx, duvy, hw[k], cover_color, cover_surf);
+    float near = (f.veg_flags & VEG_COVER) != 0 ? smoothstep(GC_NEAR_DISTANCE * 0.55, GC_NEAR_DISTANCE * 0.95, dist) : 1.0;
+    float tall = meadow_height(pm) * hw.x + 0.3 * hw.y + 0.15 * hw.z;   // m, rough mean cover height
+    float cos_v = saturate(dot(n, v));
+    float a = saturate(cover_color.a * saturate(hsum * 1.25) * lerp(0.85, 1.0, near));
+    a = 1.0 - pow(1.0 - a, 1.0 + 2.0 * tall / max(cos_v, 0.08));
+    float3 top = cover_color.rgb / max(cover_color.a, 1e-3) * lerp(0.9, 1.1, variation) * lerp(0.7, 1.0, near) *
+                 lerp(float3(1, 1, 1), float3(1.2, 1.08, 0.82), meadow_dryness(pm) * hw.x);
+    float2 nxz = cover_surf.xy * 2.0 - 1.0;
+    float3 n_cover = normalize(n + float3(nxz.x, 0, nxz.y) * 1.5);
+    float3 litter = lerp(cover_tint(f, pm) * float3(0.6, 0.55, 0.42), FOREST_FLOOR_ALBEDO, hw.z);
+
+    float sh = sun_shadow(f, i.rel, n, i.pos.xy);
+    float3 light = SUN_COLOR * saturate(dot(n, f.sun_dir.xyz)) * sh + SKY_AMBIENT * (0.6 + 0.4 * n.y);
+    float3 c = lerp(litter * light, shade_foliage(f, top, n_cover, v, 1.0, 0.6, sh), a);
     float canopy = (f.veg_flags & VEG_TREES) != 0 ? smoothstep(f.veg.x * 0.7, f.veg.x, dist) : 1.0;
-    float3 forest = lerp(FOREST_FLOOR_ALBEDO, CANOPY_ALBEDO, canopy);
-    float3 albedo = lerp(meadow, forest, smoothstep(0.25, 0.6, mask.x));
-    albedo = lerp(albedo, float3(0.24, 0.19, 0.13), smoothstep(0.85, 0.7, n.y));
-    albedo = lerp(albedo, float3(0.32, 0.31, 0.29), smoothstep(0.7, 0.55, n.y));
-
-    if (f.debug_mode == DEBUG_LOD) albedo = DEBUG_TINT[i.level % 6] * 0.4;
-
-    float3 c = albedo * (SUN_COLOR * saturate(dot(n, f.sun_dir.xyz)) * sun_shadow(f, i.rel, n, i.pos.xy) + SKY_AMBIENT * (0.6 + 0.4 * n.y));
-
+    c = lerp(c, CANOPY_ALBEDO * light, smoothstep(0.25, 0.6, mask.x) * canopy);
+    c = lerp(c, float3(0.24, 0.19, 0.13) * light, smoothstep(0.85, 0.7, n.y));
+    c = lerp(c, float3(0.32, 0.31, 0.29) * light, smoothstep(0.7, 0.55, n.y));
+    if (f.debug_mode == DEBUG_LOD) c = DEBUG_TINT[i.level % 6] * 0.4 * light;
     if (f.debug_mode == DEBUG_CONTOUR) {
         float h = i.rel.y - f.terrain.w;    // above height_min; lines every 10 m, thicker every 50 m
         float l10 = abs(frac(h / 10.0 + 0.5) - 0.5) / max(fwidth(h / 10.0), 1e-5);

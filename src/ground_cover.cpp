@@ -1,6 +1,8 @@
 // Near-field ground cover: cooked Poly Haven cover (cook_ground_cover -> ground_cover.vgc) as meshlets. Placement happens on
 // the GPU every frame (shaders/ground_cover.slang); the CPU only loads the assets and sets up the dispatch grid.
 
+#define GC_GREENNESS 0.6f          // FrameConstants.cover.w (summer; seasons will drive it)
+
 static_assert(sizeof(GcVariant) == 48 && sizeof(GcSpecies) == 48, "GPU struct size");
 
 // Placement and look per Poly Haven asset. Density in cover per m² for meadow / forest edge / forest floor (the
@@ -31,9 +33,180 @@ typedef struct {
     VkTex tex[GC_MAX_SPECIES][2];
     VkBuf scene, variant_buf, species_buf, meshlet_buf, vertex_buf, triangle_buf;
     VkPipeline pipeline;
+    VkTex bake[GC_HABITATS][2];     // baked top view per habitat: colour (premultiplied, a = coverage), surface
     // Per frame
     u32 cells;                      // dispatch grid side
 } GroundCover;
+
+// Top view of each habitat's ground cover, rendered once at load with the near-field shaders: a GC_BAKE_TILE tile on
+// flat ground (instances repeat with the tile period, so it tiles seamlessly), every instance at LOD 0, no wind.
+// Colour is premultiplied by coverage (cleared to 0 = bare ground), so the mips average correctly; the terrain
+// shows it under and beyond the meshes.
+#define GC_BAKE_PASSES 3
+
+static void gc_bake(GroundCover* p, Vk* vk, const char* shader_dir)
+{
+    char path[1024];
+    snprintf(path, sizeof(path), "%sveg_gc_task.spv", shader_dir);
+    VkShaderModule task = vk_load_shader(vk, path);
+    snprintf(path, sizeof(path), "%sveg_gc.spv", shader_dir);
+    VkShaderModule mesh = vk_load_shader(vk, path);
+    PipelineDesc d = {mesh, NULL, "fs_gc_bake", VK_COMPARE_OP_GREATER, true, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, "as_gc", "ms_gc", task};
+    const VkFormat formats[2] = {VK_FORMAT_R8G8B8A8_SRGB, VK_FORMAT_R8G8B8A8_UNORM};
+    d.color_count = 2;
+    d.color_formats[0] = formats[0];
+    d.color_formats[1] = formats[1];
+    d.with_depth = true;
+    VkPipeline pipe = vk_create_pipeline(vk, &d);
+    vkDestroyShaderModule(vk->device, task, NULL);
+    vkDestroyShaderModule(vk->device, mesh, NULL);
+
+    const u32 size = GC_BAKE_SIZE;
+    u32 mips = 0;
+    while ((size >> mips) > 0) mips++;
+    VkTarget depth = vk_target(vk, DEPTH_FORMAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_IMAGE_ASPECT_DEPTH_BIT, {size, size});
+    const f32 tile = (f32)GC_BAKE_TILE, top = 3.0f;      // m: tile side, height range of the depth
+    FrameConstants* fc = (FrameConstants*)vk->frames[0].upload.mapped;
+    ViewConstants* view = (ViewConstants*)((u8*)vk->frames[0].upload.mapped + UPLOAD_VIEWS_OFFSET);
+    memset(view, 0, sizeof(*view));
+    view->view_proj[0] = {2.0f / tile, 0, 0, -1};        // x -> u, z -> v, higher -> larger depth (reversed Z)
+    view->view_proj[1] = {0, 0, 2.0f / tile, -1};
+    view->view_proj[2] = {0, 1.0f / top, 0, 0.05f / top};
+    view->view_proj[3] = {0, 0, 0, 1};
+    memcpy(view->prev_view_proj, view->view_proj, sizeof(view->view_proj));
+    view->planes[0] = {1, 0, 0, 2};                      // instances up to 2 m beyond the tile edges overlap it
+    view->planes[1] = {-1, 0, 0, tile + 2};
+    view->planes[2] = {0, 0, 1, 2};
+    view->planes[3] = {0, 0, -1, tile + 2};
+    view->planes[4] = {0, 1, 0, 1};
+    view->planes[5] = {0, 0, 0, 1};
+    PushConstants pcs = {};
+    pcs.frame = vk->frames[0].upload.address;
+    pcs.view = vk->frames[0].upload.address + UPLOAD_VIEWS_OFFSET;
+    pcs.gc = p->scene.address;
+
+    for (u32 hab = 0; hab < GC_HABITATS; hab++) {
+        memset(fc, 0, sizeof(*fc));
+        fc->cam_pos = {tile * 0.5f, 50, tile * 0.5f, 0.05f};
+        fc->terrain = {0, 0, 1, 0};
+        fc->terrain_size = {1e6f, 1e6f, 1, 0};
+        fc->veg = {0, 0, 1000, 0};
+        fc->wind = {1, 0, 0, 0};                         // strength 0: no bend, no flutter
+        fc->cover = {p->grass_color.x, p->grass_color.y, p->grass_color.z, GC_GREENNESS};
+        fc->gc_bake = {hab == 0 ? 1.0f : 0.0f, hab == 1 ? 1.0f : 0.0f, hab == 2 ? 1.0f : 0.0f, tile};
+        u32 dispatch = 0;
+        for (u32 l = 0; l < GC_LAYERS; l++) {
+            i32 n = (i32)lroundf(tile / GC_LAYER_CELL[l]), m = (i32)ceilf(2.0f / GC_LAYER_CELL[l]);
+            fc->gc_cell_x[l] = fc->gc_cell_z[l] = -m;
+            fc->gc_cells[l] = (u32)(n + 2 * m);
+            dispatch = MAX(dispatch, fc->gc_cells[l]);
+        }
+        VkImageView attach[2];
+        for (u32 k = 0; k < 2; k++) {
+            VkTex* t = &p->bake[hab][k];
+            t->mips = mips;
+            VkImageCreateInfo ci = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+            ci.imageType = VK_IMAGE_TYPE_2D;
+            ci.format = formats[k];
+            ci.extent = {size, size, 1};
+            ci.mipLevels = mips;
+            ci.arrayLayers = 1;
+            ci.samples = VK_SAMPLE_COUNT_1_BIT;
+            ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+            VK_CHECK(vkCreateImage(vk->device, &ci, NULL, &t->image));
+            VkMemoryRequirements req;
+            vkGetImageMemoryRequirements(vk->device, t->image, &req);
+            t->memory = vk_alloc(vk, req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, false);
+            VK_CHECK(vkBindImageMemory(vk->device, t->image, t->memory, 0));
+            VkImageViewCreateInfo vi = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+            vi.image = t->image;
+            vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+            vi.format = formats[k];
+            vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, mips, 0, 1};
+            VK_CHECK(vkCreateImageView(vk->device, &vi, NULL, &t->view));
+            vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            VK_CHECK(vkCreateImageView(vk->device, &vi, NULL, &attach[k]));
+        }
+
+        VkCommandBuffer cmd = vk_begin_once(vk);
+        const VkPipelineStageFlags2 COLOR_OUT = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+        for (u32 k = 0; k < 2; k++)
+            vk_image_barrier(cmd, p->bake[hab][k].image, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, VK_PIPELINE_STAGE_2_NONE, 0, VK_IMAGE_LAYOUT_UNDEFINED,
+                             COLOR_OUT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        vk_image_barrier(cmd, depth.image, VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+                         VK_IMAGE_LAYOUT_UNDEFINED, VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT,
+                         VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT, VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+        VkRenderingAttachmentInfo color[2] = {{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO}, {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO}};
+        for (u32 k = 0; k < 2; k++) {
+            color[k].imageView = attach[k];
+            color[k].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+            color[k].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            color[k].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        }
+        color[1].clearValue.color = {{0.5f, 0.5f, 0.0f, 0.0f}};    // flat ground, height 0
+        VkRenderingAttachmentInfo da = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+        da.imageView = depth.view;
+        da.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+        da.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        da.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        VkRenderingInfo ri = {VK_STRUCTURE_TYPE_RENDERING_INFO};
+        ri.renderArea.extent = {size, size};
+        ri.layerCount = 1;
+        ri.colorAttachmentCount = 2;
+        ri.pColorAttachments = color;
+        ri.pDepthAttachment = &da;
+        vkCmdBeginRendering(cmd, &ri);
+        VkViewport vp = {0, 0, (f32)size, (f32)size, 0, 1};
+        VkRect2D sc = {{0, 0}, {size, size}};
+        vkCmdSetViewport(cmd, 0, 1, &vp);
+        vkCmdSetScissor(cmd, 0, 1, &sc);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipeline_layout, 0, 1, &vk->set, 0, NULL);
+        vkCmdPushConstants(cmd, vk->pipeline_layout, VK_SHADER_STAGE_ALL, 0, sizeof(pcs), &pcs);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+        // Several passes with other hashes: the dense lower sward under the taller tufts the meshes show (from above
+        // a meadow shows little bare ground). The constants of pass k sit after the first FrameConstants block.
+        for (u32 pass = 0; pass < GC_BAKE_PASSES; pass++) {
+            FrameConstants* pf = (FrameConstants*)((u8*)fc + UPLOAD_NODES_OFFSET + pass * 1024);
+            *pf = *fc;
+            pf->gc_bake_pass = pass;
+            PushConstants pp = pcs;
+            pp.frame = pcs.frame + UPLOAD_NODES_OFFSET + pass * 1024;
+            vkCmdPushConstants(cmd, vk->pipeline_layout, VK_SHADER_STAGE_ALL, 0, sizeof(pp), &pp);
+            vkCmdDrawMeshTasksEXT(cmd, dispatch, dispatch, GC_LAYERS);
+        }
+        vkCmdEndRendering(cmd);
+
+        // Mip chain by linear blits (sRGB-correct for the colour), then everything readable by shaders.
+        for (u32 k = 0; k < 2; k++) {
+            VkImage img = p->bake[hab][k].image;
+            vk_image_barrier(cmd, img, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, COLOR_OUT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+                             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+            vk_image_barrier(cmd, img, VK_IMAGE_ASPECT_COLOR_BIT, 1, mips - 1, VK_PIPELINE_STAGE_2_NONE, 0, VK_IMAGE_LAYOUT_UNDEFINED,
+                             VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+            for (u32 m = 1; m < mips; m++) {
+                VkImageBlit b = {};
+                b.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, m - 1, 0, 1};
+                b.srcOffsets[1] = {(i32)(size >> (m - 1)), (i32)(size >> (m - 1)), 1};
+                b.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, m, 0, 1};
+                b.dstOffsets[1] = {(i32)(size >> m), (i32)(size >> m), 1};
+                vkCmdBlitImage(cmd, img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &b, VK_FILTER_LINEAR);
+                vk_image_barrier(cmd, img, VK_IMAGE_ASPECT_COLOR_BIT, m, 1, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                                 VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+            }
+            vk_image_barrier(cmd, img, VK_IMAGE_ASPECT_COLOR_BIT, 0, mips, VK_PIPELINE_STAGE_2_BLIT_BIT, 0, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                             VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
+        vk_end_once(vk);
+        for (u32 k = 0; k < 2; k++) {
+            vkDestroyImageView(vk->device, attach[k], NULL);
+            vk_bind_texture(vk, TEX_COVER + 2 * hab + k, p->bake[hab][k].view);
+        }
+    }
+    vkDestroyImageView(vk->device, depth.view, NULL);
+    vkDestroyImage(vk->device, depth.image, NULL);
+    vkFreeMemory(vk->device, depth.memory, NULL);
+    vkDestroyPipeline(vk->device, pipe, NULL);
+}
 
 // path: cooked file; shader_dir with trailing separator. Leaves p->enabled false if the file or mesh shaders are
 // missing.
@@ -168,6 +341,10 @@ static void gc_init(GroundCover* p, Vk* vk, const char* path, const char* shader
     free(file);
 
     p->pipeline = veg_pipeline(vk, shader_dir, "gc");
+    u64 t1 = SDL_GetPerformanceCounter();
+    gc_bake(p, vk, shader_dir);
+    printf("ground cover: top views of %u habitats baked (%u^2 per %.0f m tile), %.0f ms\n", GC_HABITATS, GC_BAKE_SIZE, GC_BAKE_TILE,
+           (SDL_GetPerformanceCounter() - t1) * 1000.0 / SDL_GetPerformanceFrequency());
     p->enabled = true;
 }
 
