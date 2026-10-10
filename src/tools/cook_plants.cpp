@@ -164,7 +164,7 @@ static void add_variant(u32 species, const char* name, const RawMesh* m, bool in
     u32 largest = 0;
     for (u32 c = 1; c < comps; c++) if (area[c] > area[largest]) largest = c;
 
-    static const f32 KEEP[PLANT_LODS] = {1.0f, 0.5f, 0.2f};
+    static const f32 KEEP[PLANT_LODS] = {1.0f, 0.4f, 0.12f};
     u32 tris[PLANT_LODS] = {};
     for (u32 lod = 0; lod < PLANT_LODS; lod++) {
         bool* keep = (bool*)malloc(comps * sizeof(bool));

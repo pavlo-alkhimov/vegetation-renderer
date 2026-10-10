@@ -21,12 +21,12 @@ for %%v in (trees grass) do (
     %SLANGC% shaders\vegetation.slang -target spirv -fvk-use-entrypoint-name -entry as_%%v -stage amplification ^
         -o build\shaders\veg_%%v_task.spv || exit /b 1
     %SLANGC% shaders\vegetation.slang -target spirv -fvk-use-entrypoint-name -entry ms_%%v -stage mesh ^
-        -entry fs_%%v -stage fragment -o build\shaders\veg_%%v.spv || exit /b 1
+        -entry fs_%%v -stage fragment -entry fs_%%v_shadow -stage fragment -o build\shaders\veg_%%v.spv || exit /b 1
 )
 %SLANGC% shaders\plants.slang -target spirv -fvk-use-entrypoint-name -entry as_plants -stage amplification ^
     -o build\shaders\veg_plants_task.spv || exit /b 1
 %SLANGC% shaders\plants.slang -target spirv -fvk-use-entrypoint-name -entry ms_plants -stage mesh ^
-    -entry fs_plants -stage fragment -o build\shaders\veg_plants.spv || exit /b 1
+    -entry fs_plants -stage fragment -entry fs_plants_shadow -stage fragment -o build\shaders\veg_plants.spv || exit /b 1
 clang++ %COMMON% %OPT% -I"%VULKAN_SDK%\Include" -I"%SDL3_DIR%\include" src\vr.cpp -o build\vr.exe ^
     -L"%SDL3_DIR%\lib\x64" -lSDL3 -Xlinker /subsystem:console || exit /b 1
 copy /y "%SDL3_DIR%\lib\x64\SDL3.dll" build\ >nul

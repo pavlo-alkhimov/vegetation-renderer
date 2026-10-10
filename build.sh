@@ -34,12 +34,12 @@ for v in trees grass; do
     "$SLANGC" shaders/vegetation.slang -target spirv -fvk-use-entrypoint-name -entry "as_$v" -stage amplification \
         -o "build/shaders/veg_${v}_task.spv"
     "$SLANGC" shaders/vegetation.slang -target spirv -fvk-use-entrypoint-name -entry "ms_$v" -stage mesh \
-        -entry "fs_$v" -stage fragment -o "build/shaders/veg_$v.spv"
+        -entry "fs_$v" -stage fragment -entry "fs_${v}_shadow" -stage fragment -o "build/shaders/veg_$v.spv"
 done
 "$SLANGC" shaders/plants.slang -target spirv -fvk-use-entrypoint-name -entry as_plants -stage amplification \
     -o build/shaders/veg_plants_task.spv
 "$SLANGC" shaders/plants.slang -target spirv -fvk-use-entrypoint-name -entry ms_plants -stage mesh \
-    -entry fs_plants -stage fragment -o build/shaders/veg_plants.spv
+    -entry fs_plants -stage fragment -entry fs_plants_shadow -stage fragment -o build/shaders/veg_plants.spv
 
 vk_cflags=""
 [[ -n "${VULKAN_SDK:-}" ]] && vk_cflags="-I$VULKAN_SDK/include"

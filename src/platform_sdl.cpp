@@ -12,13 +12,13 @@ static const char* USAGE =
     "  --debug N                 start in view mode N (0 shaded, 1 LOD, 2 contours, 3 normals); --wire: wireframe\n"
     "  --stance N                start walking: 0 standing, 1 crouching, 2 prone (camera altitude from the ground)\n"
     "  --notrees, --nograss      start with trees / grass off (A/B timing); --noplants: near-field plant assets off;\n"
-    "                            --notaa: no temporal anti-aliasing\n"
+    "                            --notaa: no temporal anti-aliasing; --noshadows: no sun shadows\n"
     "  --plants FILE             cooked plants (default data/cooked/plants.vrp, see cook_plants)\n"
     "  --treedist M              tree draw distance in m (default 3000); --grass M: grass blade radius (default 150)\n"
     "\n"
     "controls: click = capture mouse, Esc = release (again = quit), WASD move, Q/E down/up (Space = up),\n"
     "  Shift x8, Ctrl x1/8, wheel = speed, G walk/fly, C/Z crouch/prone (walk), 1-4 shaded/LOD/contours/normals, L wireframe,\n"
-    "  [ ] finer/coarser terrain LOD, T trees, B grass, N plants, - = tree distance, J TAA, V vsync, F12 or K screenshot,\n"
+    "  [ ] finer/coarser terrain LOD, T trees, B grass, N plants, - = tree distance, J TAA, O shadows, V vsync, F12 or K screenshot,\n"
     "  P print camera, H overlay (FPS graph, keys)\n";
 
 static ViewerCommand map_key(SDL_Scancode sc)
@@ -40,6 +40,7 @@ static ViewerCommand map_key(SDL_Scancode sc)
     case SDL_SCANCODE_B: return CMD_TOGGLE_GRASS;
     case SDL_SCANCODE_N: return CMD_TOGGLE_PLANTS;
     case SDL_SCANCODE_J: return CMD_TOGGLE_TAA;
+    case SDL_SCANCODE_O: return CMD_TOGGLE_SHADOWS;
     case SDL_SCANCODE_MINUS: return CMD_TREE_DIST_LESS;
     case SDL_SCANCODE_EQUALS: return CMD_TREE_DIST_MORE;
     case SDL_SCANCODE_H: return CMD_TOGGLE_OVERLAY;
@@ -55,7 +56,7 @@ int main(int argc, char** argv)
     const char* plants_path = "data/cooked/plants.vrp";
     u32 width = 1920, height = 1080, max_frames = 0;
     const char* shot_path = NULL;
-    bool validation = false, vsync = true, have_cam = false, wire = false, hidpi = false, trees = true, grass = true, plants = true, taa = true;
+    bool validation = false, vsync = true, have_cam = false, wire = false, hidpi = false, trees = true, grass = true, plants = true, taa = true, shadows = true;
     u32 debug_mode = 0;
     i32 stance = -1;
     f32 tree_dist = 3000.0f, grass_radius = 150.0f;
@@ -77,6 +78,7 @@ int main(int argc, char** argv)
         else if (!strcmp(argv[i], "--nograss")) grass = false;
         else if (!strcmp(argv[i], "--noplants")) plants = false;
         else if (!strcmp(argv[i], "--notaa")) taa = false;
+        else if (!strcmp(argv[i], "--noshadows")) shadows = false;
         else if (!strcmp(argv[i], "--stance") && i + 1 < argc) { int s = atoi(argv[++i]); stance = CLAMP(s, 0, 2); }
         else if (!strcmp(argv[i], "--plants") && i + 1 < argc) plants_path = argv[++i];
         else if (!strcmp(argv[i], "--treedist") && i + 1 < argc) tree_dist = (f32)atof(argv[++i]);
@@ -125,6 +127,8 @@ int main(int argc, char** argv)
     veg_init(&v.veg, &v.terrain, &v.vk, shader_path);
     plants_init(&v.plants, &v.vk, plants_path, shader_path);
     viewer_init_post(&v, shader_path);
+    shadows_init(&v.shadows, &v.vk, shader_path);
+    v.show_shadows = shadows;
     v.taa = taa;
     overlay_init(&v.overlay, &v.vk, shader_path);
     v.show_trees = trees;
@@ -228,9 +232,9 @@ int main(int argc, char** argv)
         if ((f64)(now - title_time) / freq > 0.25) {
             const Camera* c = &v.cam;
             char title[384];
-            snprintf(title, sizeof(title), "vr %ux%u | %.2f ms, gpu %.2f (terrain %.2f trees %.2f grass %.2f plants %.2f post %.2f) | %u trees in %u chunks, dist %.0f m | "
+            snprintf(title, sizeof(title), "vr %ux%u | %.2f ms, gpu %.2f (shadow %.2f terrain %.2f trees %.2f grass %.2f plants %.2f post %.2f) | %u trees in %u chunks, dist %.0f m | "
                      "E %.0f N %.0f alt %.1f (+%.1f) | %.1f m/s %s%s",
-                     v.vk.extent.width, v.vk.extent.height, title_cpu_ms / title_frames, v.gpu_ms, v.gpu_pass_ms[0], v.gpu_pass_ms[1], v.gpu_pass_ms[2], v.gpu_pass_ms[3], v.gpu_pass_ms[4],
+                     v.vk.extent.width, v.vk.extent.height, title_cpu_ms / title_frames, v.gpu_ms, v.gpu_pass_ms[0], v.gpu_pass_ms[1], v.gpu_pass_ms[2], v.gpu_pass_ms[3], v.gpu_pass_ms[4], v.gpu_pass_ms[5],
                      v.veg.tree_candidates, v.veg.chunk_count, v.tree_dist,
                      th->origin_e + c->pos[0], th->origin_n + c->pos[2], c->pos[1], c->pos[1] - terrain_height(&v.terrain, c->pos[0], c->pos[2]),
                      c->speed, c->walk ? (c->stance == STANCE_PRONE ? "prone" : c->stance == STANCE_CROUCH ? "crouch" : "walk") : "fly", captured ? "" : " | click to look");
@@ -244,9 +248,9 @@ int main(int argc, char** argv)
     vkDeviceWaitIdle(v.vk.device);
     if (max_frames) viewer_print_camera(&v);
     if (frames > 1)
-        printf("%u frames at %ux%u: avg %.2f ms frame, %.2f ms gpu (terrain %.2f, trees %.2f, grass %.2f, plants %.2f, post %.2f), %u patches, %u tree candidates\n",
+        printf("%u frames at %ux%u: avg %.2f ms frame, %.2f ms gpu (shadow %.2f, terrain %.2f, trees %.2f, grass %.2f, plants %.2f, post %.2f), %u patches, %u tree candidates\n",
                frames, v.vk.extent.width, v.vk.extent.height, sum_cpu_ms / (frames - 1), sum_gpu_ms / (frames - 1),
-               sum_pass_ms[0] / (frames - 1), sum_pass_ms[1] / (frames - 1), sum_pass_ms[2] / (frames - 1), sum_pass_ms[3] / (frames - 1), sum_pass_ms[4] / (frames - 1), v.node_count, v.veg.tree_candidates);
+               sum_pass_ms[0] / (frames - 1), sum_pass_ms[1] / (frames - 1), sum_pass_ms[2] / (frames - 1), sum_pass_ms[3] / (frames - 1), sum_pass_ms[4] / (frames - 1), sum_pass_ms[5] / (frames - 1), v.node_count, v.veg.tree_candidates);
     // Process exit releases the rest (no per-object teardown; docs/02 lifetime rules).
     SDL_DestroyWindow(window);
     SDL_Quit();

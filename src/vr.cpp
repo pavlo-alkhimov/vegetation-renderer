@@ -18,6 +18,7 @@
 #include "terrain.cpp"
 #include "vegetation.cpp"
 #include "plants.cpp"
+#include "shadows.cpp"
 #include "overlay.cpp"
 #include "viewer.cpp"
 #include "platform_sdl.cpp"

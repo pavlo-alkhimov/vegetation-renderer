@@ -7,7 +7,7 @@
 #define UPLOAD_BYTES (4u << 20)     // per frame in flight, layout below
 #define UPLOAD_VIEWS_OFFSET 1024    // FrameConstants at 0 (<= 1 KB), then ViewConstants[MAX_VIEWS]
 #define UPLOAD_NODES_OFFSET 4096    // TerrainNode array, then TreeChunk array (vegetation.cpp), then OverlayData
-#define GPU_TIMESTAMPS 7            // frame start, after terrain, trees, grass blades, plants, sky + TAA; frame end
+#define GPU_TIMESTAMPS 8            // frame start, after shadows, terrain, trees, grass blades, plants, sky + TAA; end
 #define GPU_PASSES (GPU_TIMESTAMPS - 2)
 
 #define VK_CHECK(x) do { VkResult r_ = (x); if (r_ != VK_SUCCESS) FATAL("%s:%d: %s = %d", __FILE__, __LINE__, #x, (int)r_); } while (0)
@@ -77,6 +77,7 @@ typedef struct {
     VkPipelineLayout pipeline_layout;
     VkSampler samplers[SAMPLER_COUNT];  // SAMPLER_* (gpu_shared.h)
     f32 anisotropy;                     // 0 = not supported
+    VkSampler shadow_sampler;
 } Vk;
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL vk_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
@@ -398,7 +399,7 @@ static void vk_init_device(Vk* vk, VkSurfaceKHR surface)
     }
 
     // Bindless set: sampled images + samplers (docs/02). Push constants carry buffer device addresses.
-    VkDescriptorSetLayoutBinding bindings[2] = {};
+    VkDescriptorSetLayoutBinding bindings[4] = {};
     bindings[0].binding = 0;
     bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
     bindings[0].descriptorCount = BINDLESS_TEXTURES;
@@ -407,18 +408,27 @@ static void vk_init_device(Vk* vk, VkSurfaceKHR surface)
     bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
     bindings[1].descriptorCount = SAMPLER_COUNT;
     bindings[1].stageFlags = VK_SHADER_STAGE_ALL;
-    VkDescriptorBindingFlags binding_flags[2] = {
-        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT, 0};
+    bindings[2].binding = 2;                            // shadow comparison sampler
+    bindings[2].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+    bindings[2].descriptorCount = 1;
+    bindings[2].stageFlags = VK_SHADER_STAGE_ALL;
+    bindings[3].binding = 3;                            // shadow map (2D array; written by shadows_init)
+    bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+    bindings[3].descriptorCount = 1;
+    bindings[3].stageFlags = VK_SHADER_STAGE_ALL;
+    VkDescriptorBindingFlags binding_flags[4] = {
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT, 0, 0,
+        VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT};
     VkDescriptorSetLayoutBindingFlagsCreateInfo bfi = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO};
-    bfi.bindingCount = 2;
+    bfi.bindingCount = 4;
     bfi.pBindingFlags = binding_flags;
     VkDescriptorSetLayoutCreateInfo li = {VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO};
     li.pNext = &bfi;
     li.flags = VK_DESCRIPTOR_SET_LAYOUT_CREATE_UPDATE_AFTER_BIND_POOL_BIT;
-    li.bindingCount = 2;
+    li.bindingCount = 4;
     li.pBindings = bindings;
     VK_CHECK(vkCreateDescriptorSetLayout(vk->device, &li, NULL, &vk->set_layout));
-    VkDescriptorPoolSize sizes[2] = {{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, BINDLESS_TEXTURES}, {VK_DESCRIPTOR_TYPE_SAMPLER, SAMPLER_COUNT}};
+    VkDescriptorPoolSize sizes[2] = {{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, BINDLESS_TEXTURES + 1}, {VK_DESCRIPTOR_TYPE_SAMPLER, SAMPLER_COUNT + 1}};
     VkDescriptorPoolCreateInfo dpi = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpi.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
     dpi.maxSets = 1;
@@ -449,6 +459,18 @@ static void vk_init_device(Vk* vk, VkSurfaceKHR surface)
     w.descriptorCount = SAMPLER_COUNT;
     w.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
     w.pImageInfo = sii;
+    vkUpdateDescriptorSets(vk->device, 1, &w, 0, NULL);
+    VkSamplerCreateInfo cmp = {VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO};
+    cmp.magFilter = cmp.minFilter = VK_FILTER_LINEAR;                // bilinear PCF
+    cmp.addressModeU = cmp.addressModeV = cmp.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+    cmp.compareEnable = VK_TRUE;
+    cmp.compareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;                  // reversed Z: lit if not behind the closest caster
+    VK_CHECK(vkCreateSampler(vk->device, &cmp, NULL, &vk->shadow_sampler));
+    VkDescriptorImageInfo csi = {};
+    csi.sampler = vk->shadow_sampler;
+    w.dstBinding = 2;
+    w.descriptorCount = 1;
+    w.pImageInfo = &csi;
     vkUpdateDescriptorSets(vk->device, 1, &w, 0, NULL);
 
     VkPushConstantRange pcr = {VK_SHADER_STAGE_ALL, 0, sizeof(PushConstants)};
@@ -637,6 +659,7 @@ typedef struct {
     bool blend;                 // alpha blending (premultiplied: src * a + dst * (1 - a))
     u32 color_count;            // 0: scene pass (SCENE_FORMAT colour + MOTION_FORMAT motion, DEPTH_FORMAT depth)
     VkFormat color_formats[2];  // otherwise these, and no depth attachment
+    bool depth_only;            // shadow pass: no colour, DEPTH_FORMAT depth (overrides the above)
 } PipelineDesc;
 
 static VkPipeline vk_create_pipeline(Vk* vk, const PipelineDesc* d)
@@ -667,8 +690,8 @@ static VkPipeline vk_create_pipeline(Vk* vk, const PipelineDesc* d)
     VkPipelineMultisampleStateCreateInfo ms = {VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO};
     ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
     VkPipelineDepthStencilStateCreateInfo ds = {VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO};
-    bool scene = d->color_count == 0;
-    ds.depthTestEnable = scene;
+    bool scene = d->color_count == 0 && !d->depth_only;
+    ds.depthTestEnable = scene || d->depth_only;
     ds.depthWriteEnable = d->depth_write;
     ds.depthCompareOp = d->depth_compare;
     VkPipelineColorBlendAttachmentState ba[2] = {};
@@ -683,7 +706,7 @@ static VkPipeline vk_create_pipeline(Vk* vk, const PipelineDesc* d)
         ba[0].alphaBlendOp = VK_BLEND_OP_ADD;
     }
     const VkFormat scene_formats[2] = {SCENE_FORMAT, MOTION_FORMAT};
-    u32 color_count = scene ? 2 : d->color_count;
+    u32 color_count = d->depth_only ? 0 : scene ? 2 : d->color_count;
     VkPipelineColorBlendStateCreateInfo cb = {VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
     cb.attachmentCount = color_count;
     cb.pAttachments = ba;
@@ -694,7 +717,7 @@ static VkPipeline vk_create_pipeline(Vk* vk, const PipelineDesc* d)
     VkPipelineRenderingCreateInfo ri = {VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO};
     ri.colorAttachmentCount = color_count;
     ri.pColorAttachmentFormats = scene ? scene_formats : d->color_formats;
-    ri.depthAttachmentFormat = scene ? DEPTH_FORMAT : VK_FORMAT_UNDEFINED;
+    ri.depthAttachmentFormat = scene || d->depth_only ? DEPTH_FORMAT : VK_FORMAT_UNDEFINED;
     VkGraphicsPipelineCreateInfo ci = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     ci.pNext = &ri;
     ci.stageCount = stage_count;

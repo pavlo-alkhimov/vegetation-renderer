@@ -43,6 +43,7 @@ void as_trees(uint tid : SV_GroupThreadID, uint gid : SV_GroupID)
         if (dist - r < f.veg.x && sphere_visible(centre, r)) {
             float px = tt.bark_color.w * scale * f.veg.z / max(dist, 1.0);
             uint lod = px > f.tree_lod.x ? 0 : px > f.tree_lod.y ? 1 : px > f.tree_lod.z ? 2 : 3;
+            lod = min(lod + uint(pc.view->jitter.z), 3u);                 // shadow views: one LOD coarser
             meshlets = tt.meshlet_count[lod];
             s_payload.a[tid] = ii;
             s_payload.b[tid] = type | lod << 8;
@@ -181,17 +182,28 @@ float billboard_alpha(float2 uv, float4 shape, uint seed)
     return max(crown + n * 0.3, uv.y < cb + 0.05 ? trunk : -1.0);
 }
 
+float tree_alpha(TreeVsOut i)
+{
+    uint mat = i.info & 255, seed = i.info >> 16;
+    if (mat == MAT_LEAF) return leaf_alpha(i.uv, seed);
+    if (mat == MAT_NEEDLE) return needle_alpha(i.uv);
+    if (mat == MAT_CLUSTER) return cluster_alpha(i.uv, seed);
+    if (mat == MAT_BILLBOARD) return billboard_alpha(i.uv, i.shape, seed);
+    return 1.0;
+}
+
+[shader("fragment")]
+void fs_trees_shadow(TreeVsOut i)
+{
+    if (tree_alpha(i) < 0.0) discard;
+}
+
 [shader("fragment")]
 SceneOut fs_trees(TreeVsOut i, bool front : SV_IsFrontFace)
 {
     FrameConstants f = *pc.frame;
     uint mat = i.info & 255, lod = (i.info >> 8) & 255, seed = i.info >> 16;
-    float alpha = 1.0;
-    if (mat == MAT_LEAF) alpha = leaf_alpha(i.uv, seed);
-    else if (mat == MAT_NEEDLE) alpha = needle_alpha(i.uv);
-    else if (mat == MAT_CLUSTER) alpha = cluster_alpha(i.uv, seed);
-    else if (mat == MAT_BILLBOARD) alpha = billboard_alpha(i.uv, i.shape, seed);
-    if (alpha < 0.0) discard;
+    if (tree_alpha(i) < 0.0) discard;
 
     float3 to_cam = normalize(f.cam_pos.xyz - i.rel);
     float3 n = normalize(i.n);
@@ -212,9 +224,10 @@ SceneOut fs_trees(TreeVsOut i, bool front : SV_IsFrontFace)
         albedo *= lerp(0.85, 1.15, hash_f(seed * 7919u + 13u));
     }
     if (f.debug_mode == DEBUG_LOD) albedo = DEBUG_TINT[lod] * 0.4;
-    float3 c = mat == MAT_BARK ? albedo * (SUN_COLOR * saturate(dot(n, f.sun_dir.xyz)) * lerp(0.3, 1.0, c_ao) +
+    float sh = sun_shadow(f, i.rel, n, i.pos.xy);
+    float3 c = mat == MAT_BARK ? albedo * (SUN_COLOR * saturate(dot(n, f.sun_dir.xyz)) * lerp(0.3, 1.0, c_ao) * sh +
                                            SKY_AMBIENT * (0.6 + 0.4 * n.y) * c_ao)
-                               : shade_foliage(f, albedo, n, to_cam, c_ao, 0.6);
+                               : shade_foliage(f, albedo, n, to_cam, c_ao, 0.6, sh);
     if (f.debug_mode == DEBUG_NORMALS) return scene_out(f, n * 0.5 + 0.5, i.pos, i.prev);
     return scene_out(f, tonemap(apply_fog(f, c, i.rel)), i.pos, i.prev);
 }
@@ -378,6 +391,11 @@ void ms_grass(uint tid : SV_GroupThreadID, uint gid : SV_GroupID, in payload Veg
 }
 
 [shader("fragment")]
+void fs_grass_shadow(GrassVsOut i)
+{
+}
+
+[shader("fragment")]
 SceneOut fs_grass(GrassVsOut i, bool front : SV_IsFrontFace)
 {
     FrameConstants f = *pc.frame;
@@ -388,6 +406,6 @@ SceneOut fs_grass(GrassVsOut i, bool front : SV_IsFrontFace)
     float3 albedo = i.color * lerp(0.5, 1.05, i.t);
     if (f.debug_mode == DEBUG_LOD) albedo = float3(0.4, 0.4, 0.1);
     if (f.debug_mode == DEBUG_NORMALS) return scene_out(f, n * 0.5 + 0.5, i.pos, i.prev);
-    float3 c = shade_foliage(f, albedo, n, to_cam, ao, 0.8);
+    float3 c = shade_foliage(f, albedo, n, to_cam, ao, 0.8, sun_shadow(f, i.rel, n, i.pos.xy));
     return scene_out(f, tonemap(apply_fog(f, c, i.rel)), i.pos, i.prev);
 }

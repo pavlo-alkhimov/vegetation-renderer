@@ -5,6 +5,8 @@
 [[vk::push_constant]] PushConstants pc;
 [[vk::binding(0, 0)]] Texture2D g_textures[];
 [[vk::binding(1, 0)]] SamplerState g_samplers[];
+[[vk::binding(2, 0)]] SamplerComparisonState g_shadow_sampler;
+[[vk::binding(3, 0)]] Texture2DArray g_shadow_map;
 
 static const float3 SUN_COLOR = float3(1.0, 0.95, 0.88) * 3.2;
 static const float3 SKY_AMBIENT = float3(0.30, 0.38, 0.52);
@@ -102,18 +104,45 @@ float3 apply_fog(FrameConstants f, float3 c, float3 rel)
 }
 
 // Foliage and grass: wrapped diffuse, sun transmission when looking towards the sun, sky ambient. ao darkens the
-// ambient fully and the sun partly (stand-in for self-shadowing until shadow maps exist).
-float3 shade_foliage(FrameConstants f, float3 albedo, float3 n, float3 to_cam, float ao, float transmission)
+// ambient fully and the sun partly (self-shadowing below shadow-map resolution); shadow = sun visibility.
+float3 shade_foliage(FrameConstants f, float3 albedo, float3 n, float3 to_cam, float ao, float transmission, float shadow)
 {
     float3 l = f.sun_dir.xyz;
     float ndl = dot(n, l);
     float diffuse = saturate(ndl * 0.6 + 0.4);
     float through = saturate(-ndl) * 0.35 * transmission;              // thin leaves: light through the back side
     float back = pow(saturate(dot(-to_cam, l)), 6.0) * transmission;   // looking towards the sun
-    float sun_vis = lerp(0.3, 1.0, ao);
+    float sun_vis = lerp(0.45, 1.0, ao) * shadow;
     return albedo * (SUN_COLOR * (diffuse + through + back) * sun_vis + SKY_AMBIENT * (0.75 + 0.25 * n.y) * ao);
 }
 
+// Sun visibility (0..1) from the cascaded shadow map at a point relative to the render origin with normal n. Cascade
+// by view depth with a dithered hand-over near each cascade's end (TAA smooths it), normal offset against acne,
+// 4 bilinear comparison taps.
+float sun_shadow(FrameConstants f, float3 rel, float3 n, float2 pixel)
+{
+    if (f.shadows == 0) return 1.0;
+    float depth = dot(rel - f.cam_pos.xyz, f.cam_fwd.xyz);
+    uint c = 0;
+    while (c < SHADOW_CASCADES && depth > f.shadow_split[c]) c++;
+    if (c < SHADOW_CASCADES) {
+        float end = f.shadow_split[c], start = lerp(c > 0 ? f.shadow_split[c - 1] : 0.0, end, 0.85);
+        if (hash(pixel + frac(f.cam_fwd.w * 13.37) * 97.0) < saturate((depth - start) / (end - start))) c++;
+    }
+    if (c >= SHADOW_CASCADES) return 1.0;
+    float texel = f.shadow_texel[c];
+    ViewConstants v = pc.view[1 + c];
+    float4 q = xform(v.view_proj, rel + n * texel * 1.5);
+    float2 uv = q.xy * 0.5 + 0.5;
+    if (any(uv < 0.0) || any(uv > 1.0)) return 1.0;
+    float ref = q.z + 2.0 * texel * length(v.view_proj[2].xyz);
+    float d = 0.5 / SHADOW_SIZE, s = 0.0;
+    s += g_shadow_map.SampleCmpLevelZero(g_shadow_sampler, float3(uv + float2(-d, -d), c), ref);
+    s += g_shadow_map.SampleCmpLevelZero(g_shadow_sampler, float3(uv + float2(d, -d), c), ref);
+    s += g_shadow_map.SampleCmpLevelZero(g_shadow_sampler, float3(uv + float2(-d, d), c), ref);
+    s += g_shadow_map.SampleCmpLevelZero(g_shadow_sampler, float3(uv + float2(d, d), c), ref);
+    return s * 0.25;
+}
 float hash(float2 p)
 {
     p = frac(p * float2(0.1031, 0.1030));

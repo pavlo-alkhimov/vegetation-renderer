@@ -77,7 +77,7 @@ SceneOut fs_terrain(TerrainVsOut i)
 
     if (f.debug_mode == DEBUG_LOD) albedo = DEBUG_TINT[i.level % 6] * 0.4;
 
-    float3 c = albedo * (SUN_COLOR * saturate(dot(n, f.sun_dir.xyz)) + SKY_AMBIENT * (0.6 + 0.4 * n.y));
+    float3 c = albedo * (SUN_COLOR * saturate(dot(n, f.sun_dir.xyz)) * sun_shadow(f, i.rel, n, i.pos.xy) + SKY_AMBIENT * (0.6 + 0.4 * n.y));
 
     if (f.debug_mode == DEBUG_CONTOUR) {
         float h = i.rel.y - f.terrain.w;    // above height_min; lines every 10 m, thicker every 50 m

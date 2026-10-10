@@ -43,6 +43,10 @@ struct TerrainNode {
 #define SAMPLER_ANISO_REPEAT 1  // trilinear + anisotropic, wrapping (plant atlases)
 #define SAMPLER_COUNT        2
 
+// Sun shadows: cascaded shadow map, D32 array, reversed Z (larger = closer to the sun).
+#define SHADOW_CASCADES 4
+#define SHADOW_SIZE     2048
+
 // Vegetation baseline (docs/06 §5, "baseline" section): trees as meshlets via task + mesh shaders, grass blades
 // generated per frame in mesh shaders.
 #define TREE_LODS            4
@@ -154,7 +158,7 @@ struct ViewConstants {
     v4 view_proj[4];        // rows: clip = (dot(r0, p), dot(r1, p), dot(r2, p), dot(r3, p)), p = (rel, 1); jittered
     v4 prev_view_proj[4];   // previous frame, expressed relative to the current render origin
     v4 planes[6];           // inward: xyz unit normal, w = d; inside if dot(n, p) + d >= 0; unused = (0, 0, 0, 1)
-    v4 jitter;              // xy = sub-pixel jitter (NDC) contained in view_proj, zw = previous frame's
+    v4 jitter;              // xy = sub-pixel jitter (NDC) contained in view_proj; z = LOD bias (shadow views: 1)
 };
 
 struct FrameConstants {
@@ -175,6 +179,8 @@ struct FrameConstants {
     v4 screen;              // xy = render size (px), zw = 1 / size
     v4 taa;                 // x = previous frame's time (s, for motion vectors of wind), y = weight of the current
                             // frame in the TAA blend (1 = no history), z, w = unused
+    v4 shadow_split;        // view depth (m) where shadow cascade 0..3 ends; views[1 + c] are the cascades
+    v4 shadow_texel;        // world size (m) of a shadow-map texel per cascade
     u32 height_tex;         // bindless index
     u32 debug_mode;         // DEBUG_*
     u32 mask_tex;           // bindless index
@@ -186,13 +192,14 @@ struct FrameConstants {
     i32 plant_cell_x[PLANT_LAYERS]; // per layer: terrain-local cell index of the dispatch grid's (0,0)
     i32 plant_cell_z[PLANT_LAYERS];
     u32 plant_cells[PLANT_LAYERS];  // per layer: grid side in cells (the dispatch covers the largest)
-    u32 pad2, pad3;
+    u32 shadows;            // 1 = sun shadow map valid this frame
+    u32 pad3;
 };
 
 // Overlay (top right): FPS, FPS graph, key list. One quad; text and graph are evaluated in the fragment shader.
 #define OVERLAY_GRAPH_COLS 160
 #define OVERLAY_TEXT_COLS  28
-#define OVERLAY_TEXT_LINES 24
+#define OVERLAY_TEXT_LINES 28
 #define OVERLAY_GLYPHS     96       // ASCII 32..127, 5 x 7 bits: bit (row * 5 + col), row 0 = top, col 0 = left
 
 struct OverlayData {

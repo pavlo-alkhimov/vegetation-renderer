@@ -20,7 +20,7 @@ static const struct {
     {"celandine_01",      0.0f,  3.0f, 8.0f, 0.8f, 1.2f, 15.0f, 0.3f},
     {"periwinkle_plant",  0.0f,  1.0f, 6.0f, 0.5f, 0.8f, 15.0f, 0.3f},
     {"dandelion_01",      1.5f,  0.5f, 0.0f, 1.0f, 1.6f, 30.0f, 0.4f},
-    {"nettle_plant",      0.0f,  3.0f, 0.4f, 3.0f, 5.0f, 40.0f, 0.5f},
+    {"nettle_plant",      0.0f,  1.5f, 0.3f, 3.0f, 5.0f, 40.0f, 0.5f},
     {"fern_02",           0.0f,  1.0f, 1.5f, 1.8f, 2.6f, 40.0f, 0.5f},
 };
 typedef struct {

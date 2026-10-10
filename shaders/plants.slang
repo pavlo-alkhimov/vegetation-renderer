@@ -35,7 +35,14 @@ void as_plants(uint tid : SV_GroupThreadID, uint3 gid : SV_GroupID)
     float2 local = (float2(tid & 7u, tid >> 3) + float2(hash_f(h), hash_f(h + 1u))) / float2(8.0, 4.0);
     float2 pm = (float2(cx, cz) + local) * cell;                           // terrain-local metres
     float2 g = pm / f.terrain.z;
-    if (gid.x < f.plant_cells[layer] && gid.y < f.plant_cells[layer] && all(g >= 0.0) && all(g <= f.terrain_size.xy - 1.0)) {
+    // Whole cell first (uniform branch): bounding sphere from the terrain height at the cell centre; plants up to
+    // ~2 m tall, terrain slope within the cell bounded by the radius.
+    float2 cm = (float2(cx, cz) + 0.5) * cell;
+    float2 cg = clamp(cm / f.terrain.z, 0.0, f.terrain_size.xy - 1.0);
+    float3 cc = float3(f.terrain.x + cm.x, height_at(f, cg, 0) + 1.0, f.terrain.y + cm.y);
+    bool cell_visible = gid.x < f.plant_cells[layer] && gid.y < f.plant_cells[layer] && sphere_visible(cc, cell * 1.5 + 2.0) &&
+                        distance(cc, f.cam_pos.xyz) < (layer == 0 ? PLANT_NEAR_DISTANCE : 45.0) + cell * 1.5;
+    if (cell_visible && all(g >= 0.0) && all(g <= f.terrain_size.xy - 1.0)) {
         float3 hab = plant_habitat(mask_at(f, g, 0));
         float slot_area = cell * cell / float(PLANT_CELL_SLOTS);            // m² per candidate
         float u = hash_f(h + 2u), acc = 0.0;
@@ -62,7 +69,10 @@ void as_plants(uint tid : SV_GroupThreadID, uint3 gid : SV_GroupID)
                 if (sphere_visible(base + float3(0, hgt * 0.5, 0), sqrt(r * r + hgt * hgt * 0.25))) {
                     float px = hgt * f.veg.z / max(dist, 0.05);
                     uint lod = px > PLANT_LOD_PX[0] ? 0u : px > PLANT_LOD_PX[1] ? 1u : 2u;
-                    meshlets = pv.meshlet_count[lod];
+                    bool shadow_view = pc.view->jitter.z > 0.0;                     // sparsest cards, tall plants only
+                    if (shadow_view) lod = PLANT_LODS - 1;
+                    bool draw = shadow_view ? hgt >= 0.35 : px > 8.0;               // below ~8 px the terrain carries it
+                    meshlets = draw ? pv.meshlet_count[lod] : 0u;
                     s_plants.pos[tid] = float4(base, scale);
                     s_plants.info[tid] = variant | lod << 8 | (hash_u32(h + 6u) & 255u) << 16 | (hash_u32(h + 7u) & 255u) << 24;
                 }
@@ -146,6 +156,13 @@ void ms_plants(uint tid : SV_GroupThreadID, uint gid : SV_GroupID, in payload Pl
 }
 
 [shader("fragment")]
+void fs_plants_shadow(PlantVsOut i)
+{
+    PlantSpecies sp = pc.plants->species[i.info & 255u];
+    if ((uint(sp.habitat.w) & 1u) != 0 && g_textures[sp.albedo_tex].Sample(g_samplers[SAMPLER_ANISO_REPEAT], i.uv).a < 0.5) discard;
+}
+
+[shader("fragment")]
 SceneOut fs_plants(PlantVsOut i, bool front : SV_IsFrontFace)
 {
     FrameConstants f = *pc.frame;
@@ -175,6 +192,6 @@ SceneOut fs_plants(PlantVsOut i, bool front : SV_IsFrontFace)
     if (f.debug_mode == DEBUG_LOD) c_albedo = DEBUG_TINT[(i.info >> 8) & 255u] * 0.4;
     if (f.debug_mode == DEBUG_NORMALS) return scene_out(f, nm * 0.5 + 0.5, i.pos, i.prev);
     float3 to_cam = normalize(f.cam_pos.xyz - i.rel);
-    float3 c = shade_foliage(f, c_albedo, nm, to_cam, ao, 0.7);
+    float3 c = shade_foliage(f, c_albedo, nm, to_cam, ao, 0.7, sun_shadow(f, i.rel, n, i.pos.xy));
     return scene_out(f, tonemap(apply_fog(f, c, i.rel)), i.pos, i.prev);
 }
