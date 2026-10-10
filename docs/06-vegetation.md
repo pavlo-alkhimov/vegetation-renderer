@@ -299,6 +299,46 @@ for foliage; (3) occlusion culling (HiZ) and per-meshlet culling — biggest cos
 trees; (4) real land-cover placement; (5) dithered LOD transitions, then the cluster DAG; (6) species pipeline with
 assemblies; (7) wind field; (8) grass clumping and statistical occlusion.
 
+### 5.14 Grass v1: scanned plants near, blades to 150 m, terrain beyond (implemented, M0c)
+
+Target: Arma 2 / Arma Reforger-class grass on the RTX 4060 — real stems and leaves around a player lying in the
+grass, no visible end of the grass at any distance. Arma Reforger's own assets cannot be used outside Reforger
+(Bohemia's Tools EULA / Workshop terms), so the near field uses **Poly Haven CC0 scans** of species from the target
+biome: `grass_medium_01/02`, `dandelion_01`, `nettle_plant` (*Urtica dioica*), `weed_plant_02`, `celandine_01`
+(*Ficaria verna*), `periwinkle_plant` (*Vinca minor*), `fern_02` ([`tools/fetch-polyhaven.sh`](../tools/fetch-polyhaven.sh)).
+
+| Range | Representation | Code |
+|---|---|---|
+| 0–16 m (tall forbs to 40 m) | scanned plants: alpha-tested cards with normal maps, 53 variants, 3 LODs by card removal (40 % / 12 %, kept cards scaled up to keep coverage), placed per frame by hash from the vegetation mask (densities per m² per habitat: meadow, forest edge, forest floor), dithered distance fade, thinning with scale compensation beyond 6 m, culled below ~8 px | [`cook_plants`](../src/tools/cook_plants.cpp), [`plants.cpp`](../src/plants.cpp), [`plants.slang`](../shaders/plants.slang) |
+| 0–150 m | procedural blades: 200/m² near, Tsushima clumps (0.8 m), 4/3/2/1 segments by distance, ≥ 1.2 px width, edge-on widening, 60 % density where the scans carry the volume | [`vegetation.slang`](../shaders/vegetation.slang) |
+| 45 m → horizon | terrain as a turbid grass layer: cover from grass height, density and view angle; thatch between blades seen from above, blade sides at grazing angles | [`terrain.slang`](../shaders/terrain.slang) |
+
+One meadow height field and one dryness field (`meadow_height`, `meadow_dryness` in
+[`common.slang`](../shaders/common.slang)) drive blade height, scan scale and terrain shading, and the grass colour
+is the mean albedo of the scans' living blades, so the three tiers agree where they overlap. Walk mode has stances
+(C crouch 1.0 m, Z prone 0.35 m).
+
+The step also brought TAA (Halton jitter, motion vectors from every pass including wind at the previous frame's time,
+Catmull-Rom history, YCoCg variance clipping; [`taa.slang`](../shaders/taa.slang)) and cascaded sun shadows
+(4 cascades to 400 m, 2048², bounding-sphere fit with texel snapping; trees cast in all cascades at coarser LODs,
+blades and plants ≥ 0.35 m in the nearest cascade; cascades 2–3 on alternate frames;
+[`shadows.cpp`](../src/shadows.cpp)).
+
+Measured (RTX 4060, 1080p, `--frames 150 --novsync`), GPU ms:
+
+| Camera | Total | Shadows | Terrain | Trees | Blades | Plants | Sky + TAA |
+|---|---|---|---|---|---|---|---|
+| meadow, prone (`--cam 709065 5511040 0 300 -4 --stance 2`) | 8.8 | 1.1 | 0.26 | 5.2 | 0.34 | 1.1 | 0.76 |
+| forest edge, standing (`--cam 709030 5511060 0 300 -4 --stance 0`) | 12.6 | 2.1 | 0.28 | 6.2 | 0.31 | 2.8 | 0.86 |
+
+Grass (blades + plants + their shadow share) stays within the 3–4 ms budget; shadows exceed their 1.5 ms target at
+the forest edge (trees as casters); the tree pass grew from 4.3 to ~6 ms with motion vectors, two render targets and
+shadow lookups on heavy leaf-card overdraw — the visibility buffer and occlusion culling (step 3 of §5.13) address it.
+
+Known weaknesses: the scans are small (grass tufts 0.04–0.4 m, young nettles 0.2 m) and are scaled up 1–5×; some
+grass_medium_01 variants are bleached and read as dry tufts; the terrain does not cast shadows; no contact shadows
+below shadow-map resolution; TAA on display-referred colour; plant placement ignores slope and the terrain normal.
+
 ## 6. Research items and watch list
 
 - Switch point between foliage DAG simplification and voxels; aggregate-aware simplification of leaf clusters.
