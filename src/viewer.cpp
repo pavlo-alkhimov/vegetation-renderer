@@ -411,6 +411,8 @@ static bool viewer_render(Viewer* v)
     if (cover) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, v->cover.pipeline);
         vkCmdDrawMeshTasksEXT(cmd, v->cover.cells, v->cover.cells, GC_LAYERS);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, v->cover.pipe_imp);
+        vkCmdDrawMeshTasksEXT(cmd, v->cover.imp_cells, v->cover.imp_cells, 1);
     }
     if (vk->timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, f->queries, 4);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, t->pipeline_sky);

@@ -299,46 +299,51 @@ for foliage; (3) occlusion culling (HiZ) and per-meshlet culling — biggest cos
 trees; (4) real land-cover placement; (5) dithered LOD transitions, then the cluster DAG; (6) species pipeline with
 assemblies; (7) wind field; (8) grass clumping and statistical occlusion.
 
-### 5.14 Grass v1: scanned plants near, blades to 150 m, terrain beyond (implemented, M0c)
+### 5.14 Ground cover v1: scans near, impostors mid, baked top view far (implemented, M0c)
 
-Target: Arma 2 / Arma Reforger-class grass on the RTX 4060 — real stems and leaves around a player lying in the
-grass, no visible end of the grass at any distance. Arma Reforger's own assets cannot be used outside Reforger
-(Bohemia's Tools EULA / Workshop terms), so the near field uses **Poly Haven CC0 scans** of species from the target
-biome: `grass_medium_01/02`, `dandelion_01`, `nettle_plant` (*Urtica dioica*), `weed_plant_02`, `celandine_01`
-(*Ficaria verna*), `periwinkle_plant` (*Vinca minor*), `fern_02` ([`tools/fetch-polyhaven.sh`](../tools/fetch-polyhaven.sh)).
+**Terms** (used in code and docs from here on): *ground cover* = all small non-woody plants (grasses, herbs, ferns);
+*species* = one scanned plant type (e.g. nettle), *variant* = one mesh of it, *instance* = one placed copy;
+*near field* = meshes, *mid field* = impostors, *far field* = the terrain carries it. Prefix `gc_` in code.
+
+Target: Arma 2 / Arma Reforger-class ground cover on the RTX 4060: real stems and leaves around a player lying in
+it, ground cover visible at every distance, realistic from above. Reforger's assets cannot be used outside Reforger
+(Bohemia's Tools EULA / Workshop terms), so the source is **Poly Haven CC0 scans** of species from the target biome:
+`grass_medium_01/02`, `dandelion_01`, `nettle_plant` (*Urtica dioica*), `weed_plant_02`, `celandine_01`
+(*Ficaria verna*), `periwinkle_plant` (*Vinca minor*), `fern_02` ([`tools/fetch-polyhaven.sh`](../tools/fetch-polyhaven.sh),
+[`cook_ground_cover`](../src/tools/cook_ground_cover.cpp)). The procedural blades of §5.13 are removed.
 
 | Range | Representation | Code |
 |---|---|---|
-| 0–16 m (tall forbs to 40 m) | scanned plants: alpha-tested cards with normal maps, 53 variants, 3 LODs by card removal (40 % / 12 %, kept cards scaled up to keep coverage), placed per frame by hash from the vegetation mask (densities per m² per habitat: meadow, forest edge, forest floor), dithered distance fade, thinning with scale compensation beyond 6 m, culled below ~8 px | [`cook_plants`](../src/tools/cook_plants.cpp), [`plants.cpp`](../src/plants.cpp), [`plants.slang`](../shaders/plants.slang) |
-| 0–150 m | procedural blades: 200/m² near, Tsushima clumps (0.8 m), 4/3/2/1 segments by distance, ≥ 1.2 px width, edge-on widening, 60 % density where the scans carry the volume | [`vegetation.slang`](../shaders/vegetation.slang) |
-| 45 m → horizon | terrain as a turbid grass layer: cover from grass height, density and view angle; thatch between blades seen from above, blade sides at grazing angles | [`terrain.slang`](../shaders/terrain.slang) |
+| near: 0–16 m (nettle, fern, dandelion to 40 m) | scanned meshes: alpha-tested cards with normal maps, 53 variants, 3 LODs by card removal; instances placed per frame by hash from the vegetation mask (density per m² per habitat: meadow, forest edge, forest floor), thinning with scale compensation beyond 6 m, dithered fade | [`ground_cover.cpp`](../src/ground_cover.cpp), [`ground_cover.slang`](../shaders/ground_cover.slang) |
+| mid: ~11–120 m | one hemi-octahedral impostor per variant (8 × 8 views of the upper hemisphere, 64 px each, one 4096² atlas: colour + normal), baked at load with the near-field shaders; placed in 2 m cells by the same densities, each instance widened horizontally (never vertically) by the density it stands for; view chosen per pixel with dithering between neighbouring frames (TAA blends) | `as_gc_imp` / `ms_gc_imp` / `fs_gc_imp` |
+| everywhere under / beyond | baked top view per habitat: the near-field shaders render a seamless 6 m tile from straight above at load (3 hash passes for the dense lower sward, LOD 0, no wind; colour premultiplied by coverage, normal, height; 2048² with mips); the terrain samples it with stochastic tiling (random offset + 90° rotation per triangle-grid vertex), shows it darker under the meshes, and lets blade sides hide the ground towards grazing angles | `gc_bake`, [`terrain.slang`](../shaders/terrain.slang) |
 
-One meadow height field and one dryness field (`meadow_height`, `meadow_dryness` in
-[`common.slang`](../shaders/common.slang)) drive blade height, scan scale and terrain shading, and the grass colour
-is the mean albedo of the scans' living blades, so the three tiers agree where they overlap. Walk mode has stances
-(C crouch 1.0 m, Z prone 0.35 m).
+One meadow height and one dryness field (`meadow_height`, `meadow_dryness` in [`common.slang`](../shaders/common.slang))
+drive mesh scale, impostor scale and terrain shading. The scans contain many bleached grass blades; a season
+*greenness* (`FrameConstants.cover.w`, 0.6 for summer) recolours them partly to the mean living-grass colour,
+identically in meshes, impostors and bake. Walk mode has stances (C crouch 1.0 m, Z prone 0.35 m).
 
 The step also brought TAA (Halton jitter, motion vectors from every pass including wind at the previous frame's time,
-Catmull-Rom history, YCoCg variance clipping; [`taa.slang`](../shaders/taa.slang)) and cascaded sun shadows
-(4 cascades to 400 m, 2048², bounding-sphere fit with texel snapping; trees cast in all cascades at coarser LODs,
-blades and plants ≥ 0.35 m in the nearest cascade; cascades 2–3 on alternate frames;
-[`shadows.cpp`](../src/shadows.cpp)).
+Catmull-Rom history, YCoCg variance clipping; [`taa.slang`](../shaders/taa.slang)) and cascaded sun shadows (4 cascades
+to 400 m, 2048², bounding-sphere fit with texel snapping; trees cast in all cascades at coarser LODs, ground-cover
+meshes ≥ 0.35 m in the nearest; cascades 2–3 on alternate frames; [`shadows.cpp`](../src/shadows.cpp)).
 
-Measured (RTX 4060, 1080p, `--frames 150 --novsync`), GPU ms:
+Measured (RTX 4060, 1080p, `--frames 150 --novsync`), GPU ms ("cover" = near + mid field):
 
-| Camera | Total | Shadows | Terrain | Trees | Blades | Plants | Sky + TAA |
-|---|---|---|---|---|---|---|---|
-| meadow, prone (`--cam 709065 5511040 0 300 -4 --stance 2`) | 8.8 | 1.1 | 0.26 | 5.2 | 0.34 | 1.1 | 0.76 |
-| forest edge, standing (`--cam 709030 5511060 0 300 -4 --stance 0`) | 12.6 | 2.1 | 0.28 | 6.2 | 0.31 | 2.8 | 0.86 |
+| Camera | Total | Shadows | Terrain | Trees | Cover | Sky + TAA |
+|---|---|---|---|---|---|---|
+| meadow, prone (`--cam 709065 5511040 0 300 -2 --stance 2`) | 8.9 | 0.8 | 0.7 | 5.2 | 1.6 | 0.6 |
+| meadow, standing (`--cam 709065 5511040 0 300 -6 --stance 0`) | 9.2 | 0.8 | 1.0 | 5.3 | 1.5 | 0.6 |
+| forest edge, standing (`--cam 709030 5511060 0 300 -4 --stance 0`) | 14.0 | 1.7 | 1.8 | 6.2 | 3.7 | 0.7 |
+| 50 m above the meadow (`--cam 709065 5511040 470 300 -30`) | 11.4 | 0.4 | 1.6 | 8.4 | 0.4 | 0.6 |
 
-Grass (blades + plants + their shadow share) stays within the 3–4 ms budget; shadows exceed their 1.5 ms target at
-the forest edge (trees as casters); the tree pass grew from 4.3 to ~6 ms with motion vectors, two render targets and
-shadow lookups on heavy leaf-card overdraw — the visibility buffer and occlusion culling (step 3 of §5.13) address it.
+Load time: bake of 3 top views + 53 impostors ~110 ms.
 
-Known weaknesses: the scans are small (grass tufts 0.04–0.4 m, young nettles 0.2 m) and are scaled up 1–5×; some
-grass_medium_01 variants are bleached and read as dry tufts; the terrain does not cast shadows; no contact shadows
-below shadow-map resolution; TAA on display-referred colour; plant placement ignores slope and the terrain normal.
-
+Known weaknesses: the scans are small (grass tufts 0.04–0.4 m, young nettles 0.2 m) and are scaled 1–5×; nettle and
+fern meshes make the forest edge the expensive case; impostors use the nearest view per pixel (no parallax
+correction, no depth) and darker rosette species read as blotches at 50–80 m; the top view is baked for flat ground
+and an average meadow height; the terrain does not cast shadows; TAA works on display-referred colour; placement
+ignores slope and the terrain normal.
 ## 6. Research items and watch list
 
 - Switch point between foliage DAG simplification and voxels; aggregate-aware simplification of leaf clusters.

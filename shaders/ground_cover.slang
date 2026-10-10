@@ -21,7 +21,7 @@ void as_gc(uint tid : SV_GroupThreadID, uint3 gid : SV_GroupID)
 {
     FrameConstants f = *pc.frame;
     GcScene ps = *pc.gc;
-    bool bake = f.gc_bake.w > 0.0;
+    bool bake = f.gc_bake.w > 0.0, imp_bake = f.gc_bake.w < 0.0;
     uint layer = gid.z;
     float cell = GC_LAYER_CELL[layer];
     int cx = f.gc_cell_x[layer] + int(gid.x), cz = f.gc_cell_z[layer] + int(gid.y);
@@ -46,7 +46,7 @@ void as_gc(uint tid : SV_GroupThreadID, uint3 gid : SV_GroupID)
     float3 cc = float3(f.terrain.x + cm.x, bake ? 1.0 : height_at(f, cg, 0) + 1.0, f.terrain.y + cm.y);
     bool cell_visible = gid.x < f.gc_cells[layer] && gid.y < f.gc_cells[layer] && sphere_visible(cc, cell * 1.5 + 2.0) &&
                         (bake || distance(cc, f.cam_pos.xyz) < (layer == 0 ? GC_NEAR_DISTANCE : 45.0) + cell * 1.5);
-    if (cell_visible && (bake || (all(g >= 0.0) && all(g <= f.terrain_size.xy - 1.0)))) {
+    if (!imp_bake && cell_visible && (bake || (all(g >= 0.0) && all(g <= f.terrain_size.xy - 1.0)))) {
         float3 hab = bake ? f.gc_bake.xyz : gc_habitat(mask_at(f, g, 0));
         float slot_area = cell * cell / float(GC_CELL_SLOTS);            // m² per candidate
         float u = hash_f(h + 2u), acc = 0.0;
@@ -84,6 +84,11 @@ void as_gc(uint tid : SV_GroupThreadID, uint3 gid : SV_GroupID)
                 }
             }
         }
+    }
+    if (imp_bake && all(gid == 0) && tid == 0) {                      // impostor bake: one instance at the origin
+        meshlets = ps.variants[f.gc_bake_pass].meshlet_count[0];
+        s_gc.pos[0] = float4(0, 0, 0, 1);
+        s_gc.info[0] = f.gc_bake_pass | 128u << 24;
     }
     s_gc.count[tid] = meshlets;
     GroupMemoryBarrierWithGroupSync();
@@ -235,4 +240,194 @@ GcBakeOut fs_gc_bake(GcVsOut i, bool front : SV_IsFrontFace)
     o.color = float4(albedo * ao, 1.0);
     o.surface = float4(nm.xz * 0.5 + 0.5, saturate(i.rel.y / 1.5), 1.0);
     return o;
+}
+
+// Impostor bake: colour as above, full normal in the instance frame (yaw 0).
+[shader("fragment")]
+GcBakeOut fs_gc_imp_bake(GcVsOut i, bool front : SV_IsFrontFace)
+{
+    float3 albedo, nm, n;
+    float ao;
+    if (!gc_surface(i, front, albedo, nm, n, ao)) discard;
+    GcBakeOut o;
+    o.color = float4(albedo * ao, 1.0);
+    o.surface = float4(nm * 0.5 + 0.5, 1.0);
+    return o;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Mid field: impostors (one per instance, a camera-facing quad) placed in GC_IMP_CELL cells by the same habitat
+// densities as the meshes. An impostor stands for several plants: it is widened horizontally (never vertically,
+// so heights stay right) by the density it represents. Fades in where the meshes fade out and out towards
+// GC_IMP_DISTANCE, where the baked top view on the terrain carries the ground cover alone.
+
+// Hemi-octahedral mapping of the upper hemisphere (y up) to [-1, 1]^2 (Cigolle et al. 2014).
+float2 hemioct_encode(float3 v)
+{
+    float2 p = v.xz / (abs(v.x) + abs(v.y) + abs(v.z));
+    return float2(p.x + p.y, p.x - p.y);
+}
+
+float3 hemioct_decode(float2 e)
+{
+    float2 t = float2(e.x + e.y, e.x - e.y) * 0.5;
+    return normalize(float3(t.x, 1.0 - abs(t.x) - abs(t.y), t.y));
+}
+
+// Frame basis for a view direction d (towards the viewer): right, up; consistent between bake and runtime.
+void imp_basis(float3 d, out float3 right, out float3 up)
+{
+    float3 fwd = -d;
+    float3 r = cross(float3(0, 1, 0), fwd);
+    right = dot(r, r) > 1e-6 ? normalize(r) : float3(1, 0, 0);
+    up = cross(fwd, right);
+}
+
+struct GcImpPayload {
+    float4 pos[GC_CELL_SLOTS];          // xyz = base, w = scale
+    float widen[GC_CELL_SLOTS];         // horizontal widening
+    uint info[GC_CELL_SLOTS];           // variant | yaw << 16 | tint << 24
+    uint count;
+};
+groupshared GcImpPayload s_imp;
+
+[shader("amplification")]
+[numthreads(GC_CELL_SLOTS, 1, 1)]
+void as_gc_imp(uint tid : SV_GroupThreadID, uint3 gid : SV_GroupID)
+{
+    FrameConstants f = *pc.frame;
+    GcScene ps = *pc.gc;
+    if (tid == 0) s_imp.count = 0;
+    GroupMemoryBarrierWithGroupSync();
+    const float cell = GC_IMP_CELL;
+    int cx = f.gc_imp_cell_x + int(gid.x), cz = f.gc_imp_cell_z + int(gid.y);
+    float2 cm = (float2(cx, cz) + 0.5) * cell;
+    float2 cg = clamp(cm / f.terrain.z, 0.0, f.terrain_size.xy - 1.0);
+    float3 cc = float3(f.terrain.x + cm.x, height_at(f, cg, 0) + 1.0, f.terrain.y + cm.y);
+    float cd = distance(cc, f.cam_pos.xyz);
+    bool cell_visible = gid.x < f.gc_imp_cells && gid.y < f.gc_imp_cells && cd > GC_NEAR_DISTANCE * 0.7 - cell * 1.5 &&
+                        cd < GC_IMP_DISTANCE + cell * 1.5 && sphere_visible(cc, cell * 1.5 + 2.0);
+    uint h = hash_u32(uint(cx) * 73856093u ^ uint(cz) * 19349663u ^ (tid + 1u) * 83492791u ^ 0x1a5f00d7u);
+    float2 local = (float2(tid & 7u, tid >> 3) + float2(hash_f(h), hash_f(h + 1u))) / float2(8.0, 4.0);
+    float2 pm = (float2(cx, cz) + local) * cell;
+    float2 g = pm / f.terrain.z;
+    if (cell_visible && all(g >= 0.0) && all(g <= f.terrain_size.xy - 1.0)) {
+        float3 hab = gc_habitat(mask_at(f, g, 0));
+        float slot_area = cell * cell / float(GC_CELL_SLOTS);
+        float total = 0.0;
+        for (uint s = 0; s < ps.species_count; s++) total += dot(ps.species[s].habitat.xyz, hab) * slot_area;
+        float u = hash_f(h + 2u) * max(total, 1.0), acc = 0.0;          // dense habitats: every slot, mixed by density
+        int sel = -1;
+        for (uint s = 0; s < ps.species_count; s++) {
+            acc += dot(ps.species[s].habitat.xyz, hab) * slot_area;
+            if (sel < 0 && u < acc) sel = int(s);
+        }
+        if (sel >= 0) {
+            GcSpecies sp = ps.species[sel];
+            float3 base = float3(f.terrain.x + pm.x, height_at(f, g, 0), f.terrain.y + pm.y);
+            float dist = distance(base, f.cam_pos.xyz);
+            float fade_in = smoothstep(sp.shape.z * 0.7, sp.shape.z, dist);        // where this species' meshes fade out
+            float fade_out = smoothstep(GC_IMP_DISTANCE * 0.7, GC_IMP_DISTANCE, dist);
+            float keep = saturate(30.0 / dist);
+            if (hash_f(h + 3u) < fade_in && hash_f(h + 9u) >= fade_out && hash_f(h + 8u) < keep) {
+                uint variant = sp.first_variant + min(uint(hash_f(h + 4u) * float(sp.variant_count)), sp.variant_count - 1u);
+                GcVariant pv = ps.variants[variant];
+                float scale = lerp(sp.shape.x, sp.shape.y, hash_f(h + 5u));
+                if ((uint(sp.habitat.w) & 2u) != 0) scale *= clamp(meadow_height(pm) / 0.45, 0.5, 1.4);
+                float widen = min(sqrt(max(total, 1.0) / keep), 4.0);
+                float r = pv.bound * scale * widen;
+                float px = pv.height * scale * f.veg.z / max(dist, 0.05);
+                if (px > 1.5 && sphere_visible(base + float3(0, pv.height * scale * 0.5, 0), r)) {
+                    uint k;
+                    InterlockedAdd(s_imp.count, 1u, k);
+                    s_imp.pos[k] = float4(base, scale);
+                    s_imp.widen[k] = widen;
+                    s_imp.info[k] = variant | (hash_u32(h + 6u) & 255u) << 16 | (hash_u32(h + 7u) & 255u) << 24;
+                }
+            }
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+    DispatchMesh(s_imp.count > 0 ? 1 : 0, 1, 1, s_imp);
+}
+
+struct GcImpVsOut {
+    float4 pos : SV_Position;
+    float3 rel : REL;
+    float4 prev : PREV;
+    float2 uv : UV;                                 // 0..1 across the quad
+    nointerpolation float2 frame : FRAME;           // continuous frame coordinates (0 .. GC_IMP_FRAMES - 1)
+    nointerpolation uint info : INFO;               // variant | yaw << 16 | tint << 24
+};
+
+[shader("mesh")]
+[outputtopology("triangle")]
+[numthreads(GC_CELL_SLOTS, 1, 1)]
+void ms_gc_imp(uint tid : SV_GroupThreadID, in payload GcImpPayload p,
+               out indices uint3 tris[GC_CELL_SLOTS * 2], out vertices GcImpVsOut verts[GC_CELL_SLOTS * 4])
+{
+    FrameConstants f = *pc.frame;
+    uint count = p.count;
+    SetMeshOutputCounts(count * 4, count * 2);
+    if (tid >= count) return;
+    GcScene ps = *pc.gc;
+    uint info = p.info[tid];
+    GcVariant pv = ps.variants[info & 255u];
+    float scale = p.pos[tid].w, widen = p.widen[tid];
+    float3 centre = p.pos[tid].xyz + float3(0, pv.height * scale * 0.5, 0);
+    float r = pv.bound * scale;
+    float yaw = float((info >> 16) & 255u) / 256.0 * 6.2831853;
+    float cy = cos(yaw), sy = sin(yaw);
+    float3 d = normalize(f.cam_pos.xyz - centre);
+    // View direction in the instance frame (yaw 0, as baked), kept just above the horizon.
+    float3 dl = float3(d.x * cy + d.z * sy, max(d.y, 0.02), -d.x * sy + d.z * cy);
+    dl = normalize(dl);
+    float2 e = hemioct_encode(dl);
+    float2 frame = clamp((e * 0.5 + 0.5) * GC_IMP_FRAMES - 0.5, 0.0, GC_IMP_FRAMES - 1.0);
+    float3 right, up;
+    imp_basis(d, right, up);
+    float3 hr = right * r * widen, hu = up * r;
+    float2 corner[4] = { float2(0, 0), float2(1, 0), float2(0, 1), float2(1, 1) };
+    for (uint k = 0; k < 4; k++) {
+        float2 c = corner[k];
+        float3 wp = centre + hr * (c.x * 2.0 - 1.0) - hu * (c.y * 2.0 - 1.0);   // uv.y down = up
+        GcImpVsOut o;
+        o.rel = wp;
+        o.pos = project(wp);
+        o.prev = project_prev(wp);
+        o.uv = c;
+        o.frame = frame;
+        o.info = info;
+        verts[tid * 4 + k] = o;
+    }
+    tris[tid * 2] = uint3(tid * 4, tid * 4 + 1, tid * 4 + 2);
+    tris[tid * 2 + 1] = uint3(tid * 4 + 1, tid * 4 + 3, tid * 4 + 2);
+}
+
+[shader("fragment")]
+SceneOut fs_gc_imp(GcImpVsOut i)
+{
+    FrameConstants f = *pc.frame;
+    uint variant = i.info & 255u;
+    // Dither between the neighbouring frames by their fractional weights (TAA blends them).
+    float2 fr = floor(i.frame), w = i.frame - fr;
+    float rx = hash(i.pos.xy + frac(f.cam_fwd.w * 7.13) * 61.0), ry = hash(i.pos.yx * 1.37 + frac(f.cam_fwd.w * 3.71) * 47.0);
+    float2 frame = min(fr + float2(rx < w.x ? 1.0 : 0.0, ry < w.y ? 1.0 : 0.0), GC_IMP_FRAMES - 1.0);
+    float2 tile = float2(variant % GC_IMP_GRID, variant / GC_IMP_GRID);
+    float2 auv = ((tile * GC_IMP_FRAMES + frame) * GC_IMP_FRAME + 0.5 + i.uv * (GC_IMP_FRAME - 1.0)) / GC_IMP_ATLAS;
+    float2 g = float2(GC_IMP_FRAME - 1.0, GC_IMP_FRAME - 1.0) / GC_IMP_ATLAS;
+    SamplerState smp = g_samplers[SAMPLER_LINEAR_CLAMP];
+    float4 c = g_textures[TEX_IMPOSTOR].SampleGrad(smp, auv, ddx(i.uv) * g, ddy(i.uv) * g);
+    if (c.a < 0.5) discard;
+    float4 s = g_textures[TEX_IMPOSTOR + 1].SampleGrad(smp, auv, ddx(i.uv) * g, ddy(i.uv) * g);
+    float yaw = float((i.info >> 16) & 255u) / 256.0 * 6.2831853;
+    float cy = cos(yaw), sy = sin(yaw);
+    float3 nl = normalize(s.xyz * 2.0 - 1.0);
+    float3 n = float3(nl.x * cy - nl.z * sy, nl.y, nl.x * sy + nl.z * cy);
+    float3 albedo = c.rgb / c.a;
+    if (f.debug_mode == DEBUG_LOD) albedo = DEBUG_TINT[3] * 0.4;
+    if (f.debug_mode == DEBUG_NORMALS) return scene_out(f, n * 0.5 + 0.5, i.pos, i.prev);
+    float3 to_cam = normalize(f.cam_pos.xyz - i.rel);
+    float3 col = shade_foliage(f, albedo, n, to_cam, 1.0, 0.7, sun_shadow(f, i.rel, n, i.pos.xy));
+    return scene_out(f, tonemap(apply_fog(f, col, i.rel)), i.pos, i.prev);
 }

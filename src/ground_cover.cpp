@@ -34,6 +34,9 @@ typedef struct {
     VkBuf scene, variant_buf, species_buf, meshlet_buf, vertex_buf, triangle_buf;
     VkPipeline pipeline;
     VkTex bake[GC_HABITATS][2];     // baked top view per habitat: colour (premultiplied, a = coverage), surface
+    VkTex impostor[2];              // mid-field impostor atlas: colour (premultiplied), normal
+    VkPipeline pipe_imp;
+    u32 imp_cells;                  // per frame: mid-field dispatch side
     // Per frame
     u32 cells;                      // dispatch grid side
 } GroundCover;
@@ -208,6 +211,167 @@ static void gc_bake(GroundCover* p, Vk* vk, const char* shader_dir)
     vkDestroyPipeline(vk->device, pipe, NULL);
 }
 
+// Mid-field impostors: per variant GC_IMP_FRAMES^2 orthographic views of the upper hemisphere (hemi-octahedral
+// directions, as hemioct_decode / imp_basis in ground_cover.slang), rendered with the near-field shaders into one
+// atlas: colour premultiplied by coverage + normal in the instance frame. Mips only down to 2 px per frame.
+static void gc_bake_impostors(GroundCover* p, Vk* vk, const char* shader_dir, u32 variant_count, const GcVariant* variants)
+{
+    char path[1024];
+    snprintf(path, sizeof(path), "%sveg_gc_task.spv", shader_dir);
+    VkShaderModule task = vk_load_shader(vk, path);
+    snprintf(path, sizeof(path), "%sveg_gc.spv", shader_dir);
+    VkShaderModule mesh = vk_load_shader(vk, path);
+    PipelineDesc d = {mesh, NULL, "fs_gc_imp_bake", VK_COMPARE_OP_GREATER, true, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, "as_gc", "ms_gc", task};
+    const VkFormat formats[2] = {VK_FORMAT_R8G8B8A8_SRGB, VK_FORMAT_R8G8B8A8_UNORM};
+    d.color_count = 2;
+    d.color_formats[0] = formats[0];
+    d.color_formats[1] = formats[1];
+    d.with_depth = true;
+    VkPipeline pipe = vk_create_pipeline(vk, &d);
+    vkDestroyShaderModule(vk->device, task, NULL);
+    vkDestroyShaderModule(vk->device, mesh, NULL);
+
+    const u32 size = GC_IMP_ATLAS, mips = 6;               // 64 px frames -> 2 px
+    VkTarget depth = vk_target(vk, DEPTH_FORMAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_IMAGE_ASPECT_DEPTH_BIT, {size, size});
+    VkImageView attach[2];
+    for (u32 k = 0; k < 2; k++) {
+        VkTex* t = &p->impostor[k];
+        t->mips = mips;
+        VkImageCreateInfo ci = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+        ci.imageType = VK_IMAGE_TYPE_2D;
+        ci.format = formats[k];
+        ci.extent = {size, size, 1};
+        ci.mipLevels = mips;
+        ci.arrayLayers = 1;
+        ci.samples = VK_SAMPLE_COUNT_1_BIT;
+        ci.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+        VK_CHECK(vkCreateImage(vk->device, &ci, NULL, &t->image));
+        VkMemoryRequirements req;
+        vkGetImageMemoryRequirements(vk->device, t->image, &req);
+        t->memory = vk_alloc(vk, req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, false);
+        VK_CHECK(vkBindImageMemory(vk->device, t->image, t->memory, 0));
+        VkImageViewCreateInfo vi = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+        vi.image = t->image;
+        vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        vi.format = formats[k];
+        vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, mips, 0, 1};
+        VK_CHECK(vkCreateImageView(vk->device, &vi, NULL, &t->view));
+        vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        VK_CHECK(vkCreateImageView(vk->device, &vi, NULL, &attach[k]));
+    }
+
+    FrameConstants* fc = (FrameConstants*)vk->frames[0].upload.mapped;
+    memset(fc, 0, sizeof(*fc));
+    fc->cam_pos = {0, 100, 0, 0.05f};
+    fc->terrain = {0, 0, 1, 0};
+    fc->terrain_size = {1e6f, 1e6f, 1, 0};
+    fc->veg = {0, 0, 1000, 0};
+    fc->wind = {1, 0, 0, 0};
+    fc->cover = {p->grass_color.x, p->grass_color.y, p->grass_color.z, GC_GREENNESS};
+    fc->gc_bake = {0, 0, 0, -1};
+    ViewConstants* views = (ViewConstants*)((u8*)vk->frames[0].upload.mapped + UPLOAD_NODES_OFFSET);
+    const u32 N = GC_IMP_FRAMES;
+
+    VkCommandBuffer cmd = vk_begin_once(vk);
+    for (u32 k = 0; k < 2; k++)
+        vk_image_barrier(cmd, p->impostor[k].image, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, VK_PIPELINE_STAGE_2_NONE, 0, VK_IMAGE_LAYOUT_UNDEFINED,
+                         VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    vk_image_barrier(cmd, depth.image, VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, VK_PIPELINE_STAGE_2_NONE, 0, VK_IMAGE_LAYOUT_UNDEFINED,
+                     VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
+                     VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
+    vk_end_once(vk);
+    for (u32 var = 0; var < variant_count && var < GC_IMP_GRID * GC_IMP_GRID; var++) {
+        const GcVariant* pv = &variants[var];
+        fc->gc_bake_pass = var;
+        f32 r = pv->bound;
+        v3 c = v3_make(0, pv->height * 0.5f, 0);
+        for (u32 j = 0; j < N; j++)
+            for (u32 i = 0; i < N; i++) {
+                f32 ex = (i + 0.5f) / N * 2 - 1, ey = (j + 0.5f) / N * 2 - 1;
+                f32 tx = (ex + ey) * 0.5f, tz = (ex - ey) * 0.5f;          // hemioct_decode
+                v3 dir = v3_norm(v3_make(tx, 1.0f - fabsf(tx) - fabsf(tz), tz));
+                v3 fwd = v3_scale(dir, -1);
+                v3 rr = v3_cross(v3_make(0, 1, 0), fwd);
+                v3 right = v3_dot(rr, rr) > 1e-6f ? v3_norm(rr) : v3_make(1, 0, 0);
+                v3 up = v3_cross(fwd, right);
+                ViewConstants* vc = &views[j * N + i];
+                memset(vc, 0, sizeof(*vc));
+                vc->view_proj[0] = {right.x / r, right.y / r, right.z / r, -v3_dot(right, c) / r};
+                vc->view_proj[1] = {-up.x / r, -up.y / r, -up.z / r, v3_dot(up, c) / r};
+                vc->view_proj[2] = {-fwd.x * 0.5f / r, -fwd.y * 0.5f / r, -fwd.z * 0.5f / r, 0.5f + v3_dot(fwd, c) * 0.5f / r};
+                vc->view_proj[3] = {0, 0, 0, 1};
+                memcpy(vc->prev_view_proj, vc->view_proj, sizeof(vc->view_proj));
+                for (u32 q = 0; q < 6; q++) vc->planes[q] = {0, 0, 0, 1};
+            }
+        cmd = vk_begin_once(vk);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipeline_layout, 0, 1, &vk->set, 0, NULL);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+        for (u32 f = 0; f < N * N; f++) {
+            u32 x0 = ((var % GC_IMP_GRID) * N + f % N) * GC_IMP_FRAME, y0 = ((var / GC_IMP_GRID) * N + f / N) * GC_IMP_FRAME;
+            VkRenderingAttachmentInfo color[2] = {{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO}, {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO}};
+            for (u32 k = 0; k < 2; k++) {
+                color[k].imageView = attach[k];
+                color[k].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                color[k].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                color[k].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            }
+            color[1].clearValue.color = {{0.5f, 1.0f, 0.5f, 0.0f}};          // up-facing normal
+            VkRenderingAttachmentInfo da = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
+            da.imageView = depth.view;
+            da.imageLayout = VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL;
+            da.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+            da.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+            VkRenderingInfo ri = {VK_STRUCTURE_TYPE_RENDERING_INFO};
+            ri.renderArea = {{(i32)x0, (i32)y0}, {GC_IMP_FRAME, GC_IMP_FRAME}};
+            ri.layerCount = 1;
+            ri.colorAttachmentCount = 2;
+            ri.pColorAttachments = color;
+            ri.pDepthAttachment = &da;
+            vkCmdBeginRendering(cmd, &ri);
+            VkViewport vp = {(f32)x0, (f32)y0, (f32)GC_IMP_FRAME, (f32)GC_IMP_FRAME, 0, 1};
+            vkCmdSetViewport(cmd, 0, 1, &vp);
+            vkCmdSetScissor(cmd, 0, 1, &ri.renderArea);
+            PushConstants pcs = {};
+            pcs.frame = vk->frames[0].upload.address;
+            pcs.view = vk->frames[0].upload.address + UPLOAD_NODES_OFFSET + f * sizeof(ViewConstants);
+            pcs.gc = p->scene.address;
+            vkCmdPushConstants(cmd, vk->pipeline_layout, VK_SHADER_STAGE_ALL, 0, sizeof(pcs), &pcs);
+            vkCmdDrawMeshTasksEXT(cmd, 1, 1, 1);
+            vkCmdEndRendering(cmd);
+        }
+        vk_end_once(vk);
+    }
+    cmd = vk_begin_once(vk);
+    for (u32 k = 0; k < 2; k++) {
+        VkImage img = p->impostor[k].image;
+        vk_image_barrier(cmd, img, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+                         VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        vk_image_barrier(cmd, img, VK_IMAGE_ASPECT_COLOR_BIT, 1, mips - 1, VK_PIPELINE_STAGE_2_NONE, 0, VK_IMAGE_LAYOUT_UNDEFINED,
+                         VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        for (u32 m = 1; m < mips; m++) {
+            VkImageBlit b = {};
+            b.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, m - 1, 0, 1};
+            b.srcOffsets[1] = {(i32)(size >> (m - 1)), (i32)(size >> (m - 1)), 1};
+            b.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, m, 0, 1};
+            b.dstOffsets[1] = {(i32)(size >> m), (i32)(size >> m), 1};
+            vkCmdBlitImage(cmd, img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &b, VK_FILTER_LINEAR);
+            vk_image_barrier(cmd, img, VK_IMAGE_ASPECT_COLOR_BIT, m, 1, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        }
+        vk_image_barrier(cmd, img, VK_IMAGE_ASPECT_COLOR_BIT, 0, mips, VK_PIPELINE_STAGE_2_BLIT_BIT, 0, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                         VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    }
+    vk_end_once(vk);
+    for (u32 k = 0; k < 2; k++) {
+        vkDestroyImageView(vk->device, attach[k], NULL);
+        vk_bind_texture(vk, TEX_IMPOSTOR + k, p->impostor[k].view);
+    }
+    vkDestroyImageView(vk->device, depth.view, NULL);
+    vkDestroyImage(vk->device, depth.image, NULL);
+    vkFreeMemory(vk->device, depth.memory, NULL);
+    vkDestroyPipeline(vk->device, pipe, NULL);
+}
+
 // path: cooked file; shader_dir with trailing separator. Leaves p->enabled false if the file or mesh shaders are
 // missing.
 static void gc_init(GroundCover* p, Vk* vk, const char* path, const char* shader_dir)
@@ -242,6 +406,7 @@ static void gc_init(GroundCover* p, Vk* vk, const char* path, const char* shader
         pv->species = fv->species;
         pv->height = fv->height;
         pv->radius = fv->radius;
+        pv->bound = sqrtf(fv->radius * fv->radius + 0.25f * fv->height * fv->height) * 1.02f;
         for (u32 lod = 0; lod < GC_LODS; lod++) {
             mb.vn = mb.tn = 0;
             const u32* idx = findex + fv->first_index[lod];
@@ -337,14 +502,16 @@ static void gc_init(GroundCover* p, Vk* vk, const char* path, const char* shader
     free(ma.v);
     free(ma.t);
     free(ma.m);
-    free(variants);
-    free(file);
-
     p->pipeline = veg_pipeline(vk, shader_dir, "gc");
+    p->pipe_imp = veg_pipeline(vk, shader_dir, "gc_imp");
     u64 t1 = SDL_GetPerformanceCounter();
     gc_bake(p, vk, shader_dir);
-    printf("ground cover: top views of %u habitats baked (%u^2 per %.0f m tile), %.0f ms\n", GC_HABITATS, GC_BAKE_SIZE, GC_BAKE_TILE,
+    gc_bake_impostors(p, vk, shader_dir, p->variant_count, variants);
+    printf("ground cover: baked top views (%u habitats, %u^2 per %.0f m tile) and %u impostors (%u^2 atlas), %.0f ms\n", GC_HABITATS,
+           GC_BAKE_SIZE, GC_BAKE_TILE, MIN(p->variant_count, (u32)(GC_IMP_GRID * GC_IMP_GRID)), GC_IMP_ATLAS,
            (SDL_GetPerformanceCounter() - t1) * 1000.0 / SDL_GetPerformanceFrequency());
+    free(variants);
+    free(file);
     p->enabled = true;
 }
 
@@ -360,4 +527,9 @@ static void gc_frame(GroundCover* p, const f64 cam_local[3], FrameConstants* fc)
         fc->gc_cell_z[l] = (i32)floor(cam_local[2] / GC_LAYER_CELL[l]) - (i32)(n / 2);
         p->cells = MAX(p->cells, n);
     }
+    u32 n = 2 * (u32)ceil(GC_IMP_DISTANCE / GC_IMP_CELL) + 2;
+    fc->gc_imp_cells = n;
+    fc->gc_imp_cell_x = (i32)floor(cam_local[0] / GC_IMP_CELL) - (i32)(n / 2);
+    fc->gc_imp_cell_z = (i32)floor(cam_local[2] / GC_IMP_CELL) - (i32)(n / 2);
+    p->imp_cells = n;
 }

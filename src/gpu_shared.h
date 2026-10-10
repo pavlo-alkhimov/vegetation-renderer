@@ -35,6 +35,7 @@ struct TerrainNode {
 #define TEX_GC     2        // per ground-cover species s: TEX_GC + 2s albedo (sRGB + alpha), + 2s + 1 surface (ground_cover_file.h)
 #define TEX_COVER   40      // baked ground-cover top view per habitat h (meadow, edge, floor): TEX_COVER + 2h colour
                             // (sRGB, premultiplied by coverage, a = coverage), + 2h + 1 surface (normal xz, height, -)
+#define TEX_IMPOSTOR 46     // ground-cover impostor atlas: colour (sRGB, premultiplied, a = coverage), + 1 normal
 #define TEX_SCENE   64      // frame targets (recreated with the swapchain): scene colour (tonemapped, RGBA16F),
 #define TEX_MOTION  65      // motion (uv of this frame - uv of the previous frame, RG16F),
 #define TEX_DEPTH   66      // depth (D32, reversed Z),
@@ -112,6 +113,14 @@ struct TreeChunk {                  // ≤ TREE_CHUNK consecutive instances of o
 #define GC_HABITATS      3       // meadow, forest edge, forest floor
 #define GC_BAKE_TILE     6.0     // m, side of the baked top-view tile (a multiple of both layer cells)
 #define GC_BAKE_SIZE     2048    // texels
+// Mid field: one hemi-octahedral impostor per variant (GC_IMP_FRAMES^2 views of the upper hemisphere, GC_IMP_FRAME px each),
+// all variants in one atlas of GC_IMP_GRID^2 variant tiles. Placed in GC_IMP_CELL cells up to GC_IMP_DISTANCE.
+#define GC_IMP_FRAMES    8
+#define GC_IMP_FRAME     64
+#define GC_IMP_GRID      8       // up to 64 variants
+#define GC_IMP_ATLAS     (GC_IMP_GRID * GC_IMP_FRAMES * GC_IMP_FRAME)
+#define GC_IMP_CELL      2.0     // m
+#define GC_IMP_DISTANCE  120.0   // m
 static const float GC_LAYER_CELL[GC_LAYERS] = {0.6f, 2.0f};    // m
 
 struct GcVariant {               // 48 B
@@ -120,7 +129,8 @@ struct GcVariant {               // 48 B
     u32 species;
     f32 height;                     // m at scale 1, base at y = 0
     f32 radius;                     // m, horizontal
-    u32 pad[3];
+    f32 bound;                      // m, radius of the bounding sphere around (0, height / 2, 0): impostor frames
+    u32 pad[2];
 };
 
 struct GcSpecies {               // 48 B
@@ -192,7 +202,11 @@ struct FrameConstants {
     i32 gc_cell_z[GC_LAYERS];
     u32 gc_cells[GC_LAYERS];  // per layer: grid side in cells (the dispatch covers the largest)
     u32 shadows;            // 1 = sun shadow map valid this frame
-    u32 gc_bake_pass;       // ground-cover bake: pass index (each pass adds instances with other hashes)
+    u32 gc_bake_pass;       // ground-cover bake: pass index (each pass adds instances with other hashes); impostor bake
+                            // (gc_bake.w < 0): the variant
+    i32 gc_imp_cell_x;      // mid-field dispatch grid (0,0), terrain-local GC_IMP_CELL cell index
+    i32 gc_imp_cell_z;
+    u32 gc_imp_cells;       // mid-field grid side in cells (0 = mid field off)
 };
 
 // Overlay (top right): FPS, FPS graph, key list. One quad; text and graph are evaluated in the fragment shader.
