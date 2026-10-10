@@ -283,6 +283,8 @@ static bool viewer_render(Viewer* v)
     fc->veg = {v->tree_dist, v->grass_radius, proj_y * vk->extent.height * 0.5f, 1.0f};
     fc->tree_lod = {400.0f, 120.0f, 30.0f, 0};
     fc->wind = {0.8f, 0.5f, 0.6f, 0};
+    v3 gc = v->plants.enabled ? v->plants.grass_color : v3_make(0.11f, 0.15f, 0.05f);
+    fc->grass = {gc.x, gc.y, gc.z, plants ? 0.6f : 1.0f};
     fc->veg_flags = (trees ? VEG_TREES : 0u) | (grass ? VEG_GRASS : 0u);
     vg->chunk_count = vg->tree_candidates = 0;
     if (trees)

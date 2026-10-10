@@ -217,8 +217,13 @@ float4 fs_trees(TreeVsOut i, bool front : SV_IsFrontFace) : SV_Target
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Grass: tiles of GRASS_TILE m on an absolute grid around the camera; one task workgroup = 8 x 4 tiles.
+// Grass blades (Tsushima-style): tiles of GRASS_TILE m on an absolute grid around the camera, one task workgroup =
+// 8 x 4 tiles. Blades group into clumps (shared height, lean, colour), take their height from the meadow height
+// field and their colour from the plant assets; density falls with distance (wider blades), the terrain takes over
+// beyond the blade radius. Inside the plant radius the assets carry the volume and the blades thin out.
 
+#define GRASS_CLUMP     0.8         // m, clump cell
+#define GRASS_MAX_SEGS  4
 
 [shader("amplification")]
 [numthreads(TREE_CHUNK, 1, 1)]
@@ -235,13 +240,15 @@ void as_grass(uint tid : SV_GroupThreadID, uint3 gid : SV_GroupID)
         if (all(g >= 0.0) && all(g <= extent)) {
             float3 c = float3(f.terrain.x + centre_m.x, height_at(f, g, 0), f.terrain.y + centre_m.y);
             float dist = distance(c, f.cam_pos.xyz);
-            if (dist < f.veg.y + 3.0 && sphere_visible(c + float3(0, 0.5, 0), 4.0)) {
+            if (dist < f.veg.y + 3.0 && sphere_visible(c + float3(0, 0.4, 0), 3.2)) {
                 float density = mask_at(f, g, 0).y * f.veg.w;
+                density *= lerp(f.grass.w, 1.0, smoothstep(PLANT_NEAR_DISTANCE - 6.0, PLANT_NEAR_DISTANCE, dist));
                 float lod = min(1.0, pow(12.0 / max(dist, 12.0), 1.6));
                 uint blades = uint(float(GRASS_TILE_BLADES) * density * lod + 0.5);
+                uint segs = dist < 8.0 ? 4u : dist < 25.0 ? 3u : dist < 60.0 ? 2u : 1u;
                 groups = (blades + GRASS_GROUP_BLADES - 1) / GRASS_GROUP_BLADES;
                 s_payload.a[tid] = rx | rz << 16;
-                s_payload.b[tid] = blades;
+                s_payload.b[tid] = blades | segs << 24;
                 s_payload.c[tid] = asuint(min(4.0, sqrt(1.0 / max(lod, 1e-3))));  // wider blades at lower density
             }
         }
@@ -257,6 +264,24 @@ void as_grass(uint tid : SV_GroupThreadID, uint3 gid : SV_GroupID)
     DispatchMesh(s_payload.prefix[TREE_CHUNK], 1, 1, s_payload);
 }
 
+// Nearest clump centre on a jittered GRASS_CLUMP grid; id = the clump's hash.
+float2 grass_clump(float2 pm, out uint id)
+{
+    float2 cell = floor(pm / GRASS_CLUMP);
+    float best = 1e9;
+    float2 centre = pm;
+    id = 0;
+    for (int j = -1; j <= 1; j++)
+        for (int i = -1; i <= 1; i++) {
+            float2 c = cell + float2(i, j);
+            uint h = hash_u32(uint(int(c.x)) * 73856093u ^ uint(int(c.y)) * 19349663u ^ 0xc1u);
+            float2 p = (c + float2(hash_f(h), hash_f(h + 1u))) * GRASS_CLUMP;
+            float d = dot(p - pm, p - pm);
+            if (d < best) { best = d; centre = p; id = h; }
+        }
+    return centre;
+}
+
 struct GrassVsOut {
     float4 pos : SV_Position;
     float3 rel : REL;
@@ -269,57 +294,80 @@ struct GrassVsOut {
 [outputtopology("triangle")]
 [numthreads(32, 1, 1)]
 void ms_grass(uint tid : SV_GroupThreadID, uint gid : SV_GroupID, in payload VegPayload p,
-              out indices uint3 tris[GRASS_GROUP_BLADES * 3], out vertices GrassVsOut verts[GRASS_GROUP_BLADES * 5])
+              out indices uint3 tris[GRASS_GROUP_BLADES * (2 * GRASS_MAX_SEGS - 1)],
+              out vertices GrassVsOut verts[GRASS_GROUP_BLADES * (2 * GRASS_MAX_SEGS + 1)])
 {
     FrameConstants f = *pc.frame;
     uint slot = find_slot(p.prefix, gid);
     uint group = gid - p.prefix[slot];
-    uint count = min(GRASS_GROUP_BLADES, p.b[slot] - group * GRASS_GROUP_BLADES);
-    SetMeshOutputCounts(count * 5, count * 3);
+    uint total = p.b[slot] & 0xffffffu, segs = p.b[slot] >> 24;
+    uint nv = 2 * segs + 1, nt = 2 * segs - 1;
+    uint count = min(GRASS_GROUP_BLADES, total - group * GRASS_GROUP_BLADES);
+    SetMeshOutputCounts(count * nv, count * nt);
     if (tid >= count) return;
 
     int tx = f.grass_tile_x + int(p.a[slot] & 0xffff), tz = f.grass_tile_z + int(p.a[slot] >> 16);
     uint b = group * GRASS_GROUP_BLADES + tid;
     uint h = hash_u32(uint(tx) * 73856093u ^ uint(tz) * 19349663u ^ b * 83492791u);
-    float h0 = hash_f(h), h1 = hash_f(h + 1), h2 = hash_f(h + 2), h3 = hash_f(h + 3), h4 = hash_f(h + 4);
+    float h0 = hash_f(h), h1 = hash_f(h + 1), h2 = hash_f(h + 2), h3 = hash_f(h + 3), h4 = hash_f(h + 4), h5 = hash_f(h + 5);
     float2 pm = (float2(tx, tz) + float2(h0, h1)) * GRASS_TILE;          // terrain-local metres
+    uint cid;
+    float2 cc = grass_clump(pm, cid);
+    pm = lerp(pm, cc, 0.35 * h5);                                       // blades gather towards the clump centre
     float2 g = pm / f.terrain.z;
-    float3 root = float3(f.terrain.x + pm.x, height_at(f, g, 0), f.terrain.y + pm.y);
+    float3 root = float3(f.terrain.x + pm.x, height_at(f, g, 0) - 0.02, f.terrain.y + pm.y);
     float density = mask_at(f, g, 0).y;
     float dist = distance(root, f.cam_pos.xyz);
 
-    float height = (0.25 + 0.55 * h2 * h2) * lerp(0.4, 1.0, density) * smoothstep(f.veg.y, f.veg.y * 0.8, dist);
+    float clump_h = lerp(0.7, 1.25, hash_f(cid + 2u));
+    float height = meadow_height(pm) * lerp(0.55, 1.15, h2) * clump_h * lerp(0.5, 1.0, density);
+    height *= smoothstep(f.veg.y, f.veg.y * 0.8, dist);
     if (h4 > density * 1.6) height = 0.0;                            // thin out towards sparse areas
-    float width = 0.012 * asfloat(p.c[slot]) * (0.7 + 0.6 * h3);
+    float width = (0.0035 + 0.003 * h3) * asfloat(p.c[slot]);
+
+    // Facing: random, biased to point away from the clump centre; widen blades seen edge-on (they would vanish).
+    float2 out_dir = pm - cc;
+    float out_len = length(out_dir);
+    out_dir = out_len > 1e-4 ? out_dir / out_len : float2(1, 0);
     float yaw = h3 * 6.2831853;
     float3 across = float3(cos(yaw), 0, sin(yaw));
     float3 facing = float3(-across.z, 0, across.x);
-    float gust = 0.35 + 0.3 * sin(f.cam_fwd.w * 1.7 + dot(pm, f.wind.xz) * 0.35 + h4 * 1.5);
-    float3 lean = (facing * (h4 - 0.5) * 0.6 + float3(f.wind.x, 0, f.wind.z) * gust * f.wind.y) * height;
+    float2 view = normalize(root.xz - f.cam_pos.xz + 1e-4);
+    width *= 1.0 + 1.0 * (1.0 - abs(dot(facing.xz, view))) * saturate(dist / 10.0);
+    width = max(width, 0.6 * dist / f.veg.z);                           // at least ~1.2 px wide (no AA yet)
+    float gust = wind_gust(f, pm, hash_f(cid + 4u));
+    float3 lean = (float3(out_dir.x, 0, out_dir.y) * (0.25 + 0.35 * hash_f(cid + 5u)) + facing * (h4 - 0.5) * 0.4 +
+                   float3(f.wind.x, 0, f.wind.z) * gust * f.wind.y) * height;
 
-    // Quadratic Bézier: root, control straight above, tip displaced by lean (Tsushima-style blade).
+    // Quadratic Bézier: root, control straight above, tip displaced by lean.
     float3 p0 = root, p1 = root + float3(0, height, 0), p2 = root + float3(0, height * 0.85, 0) + lean;
-    float3 mid = 0.25 * p0 + 0.5 * p1 + 0.25 * p2;
-    float3 tangent_mid = normalize(p2 - p0 + float3(0, 1e-4, 0));
-    float3 n = normalize(cross(across, tangent_mid));
-
-    float3 base_col = lerp(float3(0.10, 0.20, 0.045), float3(0.20, 0.23, 0.07), h2) * lerp(0.85, 1.15, h0);
-    float3 pos[5] = { p0 - across * width, p0 + across * width, mid - across * width * 0.7, mid + across * width * 0.7, p2 };
-    float side[5] = { -1, 1, -1, 1, 0 };
-    float t[5] = { 0, 0, 0.5, 0.5, 1 };
-    for (uint k = 0; k < 5; k++) {
-        GrassVsOut o;
-        o.rel = pos[k];
-        o.pos = project(pos[k]);
-        o.n = normalize(n + across * side[k] * 0.5);                  // rounded blade normal
-        o.color = base_col;
-        o.t = t[k];
-        verts[tid * 5 + k] = o;
+    float3 color = grass_tint(f, pm) * lerp(0.8, 1.15, h0) * lerp(float3(0.9, 0.9, 0.9), float3(1.1, 1.08, 0.95), hash_f(cid + 3u));
+    uint v0 = tid * nv;
+    for (uint k = 0; k <= segs; k++) {
+        float t = float(k) / float(segs);
+        float3 pos = (1 - t) * (1 - t) * p0 + 2 * (1 - t) * t * p1 + t * t * p2;
+        float3 tangent = normalize(2 * (1 - t) * (p1 - p0) + 2 * t * (p2 - p1) + float3(0, 1e-4, 0));
+        float3 n = normalize(cross(across, tangent));
+        float w = width * (1.0 - 0.85 * t * t);
+        for (uint s = 0; s < (k < segs ? 2u : 1u); s++) {
+            float side = k < segs ? (s == 0 ? -1.0 : 1.0) : 0.0;
+            GrassVsOut o;
+            o.rel = pos + across * w * side;
+            o.pos = project(o.rel);
+            o.n = normalize(n + across * side * 0.6);                    // rounded blade normal
+            o.color = color;
+            o.t = t;
+            verts[v0 + 2 * k + s] = o;
+        }
     }
-    uint v = tid * 5;
-    tris[tid * 3 + 0] = uint3(v + 0, v + 1, v + 2);
-    tris[tid * 3 + 1] = uint3(v + 1, v + 3, v + 2);
-    tris[tid * 3 + 2] = uint3(v + 2, v + 3, v + 4);
+    uint t0 = tid * nt;
+    for (uint k = 0; k + 1 < segs; k++) {
+        uint a = v0 + 2 * k;
+        tris[t0 + 2 * k] = uint3(a, a + 1, a + 2);
+        tris[t0 + 2 * k + 1] = uint3(a + 1, a + 3, a + 2);
+    }
+    uint a = v0 + 2 * (segs - 1);
+    tris[t0 + nt - 1] = uint3(a, a + 1, a + 2);
 }
 
 [shader("fragment")]
@@ -329,8 +377,8 @@ float4 fs_grass(GrassVsOut i, bool front : SV_IsFrontFace) : SV_Target
     float3 n = normalize(i.n);
     if (!front) n = -n;
     float3 to_cam = normalize(f.cam_pos.xyz - i.rel);
-    float ao = lerp(0.35, 1.0, i.t);
-    float3 albedo = i.color * lerp(0.7, 1.1, i.t);
+    float ao = lerp(0.3, 1.0, i.t);
+    float3 albedo = i.color * lerp(0.5, 1.05, i.t);
     if (f.debug_mode == DEBUG_LOD) albedo = float3(0.4, 0.4, 0.1);
     if (f.debug_mode == DEBUG_NORMALS) return float4(n * 0.5 + 0.5, 1);
     float3 c = shade_foliage(f, albedo, n, to_cam, ao, 0.8);

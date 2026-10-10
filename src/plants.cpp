@@ -14,8 +14,8 @@ static const struct {
     f32 distance;           // m
     f32 wind;
 } PLANT_RULES[] = {
-    {"grass_medium_01",  30.0f, 16.0f, 3.0f, 1.2f, 2.2f, 15.0f, 0.9f},
-    {"grass_medium_02",  14.0f,  8.0f, 1.5f, 1.0f, 1.8f, 15.0f, 0.9f},
+    {"grass_medium_01",  60.0f, 30.0f, 4.0f, 1.2f, 2.2f, 15.0f, 0.9f},
+    {"grass_medium_02",  28.0f, 14.0f, 2.0f, 1.0f, 1.8f, 15.0f, 0.9f},
     {"weed_plant_02",     2.0f,  2.0f, 1.0f, 1.0f, 1.5f, 15.0f, 0.4f},
     {"celandine_01",      0.0f,  3.0f, 8.0f, 0.8f, 1.2f, 15.0f, 0.3f},
     {"periwinkle_plant",  0.0f,  1.0f, 6.0f, 0.5f, 0.8f, 15.0f, 0.3f},
@@ -27,6 +27,7 @@ typedef struct {
     bool enabled;
     u32 species_count, variant_count;
     f32 max_distance;               // m, largest species draw distance
+    v3 grass_color;                 // mean linear albedo of the meadow grasses (blades and terrain match it)
     VkTex tex[PLANT_MAX_SPECIES][2];
     VkBuf scene, variant_buf, species_buf, meshlet_buf, vertex_buf, triangle_buf;
     VkPipeline pipeline;
@@ -93,6 +94,8 @@ static void plants_init(Plants* p, Vk* vk, const char* path, const char* shader_
 
     PlantSpecies species[PLANT_MAX_SPECIES] = {};
     p->max_distance = 0;
+    v3 grass_sum = {};
+    f32 grass_weight = 0;
     for (u32 s = 0; s < h->species_count; s++) {
         PlantSpecies* ps = &species[s];
         ps->first_variant = fsp[s].first_variant;
@@ -111,12 +114,38 @@ static void plants_init(Plants* p, Vk* vk, const char* path, const char* shader_
         if (ps->shape.z == 0) printf("plants: no placement rule for %s, not placed\n", fsp[s].name);
         p->max_distance = MAX(p->max_distance, ps->shape.z);
         const u8* t = ftex + tex_bytes * 2 * s;
+        // Meadow grasses (dense, short draw distance) follow the meadow height field and define the grass colour.
+        if (ps->shape.z <= PLANT_NEAR_DISTANCE && ps->habitat.x >= 5.0f) {
+            ps->habitat.w += 2.0f;
+            // Mean over the living blades (opaque, green) of mip 2; the scans also contain bleached blades.
+            const u8* m = t + (size_t)h->tex_size * h->tex_size * 4 + (size_t)(h->tex_size / 2) * (h->tex_size / 2) * 4;
+            u32 ms = h->tex_size / 4;
+            v3 sum = {};
+            f32 n = 0;
+            for (size_t i = 0; i < (size_t)ms * ms; i++) {
+                const u8* x = m + 4 * i;
+                if (x[3] < 128 || x[1] < x[0] * 1.15f || x[1] < x[2]) continue;
+                for (u32 c = 0; c < 3; c++) {
+                    f32 y = x[c] / 255.0f;
+                    (&sum.x)[c] += y <= 0.04045f ? y / 12.92f : powf((y + 0.055f) / 1.055f, 2.4f);
+                }
+                n += 1;
+            }
+            if (n > 0) {
+                grass_sum = v3_add(grass_sum, v3_scale(sum, ps->habitat.x / n));
+                grass_weight += ps->habitat.x;
+            }
+        }
         p->tex[s][0] = vk_texture_2d_levels(vk, VK_FORMAT_R8G8B8A8_SRGB, 4, h->tex_size, h->tex_mips, t);
         p->tex[s][1] = vk_texture_2d_levels(vk, VK_FORMAT_R8G8B8A8_UNORM, 4, h->tex_size, h->tex_mips, t + tex_bytes);
         vk_bind_texture(vk, ps->albedo_tex, p->tex[s][0].view);
         vk_bind_texture(vk, ps->surface_tex, p->tex[s][1].view);
     }
 
+    if (grass_weight > 0) {
+        p->grass_color = v3_scale(grass_sum, 1.0f / grass_weight);
+        printf("plants: meadow grass albedo %.3f %.3f %.3f\n", p->grass_color.x, p->grass_color.y, p->grass_color.z);
+    }
     VkBufferUsageFlags usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
     p->variant_buf = vk_buffer_static(vk, (VkDeviceSize)h->variant_count * sizeof(PlantVariant), usage, variants);
     p->species_buf = vk_buffer_static(vk, sizeof(species), usage, species);

@@ -13,7 +13,7 @@ static const char* USAGE =
     "  --stance N                start walking: 0 standing, 1 crouching, 2 prone (camera altitude from the ground)\n"
     "  --notrees, --nograss      start with trees / grass off (A/B timing); --noplants: near-field plant assets off\n"
     "  --plants FILE             cooked plants (default data/cooked/plants.vrp, see cook_plants)\n"
-    "  --treedist M              tree draw distance in m (default 3000); --grass M: grass radius (default 60)\n"
+    "  --treedist M              tree draw distance in m (default 3000); --grass M: grass blade radius (default 150)\n"
     "\n"
     "controls: click = capture mouse, Esc = release (again = quit), WASD move, Q/E down/up (Space = up),\n"
     "  Shift x8, Ctrl x1/8, wheel = speed, G walk/fly, C/Z crouch/prone (walk), 1-4 shaded/LOD/contours/normals, L wireframe,\n"
@@ -56,7 +56,7 @@ int main(int argc, char** argv)
     bool validation = false, vsync = true, have_cam = false, wire = false, hidpi = false, trees = true, grass = true, plants = true;
     u32 debug_mode = 0;
     i32 stance = -1;
-    f32 tree_dist = 3000.0f, grass_radius = 60.0f;
+    f32 tree_dist = 3000.0f, grass_radius = 150.0f;
     f64 cam_args[5] = {};
 #ifdef VR_DEBUG
     validation = true;

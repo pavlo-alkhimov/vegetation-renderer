@@ -48,7 +48,7 @@ struct TerrainNode {
 #define TREE_CELL            256.0  // placement cell = render-origin cell (docs/02)
 #define GRASS_TILE           4.0    // m
 #define GRASS_GROUP_BLADES   16     // blades per mesh workgroup
-#define GRASS_TILE_BLADES    768    // blades per tile at full density and full LOD (48 per m²)
+#define GRASS_TILE_BLADES    3200   // blades per tile at full density and full LOD (200 per m²)
 
 #define MAT_BARK      0
 #define MAT_LEAF      1             // broadleaf card: a few procedural leaves
@@ -118,7 +118,7 @@ struct PlantSpecies {               // 48 B
     u32 first_variant, variant_count;
     u32 albedo_tex, surface_tex;    // bindless indices
     v4 habitat;                     // plants per m²: x meadow, y forest edge, z forest floor;
-                                    // w = 1 alpha-tested cards, 0 opaque
+                                    // w = flags as float: + 1 alpha-tested cards, + 2 follows the meadow height
     v4 shape;                       // x, y = scale range; z = draw distance (m); w = wind response (0 rigid .. 1)
 };
 
@@ -166,6 +166,8 @@ struct FrameConstants {
                             // w = grass density scale
     v4 tree_lod;            // projected tree height (px) above which LOD 0 / 1 / 2 is used; w = unused
     v4 wind;                // xz = wind direction (unit), y = strength, w = unused
+    v4 grass;               // rgb = meadow grass albedo (linear; mean of the plant assets), w = blade density inside
+                            // the plant radius (the plant assets carry the volume there)
     u32 height_tex;         // bindless index
     u32 debug_mode;         // DEBUG_*
     u32 mask_tex;           // bindless index

@@ -54,7 +54,19 @@ float4 fs_terrain(TerrainVsOut i) : SV_Target
     float dist = length(to_cam);
     float2 mask = mask_at(f, i.grid, max(0.0, lod - 2.0));
     float variation = value_noise(i.grid / 45.0) * 0.6 + value_noise(i.grid / 9.0) * 0.4;
-    float3 meadow = MEADOW_ALBEDO * lerp(0.8, 1.15, variation) * lerp(float3(1.25, 1.1, 0.7), 1.0, mask.y);
+
+    // Meadow as a turbid grass layer (docs/06 §5.5): from steep views soil and thatch show between the blades, at
+    // grazing angles only blade sides; taller and denser grass covers more. Same height, dryness and colour
+    // functions as the blades and plant assets, so the far field matches the near field. Inside the blade radius
+    // the blades are drawn and the terrain shows the ground between them.
+    float2 pm = i.grid * f.terrain.z;                                   // terrain-local metres
+    float3 grass_col = grass_tint(f, pm) * lerp(0.85, 1.12, variation);
+    float3 thatch = grass_col * float3(0.6, 0.55, 0.42);
+    float cos_v = saturate(dot(n, to_cam / dist));
+    float cover = 1.0 - exp(-mask.y * (0.4 + 5.0 * meadow_height(pm)) / max(cos_v, 0.05));
+    float3 layer = lerp(thatch, grass_col * (1.0 + 0.25 * pow(1.0 - cos_v, 3.0)), cover);
+    float blades = (f.veg_flags & VEG_GRASS) != 0 ? 1.0 - smoothstep(f.veg.y * 0.3, f.veg.y * 0.95, dist) : 0.0;
+    float3 meadow = lerp(layer, thatch * 0.85, blades);
     float canopy = (f.veg_flags & VEG_TREES) != 0 ? smoothstep(f.veg.x * 0.7, f.veg.x, dist) : 1.0;
     float3 forest = lerp(FOREST_FLOOR_ALBEDO, CANOPY_ALBEDO, canopy);
     float3 albedo = lerp(meadow, forest, smoothstep(0.25, 0.6, mask.x));

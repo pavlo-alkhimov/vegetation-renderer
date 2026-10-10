@@ -57,6 +57,7 @@ void as_plants(uint tid : SV_GroupThreadID, uint3 gid : SV_GroupID)
                 uint variant = sp.first_variant + min(uint(hash_f(h + 4u) * float(sp.variant_count)), sp.variant_count - 1u);
                 PlantVariant pv = ps.variants[variant];
                 float scale = lerp(sp.shape.x, sp.shape.y, hash_f(h + 5u)) * min(rsqrt(max(keep, 1e-3)), 1.5);
+                if ((uint(sp.habitat.w) & 2u) != 0) scale *= clamp(meadow_height(pm) / 0.45, 0.5, 1.4);   // tall and short meadow patches
                 float hgt = pv.height * scale, r = pv.radius * scale + 0.05;
                 if (sphere_visible(base + float3(0, hgt * 0.5, 0), sqrt(r * r + hgt * hgt * 0.25))) {
                     float px = hgt * f.veg.z / max(dist, 0.05);
@@ -147,7 +148,7 @@ float4 fs_plants(PlantVsOut i, bool front : SV_IsFrontFace) : SV_Target
     PlantSpecies sp = pc.plants->species[i.info & 255u];
     SamplerState smp = g_samplers[SAMPLER_ANISO_REPEAT];
     float4 albedo = g_textures[sp.albedo_tex].Sample(smp, i.uv);         // sRGB view: linear rgb
-    if (sp.habitat.w > 0.5 && albedo.a < 0.5) discard;
+    if ((uint(sp.habitat.w) & 1u) != 0 && albedo.a < 0.5) discard;
     float4 surf = g_textures[sp.surface_tex].Sample(smp, i.uv);          // normal xy, AO, roughness
 
     // Normal map in a cotangent frame from screen derivatives (no stored tangents). glTF uv has v down, the

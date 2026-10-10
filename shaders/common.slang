@@ -129,6 +129,25 @@ uint find_slot(uint prefix[33], uint gid)
     return lo;
 }
 
+// Meadow grass height (m) at terrain-local metres: patches of short (grazed, mown) and tall grass. One function for
+// blades, plant asset scale and terrain shading, so all three agree.
+float meadow_height(float2 pm)
+{
+    float n = value_noise(pm / 23.0) * 0.65 + value_noise(pm / 6.0 + 31.7) * 0.35;
+    return lerp(0.15, 0.75, smoothstep(0.2, 0.7, n));
+}
+
+// 0 fresh green .. 1 dry, yellowed patches.
+float meadow_dryness(float2 pm)
+{
+    return smoothstep(0.5, 0.85, value_noise(pm / 41.0 + 17.3));
+}
+
+float3 grass_tint(FrameConstants f, float2 pm)
+{
+    return f.grass.rgb * lerp(float3(1, 1, 1), float3(1.35, 1.15, 0.7), meadow_dryness(pm));
+}
+
 // Same gust as the grass blades: a travelling wave along the wind direction (pm = terrain-local metres).
 float wind_gust(FrameConstants f, float2 pm, float phase)
 {
