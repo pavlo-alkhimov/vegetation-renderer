@@ -321,7 +321,7 @@ it, ground cover visible at every distance, realistic from above. Reforger's ass
 One meadow height and one dryness field (`meadow_height`, `meadow_dryness` in [`common.slang`](../shaders/common.slang))
 drive mesh scale, impostor scale and terrain shading. The scans contain many bleached grass blades; a season
 *greenness* (`FrameConstants.cover.w`, 0.6 for summer) recolours them partly to the mean living-grass colour,
-identically in meshes, impostors and bake. Walk mode has stances (C crouch 1.0 m, Z prone 0.35 m).
+identically in meshes, impostors and bake. Camera presets: Z lying (eye 0.35 m), X standing (1.75 m), F free flight, C crouch (1.0 m); stance changes and the descent from free flight glide. All ground-cover ranges scale with one distance factor (`,` / `.`, `--coverdist`, default 2): mesh draw distances and their thinning, the mid-field range and cells (so the impostor dispatch stays the same size), and the terrain hand-over. Cost at ×1 / ×2 / ×4 (ground cover, GPU ms): meadow standing 1.6 / 2.6 / 5.3, forest edge 4.0 / 5.7 / 8.2; whole frame ≤ 18.7 ms at ×4.
 
 The step also brought TAA (Halton jitter, motion vectors from every pass including wind at the previous frame's time,
 Catmull-Rom history, YCoCg variance clipping; [`taa.slang`](../shaders/taa.slang)) and cascaded sun shadows (4 cascades

@@ -12,7 +12,8 @@ typedef enum {
     CMD_TOGGLE_TREES, CMD_TOGGLE_COVER,
     CMD_TREE_DIST_LESS, CMD_TREE_DIST_MORE,
     CMD_TOGGLE_OVERLAY,
-    CMD_STANCE_CROUCH, CMD_STANCE_PRONE,
+    CMD_CAM_LYING, CMD_CAM_STANDING, CMD_CAM_FREE, CMD_STANCE_CROUCH,
+    CMD_COVER_DIST_LESS, CMD_COVER_DIST_MORE,
     CMD_TOGGLE_TAA, CMD_TOGGLE_SHADOWS,
 } ViewerCommand;
 
@@ -31,6 +32,7 @@ typedef struct {
     bool walk;
     u32 stance;                 // STANCE_*, walk mode only
     f32 eye;                    // walk mode: current eye height above ground (m), eases towards the stance's
+    bool landing;               // walk mode entered from free flight: gliding down to the stance's eye height
 } Camera;
 
 enum { STANCE_STAND, STANCE_CROUCH, STANCE_PRONE };
@@ -53,6 +55,7 @@ typedef struct {
     bool wireframe;
     bool show_trees, show_cover, show_shadows;
     f32 tree_dist;              // m
+    f32 cover_dist;             // ground-cover distance factor: scales all its ranges (meshes, impostors, terrain hand-over)
     f32 target_px;              // terrain triangle edge target (pixels)
     f32 time;
     // TAA: jitter sequence index; previous frame's camera (absolute) for motion vectors
@@ -92,19 +95,26 @@ static void viewer_update(Viewer* v, const ViewerInput* in, f32 dt)
     v->time += dt;
     for (u32 i = 0; i < in->command_count; i++) {
         switch (in->commands[i]) {
+        // Camera presets: lying, standing (and crouching) on the ground, free flight. Every change glides: the eye height
+        // eases between stances, and from free flight the camera descends to the ground instead of jumping.
         case CMD_TOGGLE_WALK:
-            c->walk = !c->walk;
-            c->speed = c->walk ? STANCE_SPEED[c->stance] : 15.0f;
-            c->eye = STANCE_EYE[c->stance];
+            if (c->walk) { c->walk = false; c->speed = 15.0f; }
+            else { c->walk = c->landing = true; c->eye = STANCE_EYE[c->stance]; c->speed = STANCE_SPEED[c->stance]; }
             break;
-        case CMD_STANCE_CROUCH:
-        case CMD_STANCE_PRONE: {
-            u32 s = in->commands[i] == CMD_STANCE_CROUCH ? STANCE_CROUCH : STANCE_PRONE;
-            c->stance = c->stance == s ? STANCE_STAND : s;   // same key again: stand up
-            if (!c->walk) { c->walk = true; c->eye = STANCE_EYE[c->stance]; }
-            c->speed = STANCE_SPEED[c->stance];
+        case CMD_CAM_LYING:
+        case CMD_CAM_STANDING:
+        case CMD_STANCE_CROUCH: {
+            ViewerCommand cmd = in->commands[i];
+            u32 s = cmd == CMD_CAM_LYING ? STANCE_PRONE : cmd == CMD_CAM_STANDING ? STANCE_STAND
+                  : c->stance == STANCE_CROUCH ? STANCE_STAND : STANCE_CROUCH;      // C toggles crouching
+            if (!c->walk) { c->walk = c->landing = true; c->eye = STANCE_EYE[s]; }
+            c->stance = s;
+            c->speed = STANCE_SPEED[s];
             break;
         }
+        case CMD_CAM_FREE:
+            if (c->walk) { c->walk = false; c->speed = 15.0f; }
+            break;
         case CMD_DEBUG_SHADED: v->debug_mode = DEBUG_SHADED; break;
         case CMD_DEBUG_LOD: v->debug_mode = DEBUG_LOD; break;
         case CMD_DEBUG_CONTOUR: v->debug_mode = DEBUG_CONTOUR; break;
@@ -119,6 +129,8 @@ static void viewer_update(Viewer* v, const ViewerInput* in, f32 dt)
         case CMD_TOGGLE_COVER: v->show_cover = !v->show_cover; break;
         case CMD_TREE_DIST_LESS: v->tree_dist = MAX(v->tree_dist / 1.25f, 100.0f); break;
         case CMD_TREE_DIST_MORE: v->tree_dist = MIN(v->tree_dist * 1.25f, 12000.0f); break;
+        case CMD_COVER_DIST_LESS: v->cover_dist = MAX(v->cover_dist / 1.25f, 0.5f); break;
+        case CMD_COVER_DIST_MORE: v->cover_dist = MIN(v->cover_dist * 1.25f, 8.0f); break;
         case CMD_TOGGLE_OVERLAY: v->overlay.visible = !v->overlay.visible; break;
         case CMD_TOGGLE_TAA: v->taa = !v->taa; v->vk.history_valid = false; break;
         case CMD_TOGGLE_SHADOWS: v->show_shadows = !v->show_shadows; break;
@@ -148,8 +160,16 @@ static void viewer_update(Viewer* v, const ViewerInput* in, f32 dt)
     c->pos[2] += move.z * speed * dt;
 
     f32 ground = terrain_height(&v->terrain, c->pos[0], c->pos[2]);
-    c->eye += (STANCE_EYE[c->stance] - c->eye) * MIN(dt * 8.0f, 1.0f);   // ~0.3 s to change stance
-    if (c->walk) c->pos[1] = ground + c->eye;
+    c->eye += (STANCE_EYE[c->stance] - c->eye) * MIN(dt * 4.0f, 1.0f);   // ~0.7 s between standing and lying
+    if (c->walk) {
+        f64 target = ground + c->eye;
+        if (c->landing) {                                                 // from free flight: glide down (~1 s)
+            c->pos[1] += (target - c->pos[1]) * MIN(dt * 4.0f, 1.0f);
+            if (fabs(target - c->pos[1]) < 0.02) c->landing = false;
+        } else {
+            c->pos[1] = target;
+        }
+    }
     else c->pos[1] = MAX(c->pos[1], (f64)ground + CAMERA_MIN_CLEARANCE);
 }
 
@@ -186,6 +206,7 @@ static void viewer_overlay(const Viewer* v, OverlayData* d)
     overlay_line(d, l++, "T", "TREES       %s", v->show_trees ? "ON" : "OFF");
     overlay_line(d, l++, "B", "GROUND COVER %s", !v->cover.enabled ? "N/A" : v->show_cover ? "ON" : "OFF");
     overlay_line(d, l++, "- =", "TREE DIST   %.0f M", v->tree_dist);
+    overlay_line(d, l++, ", .", "COVER DIST  X%.2f", v->cover_dist);
     overlay_line(d, l++, "1-4", "VIEW        %s", VIEW_NAMES[v->debug_mode & 3]);
     overlay_line(d, l++, "L", "WIREFRAME   %s", v->wireframe ? "ON" : "OFF");
     overlay_line(d, l++, "[ ]", "TERRAIN LOD %.1f PX", v->target_px);
@@ -327,7 +348,7 @@ static bool viewer_render(Viewer* v)
     Vegetation* vg = &v->veg;
     bool trees = vg->enabled && v->show_trees;
     bool cover = v->cover.enabled && v->show_cover;
-    fc->veg = {v->tree_dist, 0, proj_y * vk->extent.height * 0.5f, 0};
+    fc->veg = {v->tree_dist, v->cover_dist, proj_y * vk->extent.height * 0.5f, 0};
     fc->tree_lod = {400.0f, 120.0f, 30.0f, 0};
     fc->wind = {0.8f, 0.5f, 0.6f, 0};
     v3 gc = v->cover.enabled ? v->cover.grass_color : v3_make(0.11f, 0.15f, 0.05f);
@@ -336,7 +357,7 @@ static bool viewer_render(Viewer* v)
     vg->chunk_count = vg->tree_candidates = 0;
     if (trees)
         veg_select_trees(vg, &sel, origin, c->pos, v->tree_dist, (TreeChunk*)((u8*)f->upload.mapped + CHUNKS_OFFSET));
-    if (cover) gc_frame(&v->cover, c->pos, fc);
+    if (cover) gc_frame(&v->cover, c->pos, v->cover_dist, fc);
     bool shadows = v->shadows.enabled && v->show_shadows;
     if (shadows)
         shadows_frame(&v->shadows, vg, views, fc, cam, fwd, proj_x, proj_y, CAMERA_NEAR, origin, c->pos, (TreeChunk*)((u8*)f->upload.mapped + CHUNKS_OFFSET), trees);

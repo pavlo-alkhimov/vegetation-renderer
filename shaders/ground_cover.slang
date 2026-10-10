@@ -45,7 +45,7 @@ void as_gc(uint tid : SV_GroupThreadID, uint3 gid : SV_GroupID)
     float2 cg = clamp(cm / f.terrain.z, 0.0, f.terrain_size.xy - 1.0);
     float3 cc = float3(f.terrain.x + cm.x, bake ? 1.0 : height_at(f, cg, 0) + 1.0, f.terrain.y + cm.y);
     bool cell_visible = gid.x < f.gc_cells[layer] && gid.y < f.gc_cells[layer] && sphere_visible(cc, cell * 1.5 + 2.0) &&
-                        (bake || distance(cc, f.cam_pos.xyz) < (layer == 0 ? GC_NEAR_DISTANCE : 45.0) + cell * 1.5);
+                        (bake || distance(cc, f.cam_pos.xyz) < (layer == 0 ? GC_NEAR_DISTANCE : 45.0) * f.veg.y + cell * 1.5);
     if (!imp_bake && cell_visible && (bake || (all(g >= 0.0) && all(g <= f.terrain_size.xy - 1.0)))) {
         float3 hab = bake ? f.gc_bake.xyz : gc_habitat(mask_at(f, g, 0));
         float slot_area = cell * cell / float(GC_CELL_SLOTS);            // m² per candidate
@@ -61,9 +61,10 @@ void as_gc(uint tid : SV_GroupThreadID, uint3 gid : SV_GroupID)
             GcSpecies sp = ps.species[sel];
             float3 base = float3(f.terrain.x + pm.x, bake ? 0.0 : height_at(f, g, 0), f.terrain.y + pm.y);
             float dist = bake ? 1.0 : distance(base, f.cam_pos.xyz);
-            float fade = smoothstep(sp.shape.z * 0.75, sp.shape.z, dist);   // dithered: no visible ring
+            float reach = sp.shape.z * f.veg.y;                               // draw distance x ground-cover distance scale
+            float fade = smoothstep(reach * 0.75, reach, dist);               // dithered: no visible ring
             // Dense layer: fewer, larger instances with distance (coverage stays, cost falls).
-            float keep = layer == 0 ? saturate(pow(6.0 / max(dist, 1e-3), 1.2)) : 1.0;
+            float keep = layer == 0 ? saturate(pow(6.0 * f.veg.y / max(dist, 1e-3), 1.2)) : 1.0;
             if (hash_f(h + 3u) >= fade && hash_f(h + 8u) < keep) {
                 uint variant = sp.first_variant + min(uint(hash_f(h + 4u) * float(sp.variant_count)), sp.variant_count - 1u);
                 GcVariant pv = ps.variants[variant];
@@ -299,14 +300,14 @@ void as_gc_imp(uint tid : SV_GroupThreadID, uint3 gid : SV_GroupID)
     GcScene ps = *pc.gc;
     if (tid == 0) s_imp.count = 0;
     GroupMemoryBarrierWithGroupSync();
-    const float cell = GC_IMP_CELL;
+    const float ds = f.veg.y, cell = GC_IMP_CELL * ds;                   // the mid field scales with the distance factor
     int cx = f.gc_imp_cell_x + int(gid.x), cz = f.gc_imp_cell_z + int(gid.y);
     float2 cm = (float2(cx, cz) + 0.5) * cell;
     float2 cg = clamp(cm / f.terrain.z, 0.0, f.terrain_size.xy - 1.0);
     float3 cc = float3(f.terrain.x + cm.x, height_at(f, cg, 0) + 1.0, f.terrain.y + cm.y);
     float cd = distance(cc, f.cam_pos.xyz);
-    bool cell_visible = gid.x < f.gc_imp_cells && gid.y < f.gc_imp_cells && cd > GC_NEAR_DISTANCE * 0.7 - cell * 1.5 &&
-                        cd < GC_IMP_DISTANCE + cell * 1.5 && sphere_visible(cc, cell * 1.5 + 2.0);
+    bool cell_visible = gid.x < f.gc_imp_cells && gid.y < f.gc_imp_cells && cd > GC_NEAR_DISTANCE * 0.7 * ds - cell * 1.5 &&
+                        cd < GC_IMP_DISTANCE * ds + cell * 1.5 && sphere_visible(cc, cell * 1.5 + 2.0);
     uint h = hash_u32(uint(cx) * 73856093u ^ uint(cz) * 19349663u ^ (tid + 1u) * 83492791u ^ 0x1a5f00d7u);
     float2 local = (float2(tid & 7u, tid >> 3) + float2(hash_f(h), hash_f(h + 1u))) / float2(8.0, 4.0);
     float2 pm = (float2(cx, cz) + local) * cell;
@@ -326,9 +327,10 @@ void as_gc_imp(uint tid : SV_GroupThreadID, uint3 gid : SV_GroupID)
             GcSpecies sp = ps.species[sel];
             float3 base = float3(f.terrain.x + pm.x, height_at(f, g, 0), f.terrain.y + pm.y);
             float dist = distance(base, f.cam_pos.xyz);
-            float fade_in = smoothstep(sp.shape.z * 0.7, sp.shape.z, dist);        // where this species' meshes fade out
-            float fade_out = smoothstep(GC_IMP_DISTANCE * 0.7, GC_IMP_DISTANCE, dist);
-            float keep = saturate(30.0 / dist);
+            float reach = sp.shape.z * ds;
+            float fade_in = smoothstep(reach * 0.7, reach, dist);                  // where this species' meshes fade out
+            float fade_out = smoothstep(GC_IMP_DISTANCE * ds * 0.7, GC_IMP_DISTANCE * ds, dist);
+            float keep = saturate(30.0 * ds / dist);
             if (hash_f(h + 3u) < fade_in && hash_f(h + 9u) >= fade_out && hash_f(h + 8u) < keep) {
                 uint variant = sp.first_variant + min(uint(hash_f(h + 4u) * float(sp.variant_count)), sp.variant_count - 1u);
                 GcVariant pv = ps.variants[variant];

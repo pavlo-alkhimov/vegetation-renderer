@@ -102,7 +102,7 @@ SceneOut fs_terrain(TerrainVsOut i)
     float4 cover_color = float4(0, 0, 0, 0), cover_surf = float4(0, 0, 0, 0);
     for (uint k = 0; k < GC_HABITATS; k++)
         if (hw[k] > 0.03) cover_tiled(k, uv, duvx, duvy, hw[k], cover_color, cover_surf);
-    float near = (f.veg_flags & VEG_COVER) != 0 ? smoothstep(GC_NEAR_DISTANCE * 0.55, GC_NEAR_DISTANCE * 0.95, dist) : 1.0;
+    float near = (f.veg_flags & VEG_COVER) != 0 ? smoothstep(GC_NEAR_DISTANCE * f.veg.y * 0.55, GC_NEAR_DISTANCE * f.veg.y * 0.95, dist) : 1.0;
     float tall = meadow_height(pm) * hw.x + 0.3 * hw.y + 0.15 * hw.z;   // m, rough mean cover height
     float cos_v = saturate(dot(n, v));
     float a = saturate(cover_color.a * saturate(hsum * 1.25) * lerp(0.85, 1.0, near));

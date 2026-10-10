@@ -14,11 +14,11 @@ static const char* USAGE =
     "  --notrees, --nocover      start with trees / ground cover off (A/B timing);\n"
     "                            --notaa: no temporal anti-aliasing; --noshadows: no sun shadows\n"
     "  --cover FILE              cooked ground cover (default data/cooked/ground_cover.vgc, see cook_ground_cover)\n"
-    "  --treedist M              tree draw distance in m (default 3000)\n"
+    "  --treedist M              tree draw distance in m (default 3000); --coverdist F: ground-cover distance factor (default 2)\n"
     "\n"
     "controls: click = capture mouse, Esc = release (again = quit), WASD move, Q/E down/up (Space = up),\n"
-    "  Shift x8, Ctrl x1/8, wheel = speed, G walk/fly, C/Z crouch/prone (walk), 1-4 shaded/LOD/contours/normals, L wireframe,\n"
-    "  [ ] finer/coarser terrain LOD, T trees, B ground cover, - = tree distance, J TAA, O shadows, V vsync, F12 or K screenshot,\n"
+    "  Shift x8, Ctrl x1/8, wheel = speed, camera presets Z lying, X standing, F free (G toggles), C crouch, 1-4 shaded/LOD/contours/normals, L wireframe,\n"
+    "  [ ] finer/coarser terrain LOD, T trees, B ground cover, - = tree distance, , . ground-cover distance, J TAA, O shadows, V vsync, F12 or K screenshot,\n"
     "  P print camera, H overlay (FPS graph, keys)\n";
 
 static ViewerCommand map_key(SDL_Scancode sc)
@@ -43,8 +43,12 @@ static ViewerCommand map_key(SDL_Scancode sc)
     case SDL_SCANCODE_MINUS: return CMD_TREE_DIST_LESS;
     case SDL_SCANCODE_EQUALS: return CMD_TREE_DIST_MORE;
     case SDL_SCANCODE_H: return CMD_TOGGLE_OVERLAY;
+    case SDL_SCANCODE_Z: return CMD_CAM_LYING;
+    case SDL_SCANCODE_X: return CMD_CAM_STANDING;
+    case SDL_SCANCODE_F: return CMD_CAM_FREE;
     case SDL_SCANCODE_C: return CMD_STANCE_CROUCH;
-    case SDL_SCANCODE_Z: return CMD_STANCE_PRONE;
+    case SDL_SCANCODE_COMMA: return CMD_COVER_DIST_LESS;
+    case SDL_SCANCODE_PERIOD: return CMD_COVER_DIST_MORE;
     default: return CMD_NONE;
     }
 }
@@ -58,7 +62,7 @@ int main(int argc, char** argv)
     bool validation = false, vsync = true, have_cam = false, wire = false, hidpi = false, trees = true, cover = true, taa = true, shadows = true;
     u32 debug_mode = 0;
     i32 stance = -1;
-    f32 tree_dist = 3000.0f;
+    f32 tree_dist = 3000.0f, cover_dist = 2.0f;
     f64 cam_args[5] = {};
 #ifdef VR_DEBUG
     validation = true;
@@ -79,6 +83,7 @@ int main(int argc, char** argv)
         else if (!strcmp(argv[i], "--noshadows")) shadows = false;
         else if (!strcmp(argv[i], "--stance") && i + 1 < argc) { int s = atoi(argv[++i]); stance = CLAMP(s, 0, 2); }
         else if (!strcmp(argv[i], "--cover") && i + 1 < argc) cover_path = argv[++i];
+        else if (!strcmp(argv[i], "--coverdist") && i + 1 < argc) cover_dist = CLAMP((f32)atof(argv[i + 1]), 0.5f, 8.0f), i++;
         else if (!strcmp(argv[i], "--treedist") && i + 1 < argc) tree_dist = (f32)atof(argv[++i]);
         else if (argv[i][0] == '-') { fputs(USAGE, stderr); return 1; }
         else terrain_path = argv[i];
@@ -130,6 +135,7 @@ int main(int argc, char** argv)
     overlay_init(&v.overlay, &v.vk, shader_path);
     v.show_trees = trees;
     v.show_cover = cover;
+    v.cover_dist = cover_dist;
     v.tree_dist = tree_dist;
 
     // Camera: --cam, else 60 m above the centre of the terrain looking north.

@@ -181,7 +181,7 @@ struct FrameConstants {
     v4 terrain;             // x, z of sample (0,0) relative to render origin; z = spacing (m); w = height_min - origin.y
     v4 terrain_size;        // x = width, y = height (samples), z = height_scale * 65535 (m per unorm unit), w = unused
     v4 morph[TERRAIN_MAX_LEVELS];   // per level: x = morph start (m), y = 1 / (end - start)
-    v4 veg;                 // x = tree draw distance (m), y = unused, z = pixels per unit of size/distance at 1 m,
+    v4 veg;                 // x = tree draw distance (m), y = ground-cover distance scale (all its ranges), z = pixels per unit of size/distance at 1 m,
                             // w = unused
     v4 tree_lod;            // projected tree height (px) above which LOD 0 / 1 / 2 is used; w = unused
     v4 wind;                // xz = wind direction (unit), y = strength, w = unused

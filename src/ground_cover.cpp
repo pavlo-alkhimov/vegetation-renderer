@@ -93,7 +93,7 @@ static void gc_bake(GroundCover* p, Vk* vk, const char* shader_dir)
         fc->cam_pos = {tile * 0.5f, 50, tile * 0.5f, 0.05f};
         fc->terrain = {0, 0, 1, 0};
         fc->terrain_size = {1e6f, 1e6f, 1, 0};
-        fc->veg = {0, 0, 1000, 0};
+        fc->veg = {0, 1, 1000, 0};
         fc->wind = {1, 0, 0, 0};                         // strength 0: no bend, no flutter
         fc->cover = {p->grass_color.x, p->grass_color.y, p->grass_color.z, GC_GREENNESS};
         fc->gc_bake = {hab == 0 ? 1.0f : 0.0f, hab == 1 ? 1.0f : 0.0f, hab == 2 ? 1.0f : 0.0f, tile};
@@ -265,7 +265,7 @@ static void gc_bake_impostors(GroundCover* p, Vk* vk, const char* shader_dir, u3
     fc->cam_pos = {0, 100, 0, 0.05f};
     fc->terrain = {0, 0, 1, 0};
     fc->terrain_size = {1e6f, 1e6f, 1, 0};
-    fc->veg = {0, 0, 1000, 0};
+    fc->veg = {0, 1, 1000, 0};
     fc->wind = {1, 0, 0, 0};
     fc->cover = {p->grass_color.x, p->grass_color.y, p->grass_color.z, GC_GREENNESS};
     fc->gc_bake = {0, 0, 0, -1};
@@ -516,9 +516,11 @@ static void gc_init(GroundCover* p, Vk* vk, const char* path, const char* shader
 }
 
 // Dispatch grids around the camera (terrain-local metres), one per layer; p->cells = dispatch side.
-static void gc_frame(GroundCover* p, const f64 cam_local[3], FrameConstants* fc)
+// scale: ground-cover distance factor (FrameConstants.veg.y): every range grows with it; the mid-field cells too, so its
+// dispatch stays the same size (fewer, wider impostors per m² far out).
+static void gc_frame(GroundCover* p, const f64 cam_local[3], f32 scale, FrameConstants* fc)
 {
-    f32 radius[GC_LAYERS] = {(f32)GC_NEAR_DISTANCE, p->max_distance};
+    f32 radius[GC_LAYERS] = {(f32)GC_NEAR_DISTANCE * scale, 45.0f * scale};
     p->cells = 0;
     for (u32 l = 0; l < GC_LAYERS; l++) {
         u32 n = 2 * (u32)ceilf(radius[l] / GC_LAYER_CELL[l]) + 2;
@@ -527,9 +529,10 @@ static void gc_frame(GroundCover* p, const f64 cam_local[3], FrameConstants* fc)
         fc->gc_cell_z[l] = (i32)floor(cam_local[2] / GC_LAYER_CELL[l]) - (i32)(n / 2);
         p->cells = MAX(p->cells, n);
     }
+    f64 imp_cell = GC_IMP_CELL * scale;
     u32 n = 2 * (u32)ceil(GC_IMP_DISTANCE / GC_IMP_CELL) + 2;
     fc->gc_imp_cells = n;
-    fc->gc_imp_cell_x = (i32)floor(cam_local[0] / GC_IMP_CELL) - (i32)(n / 2);
-    fc->gc_imp_cell_z = (i32)floor(cam_local[2] / GC_IMP_CELL) - (i32)(n / 2);
+    fc->gc_imp_cell_x = (i32)floor(cam_local[0] / imp_cell) - (i32)(n / 2);
+    fc->gc_imp_cell_z = (i32)floor(cam_local[2] / imp_cell) - (i32)(n / 2);
     p->imp_cells = n;
 }

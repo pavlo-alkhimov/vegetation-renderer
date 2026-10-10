@@ -64,9 +64,10 @@ build/vr                                             # or: build/vr <file.vrh> [
 | mouse, WASD | look, move (physical key positions, so QWERTZ works) |
 | Q / E (Space) | down / up |
 | Shift / Ctrl, wheel | ×8 / ×⅛, change base speed |
-| G, C, Z | walk (eye 1.75 m above ground) / fly; crouch (1.0 m), prone (0.35 m), same key again stands up |
+| Z, X, F (G), C | camera presets: lying (eye 0.35 m), standing (1.75 m), free flight (G toggles); C crouch (1.0 m). Changes glide: ~0.7 s between stances, from free flight the camera descends to the ground |
 | 1–4, L | shaded, LOD levels (terrain and trees), 10 m contours, normals; wireframe (terrain) |
 | T, B, - / = | trees on/off, ground cover on/off (meshes + impostors; the terrain keeps its baked top view), tree draw distance ÷/× 1.25 (default 3 km) |
+| , / . | ground-cover distance factor ÷/× 1.25 (0.5–8, default 2; `--coverdist F`): scales mesh distances, thinning and the impostor range |
 | O, J | sun shadows on/off, TAA on/off |
 | [ / ] | finer / coarser terrain (target triangle size in pixels) |
 | V, F12 / K, P | vsync toggle, screenshot (`shot_NNNN.ppm`), print camera as `--cam` arguments |
