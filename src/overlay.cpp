@@ -113,7 +113,7 @@ static void overlay_begin(const Overlay* o, OverlayData* d, u32 width, u32 heigh
     memset(d, 0, sizeof(*d));
     f32 s = (f32)MAX(1u, (height + 360) / 720);           // font texel size: 2 px at 1080p
     f32 cw = 6 * s, ch = 10 * s, pad = 6 * s;
-    f32 w = OVERLAY_TEXT_COLS * cw + 2 * pad, h = 26 * ch + 2 * pad - 3 * s;
+    f32 w = OVERLAY_TEXT_COLS * cw + 2 * pad, h = 27 * ch + 2 * pad - 3 * s;
     d->screen = {(f32)width, (f32)height, 0, 0};
     d->panel = {(f32)width - w - 10, 10, w, h};
     d->text = {d->panel.x + pad, d->panel.y + pad, cw, ch};

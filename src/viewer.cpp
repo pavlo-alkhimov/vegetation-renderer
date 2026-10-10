@@ -9,7 +9,7 @@ typedef enum {
     CMD_TOGGLE_VSYNC,
     CMD_SCREENSHOT,
     CMD_PRINT_CAMERA,
-    CMD_TOGGLE_TREES, CMD_TOGGLE_COVER,
+    CMD_TOGGLE_TREES, CMD_TOGGLE_COVER, CMD_TOGGLE_COVER_WIRE,
     CMD_TREE_DIST_LESS, CMD_TREE_DIST_MORE,
     CMD_TOGGLE_OVERLAY,
     CMD_CAM_LYING, CMD_CAM_STANDING, CMD_CAM_FREE, CMD_STANCE_CROUCH,
@@ -54,6 +54,7 @@ typedef struct {
     u32 debug_mode;
     bool wireframe;
     bool show_trees, show_cover, show_shadows;
+    bool cover_wire;            // ground cover as wireframe
     f32 tree_dist;              // m
     f32 cover_dist;             // ground-cover distance factor: scales all its ranges (meshes, impostors, terrain hand-over)
     f32 target_px;              // terrain triangle edge target (pixels)
@@ -127,6 +128,7 @@ static void viewer_update(Viewer* v, const ViewerInput* in, f32 dt)
         case CMD_PRINT_CAMERA: viewer_print_camera(v); break;
         case CMD_TOGGLE_TREES: v->show_trees = !v->show_trees; break;
         case CMD_TOGGLE_COVER: v->show_cover = !v->show_cover; break;
+        case CMD_TOGGLE_COVER_WIRE: v->cover_wire = !v->cover_wire && v->cover.wire; break;
         case CMD_TREE_DIST_LESS: v->tree_dist = MAX(v->tree_dist / 1.25f, 100.0f); break;
         case CMD_TREE_DIST_MORE: v->tree_dist = MIN(v->tree_dist * 1.25f, 12000.0f); break;
         case CMD_COVER_DIST_LESS: v->cover_dist = MAX(v->cover_dist / 1.25f, 0.5f); break;
@@ -209,6 +211,7 @@ static void viewer_overlay(const Viewer* v, OverlayData* d)
     overlay_line(d, l++, ", .", "COVER DIST  X%.2f", v->cover_dist);
     overlay_line(d, l++, "1-4", "VIEW        %s", VIEW_NAMES[v->debug_mode & 3]);
     overlay_line(d, l++, "L", "WIREFRAME   %s", v->wireframe ? "ON" : "OFF");
+    overlay_line(d, l++, "N", "COVER WIRE  %s", v->cover_wire ? "ON" : "OFF");
     overlay_line(d, l++, "[ ]", "TERRAIN LOD %.1f PX", v->target_px);
     overlay_line(d, l++, "O", "SHADOWS     %s", !v->shadows.enabled ? "N/A" : v->show_shadows ? "ON" : "OFF");
     overlay_line(d, l++, "J", "TAA         %s", v->taa ? "ON" : "OFF");
@@ -430,9 +433,9 @@ static bool viewer_render(Viewer* v)
     }
     if (vk->timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, f->queries, 3);
     if (cover) {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, v->cover.pipeline);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, v->cover_wire ? v->cover.wire : v->cover.pipeline);
         vkCmdDrawMeshTasksEXT(cmd, v->cover.cells, v->cover.cells, GC_LAYERS);
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, v->cover.pipe_imp);
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, v->cover_wire ? v->cover.wire_imp : v->cover.pipe_imp);
         vkCmdDrawMeshTasksEXT(cmd, v->cover.imp_cells, v->cover.imp_cells, 1);
     }
     if (vk->timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, f->queries, 4);

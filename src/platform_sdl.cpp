@@ -9,7 +9,7 @@ static const char* USAGE =
     "  --novsync                 present without vsync (for timing)\n"
     "  --hidpi                   render at native pixel density (Retina / scaled displays; default: 1 pixel per point)\n"
     "  --validation              enable the Vulkan validation layer\n"
-    "  --debug N                 start in view mode N (0 shaded, 1 LOD, 2 contours, 3 normals); --wire: wireframe\n"
+    "  --debug N                 start in view mode N (0 shaded, 1 LOD, 2 contours, 3 normals); --wire, --coverwire: wireframe\n"
     "  --stance N                start walking: 0 standing, 1 crouching, 2 prone (camera altitude from the ground)\n"
     "  --notrees, --nocover      start with trees / ground cover off (A/B timing);\n"
     "                            --notaa: no temporal anti-aliasing; --noshadows: no sun shadows\n"
@@ -18,7 +18,7 @@ static const char* USAGE =
     "\n"
     "controls: click = capture mouse, Esc = release (again = quit), WASD move, Q/E down/up (Space = up),\n"
     "  Shift x8, Ctrl x1/8, wheel = speed, camera presets Z lying, X standing, F free (G toggles), C crouch, 1-4 shaded/LOD/contours/normals, L wireframe,\n"
-    "  [ ] finer/coarser terrain LOD, T trees, B ground cover, - = tree distance, , . ground-cover distance, J TAA, O shadows, V vsync, F12 or K screenshot,\n"
+    "  [ ] finer/coarser terrain LOD, T trees, B ground cover, N ground-cover wireframe, - = tree distance, , . ground-cover distance, J TAA, O shadows, V vsync, F12 or K screenshot,\n"
     "  P print camera, H overlay (FPS graph, keys)\n";
 
 static ViewerCommand map_key(SDL_Scancode sc)
@@ -38,6 +38,7 @@ static ViewerCommand map_key(SDL_Scancode sc)
     case SDL_SCANCODE_P: return CMD_PRINT_CAMERA;
     case SDL_SCANCODE_T: return CMD_TOGGLE_TREES;
     case SDL_SCANCODE_B: return CMD_TOGGLE_COVER;
+    case SDL_SCANCODE_N: return CMD_TOGGLE_COVER_WIRE;
     case SDL_SCANCODE_J: return CMD_TOGGLE_TAA;
     case SDL_SCANCODE_O: return CMD_TOGGLE_SHADOWS;
     case SDL_SCANCODE_MINUS: return CMD_TREE_DIST_LESS;
@@ -59,7 +60,7 @@ int main(int argc, char** argv)
     const char* cover_path = "data/cooked/ground_cover.vgc";
     u32 width = 1920, height = 1080, max_frames = 0;
     const char* shot_path = NULL;
-    bool validation = false, vsync = true, have_cam = false, wire = false, hidpi = false, trees = true, cover = true, taa = true, shadows = true;
+    bool validation = false, vsync = true, have_cam = false, wire = false, cover_wire = false, hidpi = false, trees = true, cover = true, taa = true, shadows = true;
     u32 debug_mode = 0;
     i32 stance = -1;
     f32 tree_dist = 3000.0f, cover_dist = 2.0f;
@@ -77,6 +78,7 @@ int main(int argc, char** argv)
         else if (!strcmp(argv[i], "--validation")) validation = true;
         else if (!strcmp(argv[i], "--debug") && i + 1 < argc) debug_mode = (u32)atoi(argv[++i]);
         else if (!strcmp(argv[i], "--wire")) wire = true;
+        else if (!strcmp(argv[i], "--coverwire")) cover_wire = true;
         else if (!strcmp(argv[i], "--notrees")) trees = false;
         else if (!strcmp(argv[i], "--nocover")) cover = false;
         else if (!strcmp(argv[i], "--notaa")) taa = false;
@@ -135,6 +137,7 @@ int main(int argc, char** argv)
     overlay_init(&v.overlay, &v.vk, shader_path);
     v.show_trees = trees;
     v.show_cover = cover;
+    v.cover_wire = cover_wire && v.cover.wire;
     v.cover_dist = cover_dist;
     v.tree_dist = tree_dist;
 

@@ -433,3 +433,16 @@ SceneOut fs_gc_imp(GcImpVsOut i)
     float3 col = shade_foliage(f, albedo, n, to_cam, 1.0, 0.7, sun_shadow(f, i.rel, n, i.pos.xy));
     return scene_out(f, tonemap(apply_fog(f, col, i.rel)), i.pos, i.prev);
 }
+
+// Wireframe (N key): every edge of the cards, no alpha test; colour by LOD (impostors: one colour).
+[shader("fragment")]
+SceneOut fs_gc_wire(GcVsOut i)
+{
+    return scene_out(*pc.frame, DEBUG_TINT[(i.info >> 8) & 255u], i.pos, i.prev);
+}
+
+[shader("fragment")]
+SceneOut fs_gc_imp_wire(GcImpVsOut i)
+{
+    return scene_out(*pc.frame, DEBUG_TINT[4], i.pos, i.prev);
+}

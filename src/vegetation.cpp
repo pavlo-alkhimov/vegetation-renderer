@@ -593,8 +593,8 @@ static void veg_place(Vegetation* vg, const Terrain* t)
 // Load, upload, pipelines
 
 // Task shader in its own module, mesh + fragment shaders in another (see PipelineDesc.task_module). shadow: depth-only
-// pipeline with the fs_<name>_shadow fragment shader (alpha test).
-static VkPipeline veg_pipeline(Vk* vk, const char* shader_dir, const char* name, bool shadow = false)
+// pipeline with the fs_<name>_shadow fragment shader (alpha test); wire: line rendering with fs_<name>_wire.
+static VkPipeline veg_pipeline(Vk* vk, const char* shader_dir, const char* name, bool shadow = false, bool wire = false)
 {
     char path[1024], ts[32], ms[32], fs[32];
     snprintf(path, sizeof(path), "%sveg_%s_task.spv", shader_dir, name);
@@ -603,8 +603,8 @@ static VkPipeline veg_pipeline(Vk* vk, const char* shader_dir, const char* name,
     VkShaderModule mesh = vk_load_shader(vk, path);
     snprintf(ts, sizeof(ts), "as_%s", name);
     snprintf(ms, sizeof(ms), "ms_%s", name);
-    snprintf(fs, sizeof(fs), shadow ? "fs_%s_shadow" : "fs_%s", name);
-    PipelineDesc d = {mesh, NULL, fs, VK_COMPARE_OP_GREATER, true, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, ts, ms, task};
+    snprintf(fs, sizeof(fs), shadow ? "fs_%s_shadow" : wire ? "fs_%s_wire" : "fs_%s", name);
+    PipelineDesc d = {mesh, NULL, fs, VK_COMPARE_OP_GREATER, true, VK_CULL_MODE_NONE, wire ? VK_POLYGON_MODE_LINE : VK_POLYGON_MODE_FILL, ts, ms, task};
     d.depth_only = shadow;
     VkPipeline p = vk_create_pipeline(vk, &d);
     vkDestroyShaderModule(vk->device, task, NULL);

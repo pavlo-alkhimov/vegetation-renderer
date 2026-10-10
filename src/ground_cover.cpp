@@ -36,6 +36,7 @@ typedef struct {
     VkTex bake[GC_HABITATS][2];     // baked top view per habitat: colour (premultiplied, a = coverage), surface
     VkTex impostor[2];              // mid-field impostor atlas: colour (premultiplied), normal
     VkPipeline pipe_imp;
+    VkPipeline wire, wire_imp;      // wireframe variants (if the device supports line fill), N key
     u32 imp_cells;                  // per frame: mid-field dispatch side
     // Per frame
     u32 cells;                      // dispatch grid side
@@ -504,6 +505,10 @@ static void gc_init(GroundCover* p, Vk* vk, const char* path, const char* shader
     free(ma.m);
     p->pipeline = veg_pipeline(vk, shader_dir, "gc");
     p->pipe_imp = veg_pipeline(vk, shader_dir, "gc_imp");
+    if (vk->wireframe_supported) {
+        p->wire = veg_pipeline(vk, shader_dir, "gc", false, true);
+        p->wire_imp = veg_pipeline(vk, shader_dir, "gc_imp", false, true);
+    }
     u64 t1 = SDL_GetPerformanceCounter();
     gc_bake(p, vk, shader_dir);
     gc_bake_impostors(p, vk, shader_dir, p->variant_count, variants);
