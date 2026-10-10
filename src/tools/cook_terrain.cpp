@@ -1,6 +1,7 @@
 // cook_terrain: GeoTIFF elevation tiles -> one cooked heightfield (.vrh, see terrain_file.h).
 //
 //   cook_terrain [-o out.vrh] [--step N] <tile.tif | directory>...
+//   cook_terrain --info <tile.tif>      print all TIFF tags (diagnostics)
 //
 // Tiles are placed on a common grid by their georeferencing (all tiles must share CRS and pixel size). Samples
 // without data (missing tiles, nodata) are filled by pull-push interpolation and counted in the header.
@@ -131,6 +132,18 @@ int main(int argc, char** argv)
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-o") && i + 1 < argc) out_path = argv[++i];
         else if (!strcmp(argv[i], "--step") && i + 1 < argc) step = (u32)atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--info") && i + 1 < argc) {
+            size_t size;
+            u8* file = (u8*)read_file(argv[++i], &size);
+            if (!file) FATAL("cannot read %s", argv[i]);
+            tiff_dump(file, size);
+            Tiff t;
+            const char* err = tiff_open(&t, file, size);
+            char desc[256];
+            tiff_describe(&t, desc, sizeof(desc));
+            printf("%s\n%s\n", desc, err ? err : "readable");
+            return err ? 1 : 0;
+        }
         else if (argv[i][0] == '-') FATAL("usage: cook_terrain [-o out.vrh] [--step N] <tile.tif | dir>...");
         else add_path(argv[i]);
     }
@@ -147,7 +160,12 @@ int main(int argc, char** argv)
         if (!file) FATAL("cannot read %s", ti->path);
         Tiff t;
         const char* err = tiff_open(&t, file, size);
-        if (err) FATAL("%s: %s", ti->path, err);
+        if (err) {
+            char desc[256];
+            tiff_describe(&t, desc, sizeof(desc));
+            FATAL("%s: %s\n  layout: %s\n  all tags: cook_terrain --info %s", ti->path, err, desc, ti->path);
+        }
+        if (t.samples > 1 && i == 0) printf("note: %u samples per pixel (%u extra); using band 0 as elevation\n", t.samples, t.extra_samples);
         if (!t.has_geo) FATAL("%s: no georeferencing (ModelTiepoint/ModelPixelScale)", ti->path);
         if (!sx) { sx = t.sx; sy = t.sy; epsg = t.epsg; }
         if (fabs(t.sx - sx) > 1e-6 || fabs(t.sy - sy) > 1e-6) FATAL("%s: pixel size differs from first tile", ti->path);

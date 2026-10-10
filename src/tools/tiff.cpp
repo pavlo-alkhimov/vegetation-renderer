@@ -1,14 +1,17 @@
-// Minimal GeoTIFF reader for single-band elevation rasters.
+// Minimal GeoTIFF reader for elevation rasters.
 // Supports: classic TIFF (II/MM), strips or tiles, compression none/LZW/Deflate, predictor 1/2/3,
 // 8/16/32-bit integer or 32/64-bit float samples, ModelTiepoint + ModelPixelScale, RasterType, GDAL_NODATA.
-// Not supported: BigTIFF, multi-band, ModelTransformation with rotation.
+// Multi-sample files (e.g. elevation + alpha/mask, chunky or planar): band 0 is read. Colour images are rejected.
+// Not supported: BigTIFF, ModelTransformation with rotation.
 
 typedef struct {
     u32 width, height;
     u32 bits, sample_format;        // sample_format: 1 uint, 2 int, 3 float
     u32 compression, predictor;
+    u32 samples, planar, photometric, extra_samples;
     u32 tile_w, tile_h;             // tile size; for strips tile_w = width, tile_h = rows per strip
-    u32 chunk_count;
+    u32 chunk_count;                // all chunks; band 0 uses the first chunks_per_band (planar) or all (chunky)
+    u32 chunks_per_band;
     const u8* file; size_t file_size;
     bool big_endian;
     u32 chunk_offsets_pos, chunk_counts_pos, chunk_offsets_type, chunk_counts_type;
@@ -66,7 +69,8 @@ static const char* tiff_open(Tiff* t, const u8* file, size_t size)
     if (ifd + 2 > size) return "bad IFD offset";
     u32 n = tiff_u16(t, ifd);
     if (ifd + 2 + 12 * (size_t)n > size) return "bad IFD";
-    u32 rows_per_strip = 0xffffffffu, samples = 1, planar = 1;
+    u32 rows_per_strip = 0xffffffffu;
+    t->samples = 1; t->planar = 1; t->photometric = 1;
     f64 tie[6] = {}, scale[3] = {};
     bool has_tie = false, has_scale = false, pixel_is_point = false;
     for (u32 e = 0; e < n; e++) {
@@ -84,12 +88,14 @@ static const char* tiff_open(Tiff* t, const u8* file, size_t size)
         case 259: t->compression = v; break;
         case 273: case 324: t->chunk_offsets_pos = (u32)vpos; t->chunk_offsets_type = type; t->chunk_count = count; break;
         case 279: case 325: t->chunk_counts_pos = (u32)vpos; t->chunk_counts_type = type; break;
-        case 277: samples = v; break;
+        case 262: t->photometric = v; break;
+        case 277: t->samples = v; break;
         case 278: rows_per_strip = v; break;
-        case 284: planar = v; break;
+        case 284: t->planar = v; break;
         case 317: t->predictor = v; break;
         case 322: t->tile_w = v; break;
         case 323: t->tile_h = v; break;
+        case 338: t->extra_samples = count; break;
         case 339: t->sample_format = v; break;
         case 33550: if (count >= 3) { for (int i = 0; i < 3; i++) scale[i] = tiff_f64(t, vpos + 8 * i); has_scale = true; } break;
         case 33922: if (count >= 6) { for (int i = 0; i < 6; i++) tie[i] = tiff_f64(t, vpos + 8 * i); has_tie = true; } break;
@@ -112,9 +118,9 @@ static const char* tiff_open(Tiff* t, const u8* file, size_t size)
         }
     }
     if (!t->width || !t->height || !t->chunk_count) return "missing image tags";
-    // PlanarConfiguration is irrelevant with one sample per pixel (Bavarian DGM1 tiles write 2).
-    if (samples != 1) return "only single-band rasters supported";
-    (void)planar;
+    if (!t->samples || (t->planar != 1 && t->planar != 2)) return "bad SamplesPerPixel / PlanarConfiguration";
+    if (t->photometric == 2 || t->photometric == 3 || t->photometric == 6 || (t->samples >= 3 && t->bits == 8))
+        return "colour image (RGB/palette/YCbCr), not an elevation raster: wrong product or URL?";
     if (t->compression != 1 && t->compression != 5 && t->compression != 8 && t->compression != 32946)
         return "unsupported compression (supported: none, LZW, Deflate)";
     if (t->predictor < 1 || t->predictor > 3) return "unsupported predictor";
@@ -124,6 +130,8 @@ static const char* tiff_open(Tiff* t, const u8* file, size_t size)
     if (t->predictor == 3 && t->sample_format != 3) return "predictor 3 on integer data";
     if (!t->tile_w) { t->tile_w = t->width; t->tile_h = MIN(rows_per_strip, t->height); }
     if (!t->tile_h) return "bad tile size";
+    t->chunks_per_band = ((t->width + t->tile_w - 1) / t->tile_w) * ((t->height + t->tile_h - 1) / t->tile_h);
+    if (t->chunk_count < t->chunks_per_band * (t->planar == 2 ? t->samples : 1)) return "fewer strips/tiles than the image needs";
     if (has_tie && has_scale) {
         t->sx = scale[0]; t->sy = scale[1];
         f64 c = pixel_is_point ? 0.0 : 0.5;   // tiepoint refers to the pixel corner (area) or centre (point)
@@ -181,12 +189,13 @@ static i64 tiff_lzw(const u8* in, size_t in_size, u8* out, size_t out_size)
 static const char* tiff_read_f32(const Tiff* t, f32* dst)
 {
     u32 bps = t->bits / 8;
+    u32 spp = t->planar == 1 ? t->samples : 1;     // samples per pixel inside one chunk
     u32 tiles_x = (t->width + t->tile_w - 1) / t->tile_w;
-    size_t chunk_bytes = (size_t)t->tile_w * t->tile_h * bps;
+    size_t chunk_bytes = (size_t)t->tile_w * t->tile_h * spp * bps;
     u8* raw = (u8*)malloc(chunk_bytes);
     u8* tmp = (u8*)malloc(chunk_bytes);
     const char* err = NULL;
-    for (u32 c = 0; c < t->chunk_count && !err; c++) {
+    for (u32 c = 0; c < t->chunks_per_band && !err; c++) {
         size_t off = tiff_index(t, t->chunk_offsets_type, t->chunk_offsets_pos, c);
         size_t len = tiff_index(t, t->chunk_counts_type, t->chunk_counts_pos, c);
         if (off + len > t->file_size) { err = "chunk out of file"; break; }
@@ -194,19 +203,19 @@ static const char* tiff_read_f32(const Tiff* t, f32* dst)
         if (cy >= t->height) break;
         // Strips: the last one may be short. Tiles: always full size, cropped on copy.
         u32 rows = t->tile_w == t->width ? MIN(t->tile_h, t->height - cy) : t->tile_h;
-        size_t want = (size_t)t->tile_w * rows * bps;
+        size_t want = (size_t)t->tile_w * rows * spp * bps;
         i64 got;
         if (t->compression == 1) { got = (i64)MIN(len, want); memcpy(raw, t->file + off, (size_t)got); }
         else if (t->compression == 5) got = tiff_lzw(t->file + off, len, raw, want);
         else got = inflate_zlib(t->file + off, len, raw, want);
         if (got != (i64)want) { err = "chunk decode failed"; break; }
 
-        u32 row_samples = t->tile_w;
+        u32 row_samples = t->tile_w * spp;   // values per row; predictors difference with stride spp
         if (t->predictor == 3) {
             // Floating-point predictor: bytes differenced along the row, then stored as byte planes (MSB first).
             for (u32 r = 0; r < rows; r++) {
                 u8* row = raw + (size_t)r * row_samples * bps;
-                for (u32 i = 1; i < row_samples * bps; i++) row[i] = (u8)(row[i] + row[i - 1]);
+                for (u32 i = spp; i < row_samples * bps; i++) row[i] = (u8)(row[i] + row[i - spp]);
                 u8* o = tmp + (size_t)r * row_samples * bps;
                 for (u32 i = 0; i < row_samples; i++)
                     for (u32 b = 0; b < bps; b++) o[bps * i + b] = row[(bps - 1 - b) * row_samples + i];   // to little endian
@@ -219,16 +228,17 @@ static const char* tiff_read_f32(const Tiff* t, f32* dst)
         if (t->predictor == 2) {
             for (u32 r = 0; r < rows; r++) {
                 u8* row = raw + (size_t)r * row_samples * bps;
-                for (u32 i = 1; i < row_samples; i++) {
-                    if (bps == 1) row[i] = (u8)(row[i] + row[i - 1]);
-                    else if (bps == 2) { u16 a, b; memcpy(&a, row + 2 * i, 2); memcpy(&b, row + 2 * (i - 1), 2); a = (u16)(a + b); memcpy(row + 2 * i, &a, 2); }
-                    else { u32 a, b; memcpy(&a, row + 4 * i, 4); memcpy(&b, row + 4 * (i - 1), 4); a += b; memcpy(row + 4 * i, &a, 4); }
+                for (u32 i = spp; i < row_samples; i++) {
+                    u32 j = i - spp;
+                    if (bps == 1) row[i] = (u8)(row[i] + row[j]);
+                    else if (bps == 2) { u16 a, b; memcpy(&a, row + 2 * i, 2); memcpy(&b, row + 2 * j, 2); a = (u16)(a + b); memcpy(row + 2 * i, &a, 2); }
+                    else { u32 a, b; memcpy(&a, row + 4 * i, 4); memcpy(&b, row + 4 * j, 4); a += b; memcpy(row + 4 * i, &a, 4); }
                 }
             }
         }
         for (u32 r = 0; r < rows && cy + r < t->height; r++) {
-            for (u32 i = 0; i < row_samples && cx + i < t->width; i++) {
-                const u8* p = raw + ((size_t)r * row_samples + i) * bps;
+            for (u32 i = 0; i < t->tile_w && cx + i < t->width; i++) {
+                const u8* p = raw + ((size_t)r * row_samples + (size_t)i * spp) * bps;   // band 0
                 f64 v;
                 if (t->sample_format == 3) {
                     if (bps == 4) { f32 f; memcpy(&f, p, 4); v = f; } else memcpy(&v, p, 8);
@@ -245,4 +255,48 @@ static const char* tiff_read_f32(const Tiff* t, f32* dst)
     free(raw);
     free(tmp);
     return err;
+}
+
+// One-line layout summary for error messages.
+static void tiff_describe(const Tiff* t, char* buf, size_t size)
+{
+    snprintf(buf, size, "%ux%u, %u sample(s)/pixel (%u extra), %u-bit %s, photometric %u, planar %u, compression %u, predictor %u, %s %ux%u",
+             t->width, t->height, t->samples, t->extra_samples, t->bits,
+             t->sample_format == 3 ? "float" : t->sample_format == 2 ? "int" : "uint", t->photometric, t->planar,
+             t->compression, t->predictor, t->tile_w == t->width ? "strips" : "tiles", t->tile_w, t->tile_h);
+}
+
+// Prints every IFD entry of every IFD (for diagnosing files the reader rejects).
+static void tiff_dump(const u8* file, size_t size)
+{
+    Tiff t = {};
+    t.file = file; t.file_size = size;
+    if (size < 8 || !((file[0] == 'I' && file[1] == 'I') || (file[0] == 'M' && file[1] == 'M'))) { printf("not a TIFF\n"); return; }
+    t.big_endian = file[0] == 'M';
+    printf("byte order %s, magic %u\n", t.big_endian ? "MM" : "II", tiff_u16(&t, 2));
+    if (tiff_u16(&t, 2) != 42) return;
+    static const u32 type_size[13] = {0, 1, 1, 2, 4, 8, 1, 1, 2, 4, 8, 4, 8};
+    size_t ifd = tiff_u32(&t, 4);
+    for (u32 index = 0; ifd && ifd + 2 <= size && index < 16; index++) {
+        u32 n = tiff_u16(&t, ifd);
+        printf("IFD %u: %u entries\n", index, n);
+        for (u32 e = 0; e < n && ifd + 2 + 12 * (size_t)(e + 1) <= size; e++) {
+            size_t entry = ifd + 2 + 12 * (size_t)e;
+            u32 tag = tiff_u16(&t, entry), type = tiff_u16(&t, entry + 2), count = tiff_u32(&t, entry + 4);
+            size_t bytes = (size_t)count * (type < 13 ? type_size[type] : 1);
+            size_t vpos = bytes <= 4 ? entry + 8 : tiff_u32(&t, entry + 8);
+            printf("  tag %5u type %2u count %7u:", tag, type, count);
+            if (vpos + bytes > size) { printf(" <out of file>\n"); continue; }
+            if (type == 2) { printf(" \"%.*s\"\n", (int)MIN(bytes, (size_t)200), (const char*)file + vpos); continue; }
+            for (u32 i = 0; i < MIN(count, 12u); i++) {
+                if (type == 3) printf(" %u", tiff_u16(&t, vpos + 2 * i));
+                else if (type == 4) printf(" %u", tiff_u32(&t, vpos + 4 * i));
+                else if (type == 12) printf(" %.6f", tiff_f64(&t, vpos + 8 * i));
+                else if (type == 1 || type == 7) printf(" %u", file[vpos + i]);
+                else { printf(" ..."); break; }
+            }
+            printf(count > 12 ? " ...\n" : "\n");
+        }
+        ifd = ifd + 2 + 12 * (size_t)n + 4 <= size ? tiff_u32(&t, ifd + 2 + 12 * (size_t)n) : 0;
+    }
 }
