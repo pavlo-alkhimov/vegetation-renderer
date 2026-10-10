@@ -113,5 +113,27 @@ float value_noise(float2 p)
     return lerp(lerp(hash(i), hash(i + float2(1, 0)), u.x), lerp(hash(i + float2(0, 1)), hash(i + float2(1, 1)), u.x), u.y);
 }
 
+float3 unpack_normal(uint p)   // snorm 10:10:10
+{
+    int3 v = int3(int(p << 22) >> 22, int(p << 12) >> 22, int(p << 2) >> 22);
+    return float3(v) / 511.0;
+}
+
+// Task -> mesh shader expansion: find the payload slot owning mesh workgroup `gid`. prefix[] is non-decreasing with
+// prefix[32] = total; the result is the largest i with prefix[i] <= gid, which is always a non-empty slot.
+uint find_slot(uint prefix[33], uint gid)
+{
+    uint lo = 0;
+    for (uint step = 16; step > 0; step >>= 1)
+        if (prefix[lo + step] <= gid) lo += step;
+    return lo;
+}
+
+// Same gust as the grass blades: a travelling wave along the wind direction (pm = terrain-local metres).
+float wind_gust(FrameConstants f, float2 pm, float phase)
+{
+    return 0.35 + 0.3 * sin(f.cam_fwd.w * 1.7 + dot(pm, f.wind.xz) * 0.35 + phase * 1.5);
+}
+
 static const float3 DEBUG_TINT[6] = { float3(1, 0.3, 0.3), float3(1, 0.7, 0.2), float3(0.9, 1, 0.3), float3(0.3, 1, 0.4),
                                       float3(0.3, 0.8, 1), float3(0.7, 0.4, 1) };

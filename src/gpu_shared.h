@@ -32,6 +32,12 @@ struct TerrainNode {
 // Bindless texture slots.
 #define TEX_HEIGHT 0
 #define TEX_MASK   1        // RG8: r = forest (canopy) density, g = grass density; covers the terrain extent
+#define TEX_PLANTS 2        // per plant species s: TEX_PLANTS + 2s albedo (sRGB + alpha), + 2s + 1 surface (plants_file.h)
+
+// Samplers (bindless sampler array).
+#define SAMPLER_LINEAR_CLAMP 0
+#define SAMPLER_ANISO_REPEAT 1  // trilinear + anisotropic, wrapping (plant atlases)
+#define SAMPLER_COUNT        2
 
 // Vegetation baseline (docs/06 §5, "baseline" section): trees as meshlets via task + mesh shaders, grass blades
 // generated per frame in mesh shaders.
@@ -88,6 +94,44 @@ struct TreeChunk {                  // ≤ TREE_CHUNK consecutive instances of o
     f32 ox, oz;                     // cell corner relative to the render origin
 };
 
+// Near-field ground cover: Poly Haven plant assets (plants_file.h) as meshlets, placed every frame from the
+// vegetation mask by hash (nothing stored). Two layers in one dispatch (SV_GroupID.z): dense small cells near the
+// camera for species with a short draw distance (grasses, low forbs), coarse cells further out for the tall ones.
+// One task workgroup per cell, PLANT_CELL_SLOTS candidates.
+#define PLANT_LODS          3
+#define PLANT_MAX_SPECIES   16
+#define PLANT_CELL_SLOTS    32
+#define PLANT_LAYERS        2
+#define PLANT_NEAR_DISTANCE 16.0    // m; species drawn up to here belong to layer 0
+static const float PLANT_LAYER_CELL[PLANT_LAYERS] = {0.6f, 2.0f};    // m
+
+struct PlantVariant {               // 48 B
+    u32 meshlet_first[PLANT_LODS];
+    u32 meshlet_count[PLANT_LODS];
+    u32 species;
+    f32 height;                     // m at scale 1, base at y = 0
+    f32 radius;                     // m, horizontal
+    u32 pad[3];
+};
+
+struct PlantSpecies {               // 48 B
+    u32 first_variant, variant_count;
+    u32 albedo_tex, surface_tex;    // bindless indices
+    v4 habitat;                     // plants per m²: x meadow, y forest edge, z forest floor;
+                                    // w = 1 alpha-tested cards, 0 opaque
+    v4 shape;                       // x, y = scale range; z = draw distance (m); w = wind response (0 rigid .. 1)
+};
+
+struct PlantScene {                 // static, written once at load
+    GPU_PTR(PlantVariant) variants;
+    GPU_PTR(PlantSpecies) species;
+    GPU_PTR(TreeMeshlet) meshlets;
+    GPU_PTR(TreeVertex) vertices;   // uv = 2 x unorm16 mapping [-4, 4]
+    GPU_PTR(u32) triangles;
+    u32 species_count;
+    u32 pad;
+};
+
 struct VegScene {                   // static, written once at load
     GPU_PTR(TreeInstance) instances;
     GPU_PTR(TreeType) types;
@@ -129,7 +173,11 @@ struct FrameConstants {
     i32 grass_tile_x;       // terrain-local tile index of the grass dispatch grid's (0,0)
     i32 grass_tile_z;
     u32 grass_tiles;        // grass dispatch grid side, tiles
-    u32 pad0;
+    u32 pad1;
+    i32 plant_cell_x[PLANT_LAYERS]; // per layer: terrain-local cell index of the dispatch grid's (0,0)
+    i32 plant_cell_z[PLANT_LAYERS];
+    u32 plant_cells[PLANT_LAYERS];  // per layer: grid side in cells (the dispatch covers the largest)
+    u32 pad2, pad3;
 };
 
 // Overlay (top right): FPS, FPS graph, key list. One quad; text and graph are evaluated in the fragment shader.
@@ -156,4 +204,5 @@ struct PushConstants {
     GPU_PTR(TreeChunk) chunks;
     GPU_PTR(OverlayData) overlay;
     GPU_PTR(ViewConstants) view;
+    GPU_PTR(PlantScene) plants;
 };

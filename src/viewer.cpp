@@ -9,7 +9,7 @@ typedef enum {
     CMD_TOGGLE_VSYNC,
     CMD_SCREENSHOT,
     CMD_PRINT_CAMERA,
-    CMD_TOGGLE_TREES, CMD_TOGGLE_GRASS,
+    CMD_TOGGLE_TREES, CMD_TOGGLE_GRASS, CMD_TOGGLE_PLANTS,
     CMD_TREE_DIST_LESS, CMD_TREE_DIST_MORE,
     CMD_TOGGLE_OVERLAY,
     CMD_STANCE_CROUCH, CMD_STANCE_PRONE,
@@ -44,11 +44,12 @@ typedef struct {
     Vk vk;
     Terrain terrain;
     Vegetation veg;
+    Plants plants;
     Overlay overlay;
     Camera cam;
     u32 debug_mode;
     bool wireframe;
-    bool show_trees, show_grass;
+    bool show_trees, show_grass, show_plants;
     f32 tree_dist;              // m
     f32 grass_radius;           // m
     f32 target_px;              // terrain triangle edge target (pixels)
@@ -56,7 +57,7 @@ typedef struct {
     // Stats
     u32 node_count;
     f32 gpu_ms;                 // whole frame
-    f32 gpu_pass_ms[3];         // terrain, trees, grass
+    f32 gpu_pass_ms[GPU_PASSES];    // terrain, trees, grass blades, plants
     const char* screenshot_path;
     u32 screenshot_counter;
     bool swapchain_dirty;
@@ -107,6 +108,7 @@ static void viewer_update(Viewer* v, const ViewerInput* in, f32 dt)
         case CMD_PRINT_CAMERA: viewer_print_camera(v); break;
         case CMD_TOGGLE_TREES: v->show_trees = !v->show_trees; break;
         case CMD_TOGGLE_GRASS: v->show_grass = !v->show_grass; break;
+        case CMD_TOGGLE_PLANTS: v->show_plants = !v->show_plants; break;
         case CMD_TREE_DIST_LESS: v->tree_dist = MAX(v->tree_dist / 1.25f, 100.0f); break;
         case CMD_TREE_DIST_MORE: v->tree_dist = MIN(v->tree_dist * 1.25f, 12000.0f); break;
         case CMD_TOGGLE_OVERLAY: v->overlay.visible = !v->overlay.visible; break;
@@ -173,6 +175,7 @@ static void viewer_overlay(const Viewer* v, OverlayData* d)
     u32 l = 12;
     overlay_line(d, l++, "T", "TREES       %s", v->show_trees ? "ON" : "OFF");
     overlay_line(d, l++, "B", "GRASS       %s", v->show_grass ? "ON" : "OFF");
+    overlay_line(d, l++, "N", "PLANTS      %s", !v->plants.enabled ? "N/A" : v->show_plants ? "ON" : "OFF");
     overlay_line(d, l++, "- =", "TREE DIST   %.0f M", v->tree_dist);
     overlay_line(d, l++, "1-4", "VIEW        %s", VIEW_NAMES[v->debug_mode & 3]);
     overlay_line(d, l++, "L", "WIREFRAME   %s", v->wireframe ? "ON" : "OFF");
@@ -216,7 +219,7 @@ static bool viewer_render(Viewer* v)
         if (vkGetQueryPoolResults(vk->device, f->queries, 0, GPU_TIMESTAMPS, sizeof(ts), ts, sizeof(u64), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
             f64 ms = vk->props.limits.timestampPeriod * 1e-6;
             v->gpu_ms = (f32)((ts[GPU_TIMESTAMPS - 1] - ts[0]) * ms);
-            for (u32 i = 0; i < 3; i++) v->gpu_pass_ms[i] = (f32)((ts[i + 1] - ts[i]) * ms);
+            for (u32 i = 0; i < GPU_PASSES; i++) v->gpu_pass_ms[i] = (f32)((ts[i + 1] - ts[i]) * ms);
         }
     }
 
@@ -276,6 +279,7 @@ static bool viewer_render(Viewer* v)
     // Vegetation.
     Vegetation* vg = &v->veg;
     bool trees = vg->enabled && v->show_trees, grass = vg->enabled && v->show_grass;
+    bool plants = v->plants.enabled && v->show_plants && v->show_grass;
     fc->veg = {v->tree_dist, v->grass_radius, proj_y * vk->extent.height * 0.5f, 1.0f};
     fc->tree_lod = {400.0f, 120.0f, 30.0f, 0};
     fc->wind = {0.8f, 0.5f, 0.6f, 0};
@@ -291,6 +295,7 @@ static bool viewer_render(Viewer* v)
         vg->grass_groups_x = (n + 7) / 8;
         vg->grass_groups_z = (n + 3) / 4;
     }
+    if (plants) plants_frame(&v->plants, c->pos, fc);
     if (v->overlay.visible) viewer_overlay(v, (OverlayData*)((u8*)f->upload.mapped + OVERLAY_OFFSET));
 
     VkCommandBuffer cmd = f->cmd;
@@ -334,7 +339,8 @@ static bool viewer_render(Viewer* v)
     vkCmdSetScissor(cmd, 0, 1, &sc);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipeline_layout, 0, 1, &vk->set, 0, NULL);
     PushConstants pcs = {f->upload.address, f->upload.address + nodes_offset, vg->scene.address, f->upload.address + CHUNKS_OFFSET,
-                         f->upload.address + OVERLAY_OFFSET, f->upload.address + UPLOAD_VIEWS_OFFSET};
+                         f->upload.address + OVERLAY_OFFSET, f->upload.address + UPLOAD_VIEWS_OFFSET,
+                         v->plants.scene.address};
     vkCmdPushConstants(cmd, vk->pipeline_layout, VK_SHADER_STAGE_ALL, 0, sizeof(pcs), &pcs);
     if (sel.count) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, v->wireframe ? t->pipeline_wire : t->pipeline);
@@ -353,6 +359,11 @@ static bool viewer_render(Viewer* v)
         vkCmdDrawMeshTasksEXT(cmd, vg->grass_groups_x, vg->grass_groups_z, 1);
     }
     if (vk->timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, f->queries, 3);
+    if (plants) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, v->plants.pipeline);
+        vkCmdDrawMeshTasksEXT(cmd, v->plants.cells, v->plants.cells, PLANT_LAYERS);
+    }
+    if (vk->timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, f->queries, 4);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, t->pipeline_sky);
     vkCmdDraw(cmd, 3, 1, 0, 0);
     if (v->overlay.visible) {

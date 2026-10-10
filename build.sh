@@ -35,6 +35,10 @@ for v in trees grass; do
     "$SLANGC" shaders/vegetation.slang -target spirv -fvk-use-entrypoint-name -entry "ms_$v" -stage mesh \
         -entry "fs_$v" -stage fragment -o "build/shaders/veg_$v.spv"
 done
+"$SLANGC" shaders/plants.slang -target spirv -fvk-use-entrypoint-name -entry as_plants -stage amplification \
+    -o build/shaders/veg_plants_task.spv
+"$SLANGC" shaders/plants.slang -target spirv -fvk-use-entrypoint-name -entry ms_plants -stage mesh \
+    -entry fs_plants -stage fragment -o build/shaders/veg_plants.spv
 
 vk_cflags=""
 [[ -n "${VULKAN_SDK:-}" ]] && vk_cflags="-I$VULKAN_SDK/include"
@@ -45,4 +49,6 @@ sdl_libs="$(pkg-config --libs sdl3) -Wl,-rpath,$(pkg-config --variable=libdir sd
 # The cooker decodes ~1 GB of GeoTIFF: always optimized.
 # shellcheck disable=SC2086
 "$CXX" $common -g -O2 src/tools/cook_terrain.cpp -o build/cook_terrain -lpthread -lm
-echo "built ($mode): build/vr build/cook_terrain build/shaders/*.spv"
+# shellcheck disable=SC2086
+"$CXX" $common -g -O2 src/tools/cook_plants.cpp -o build/cook_plants -lm
+echo "built ($mode): build/vr build/cook_terrain build/cook_plants build/shaders/*.spv"

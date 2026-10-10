@@ -4,17 +4,6 @@
 #include "common.slang"
 
 // ---------------------------------------------------------------------------------------------------------------
-// Shared: find the payload slot owning mesh workgroup `gid`. prefix[] is non-decreasing with prefix[32] = total;
-// the result is the largest i with prefix[i] <= gid, which is always a non-empty slot.
-uint find_slot(uint prefix[TREE_CHUNK + 1], uint gid)
-{
-    uint lo = 0;
-    for (uint step = TREE_CHUNK / 2; step > 0; step >>= 1)
-        if (prefix[lo + step] <= gid) lo += step;
-    return lo;
-}
-
-// ---------------------------------------------------------------------------------------------------------------
 // Trees
 
 // One payload layout for both task shaders (each task shader is built into its own SPIR-V module, see build.bat).
@@ -81,12 +70,6 @@ struct TreeVsOut {
     nointerpolation uint info : INFO;   // material | lod << 8 | card seed << 16
     nointerpolation float4 shape : SHAPE;  // TreeType.shape (billboard silhouette)
 };
-
-float3 unpack_normal(uint p)
-{
-    int3 v = int3(int(p << 22) >> 22, int(p << 12) >> 22, int(p << 2) >> 22);
-    return float3(v) / 511.0;
-}
 
 [shader("mesh")]
 [outputtopology("triangle")]

@@ -7,7 +7,8 @@
 #define UPLOAD_BYTES (4u << 20)     // per frame in flight, layout below
 #define UPLOAD_VIEWS_OFFSET 1024    // FrameConstants at 0 (<= 1 KB), then ViewConstants[MAX_VIEWS]
 #define UPLOAD_NODES_OFFSET 4096    // TerrainNode array, then TreeChunk array (vegetation.cpp), then OverlayData
-#define GPU_TIMESTAMPS 5            // frame start, after terrain, after trees, after grass, frame end
+#define GPU_TIMESTAMPS 6            // frame start, after terrain, trees, grass blades, plants; frame end
+#define GPU_PASSES (GPU_TIMESTAMPS - 2)
 
 #define VK_CHECK(x) do { VkResult r_ = (x); if (r_ != VK_SUCCESS) FATAL("%s:%d: %s = %d", __FILE__, __LINE__, #x, (int)r_); } while (0)
 
@@ -64,7 +65,8 @@ typedef struct {
     VkDescriptorPool descriptor_pool;
     VkDescriptorSet set;
     VkPipelineLayout pipeline_layout;
-    VkSampler sampler_linear;
+    VkSampler samplers[SAMPLER_COUNT];  // SAMPLER_* (gpu_shared.h)
+    f32 anisotropy;                     // 0 = not supported
 } Vk;
 
 static VKAPI_ATTR VkBool32 VKAPI_CALL vk_debug_callback(VkDebugUtilsMessageSeverityFlagBitsEXT severity,
@@ -338,6 +340,8 @@ static void vk_init_device(Vk* vk, VkSurfaceKHR surface)
     f2.pNext = &f11;
     f2.features.shaderInt64 = VK_TRUE;
     f2.features.fillModeNonSolid = s2.features.fillModeNonSolid;
+    f2.features.samplerAnisotropy = s2.features.samplerAnisotropy;
+    vk->anisotropy = s2.features.samplerAnisotropy ? MIN(8.0f, vk->props.limits.maxSamplerAnisotropy) : 0.0f;
 
     f32 priority = 1.0f;
     VkDeviceQueueCreateInfo qi = {VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO};
@@ -391,7 +395,7 @@ static void vk_init_device(Vk* vk, VkSurfaceKHR surface)
     bindings[0].stageFlags = VK_SHADER_STAGE_ALL;
     bindings[1].binding = 1;
     bindings[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-    bindings[1].descriptorCount = 1;
+    bindings[1].descriptorCount = SAMPLER_COUNT;
     bindings[1].stageFlags = VK_SHADER_STAGE_ALL;
     VkDescriptorBindingFlags binding_flags[2] = {
         VK_DESCRIPTOR_BINDING_PARTIALLY_BOUND_BIT | VK_DESCRIPTOR_BINDING_UPDATE_AFTER_BIND_BIT, 0};
@@ -404,7 +408,7 @@ static void vk_init_device(Vk* vk, VkSurfaceKHR surface)
     li.bindingCount = 2;
     li.pBindings = bindings;
     VK_CHECK(vkCreateDescriptorSetLayout(vk->device, &li, NULL, &vk->set_layout));
-    VkDescriptorPoolSize sizes[2] = {{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, BINDLESS_TEXTURES}, {VK_DESCRIPTOR_TYPE_SAMPLER, 1}};
+    VkDescriptorPoolSize sizes[2] = {{VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, BINDLESS_TEXTURES}, {VK_DESCRIPTOR_TYPE_SAMPLER, SAMPLER_COUNT}};
     VkDescriptorPoolCreateInfo dpi = {VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     dpi.flags = VK_DESCRIPTOR_POOL_CREATE_UPDATE_AFTER_BIND_BIT;
     dpi.maxSets = 1;
@@ -422,15 +426,19 @@ static void vk_init_device(Vk* vk, VkSurfaceKHR surface)
     smp.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
     smp.addressModeU = smp.addressModeV = smp.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
     smp.maxLod = VK_LOD_CLAMP_NONE;
-    VK_CHECK(vkCreateSampler(vk->device, &smp, NULL, &vk->sampler_linear));
-    VkDescriptorImageInfo sii = {};
-    sii.sampler = vk->sampler_linear;
+    VK_CHECK(vkCreateSampler(vk->device, &smp, NULL, &vk->samplers[SAMPLER_LINEAR_CLAMP]));
+    smp.addressModeU = smp.addressModeV = smp.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    smp.anisotropyEnable = vk->anisotropy > 0;
+    smp.maxAnisotropy = MAX(vk->anisotropy, 1.0f);
+    VK_CHECK(vkCreateSampler(vk->device, &smp, NULL, &vk->samplers[SAMPLER_ANISO_REPEAT]));
+    VkDescriptorImageInfo sii[SAMPLER_COUNT] = {};
+    for (u32 i = 0; i < SAMPLER_COUNT; i++) sii[i].sampler = vk->samplers[i];
     VkWriteDescriptorSet w = {VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET};
     w.dstSet = vk->set;
     w.dstBinding = 1;
-    w.descriptorCount = 1;
+    w.descriptorCount = SAMPLER_COUNT;
     w.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-    w.pImageInfo = &sii;
+    w.pImageInfo = sii;
     vkUpdateDescriptorSets(vk->device, 1, &w, 0, NULL);
 
     VkPushConstantRange pcr = {VK_SHADER_STAGE_ALL, 0, sizeof(PushConstants)};
@@ -753,6 +761,59 @@ static VkTex vk_texture_2d(Vk* vk, VkFormat format, u32 texel_bytes, u32 w, u32 
     vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
     vi.format = format;
     vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, t.mips, 0, 1};
+    VK_CHECK(vkCreateImageView(vk->device, &vi, NULL, &t.view));
+    return t;
+}
+
+// Square 2D texture with a prebuilt mip chain (tightly packed, mip 0 first; the whole chain must fit 64 MB).
+static VkTex vk_texture_2d_levels(Vk* vk, VkFormat format, u32 texel_bytes, u32 size, u32 mips, const void* data)
+{
+    VkTex t = {};
+    t.mips = mips;
+    VkImageCreateInfo ci = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    ci.imageType = VK_IMAGE_TYPE_2D;
+    ci.format = format;
+    ci.extent = {size, size, 1};
+    ci.mipLevels = mips;
+    ci.arrayLayers = 1;
+    ci.samples = VK_SAMPLE_COUNT_1_BIT;
+    ci.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+    VK_CHECK(vkCreateImage(vk->device, &ci, NULL, &t.image));
+    VkMemoryRequirements req;
+    vkGetImageMemoryRequirements(vk->device, t.image, &req);
+    t.memory = vk_alloc(vk, req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, false);
+    VK_CHECK(vkBindImageMemory(vk->device, t.image, t.memory, 0));
+
+    VkDeviceSize total = 0;
+    for (u32 m = 0; m < mips; m++) total += (VkDeviceSize)MAX(size >> m, 1u) * MAX(size >> m, 1u) * texel_bytes;
+    ASSERT(total <= (64u << 20));
+    VkBuf staging = vk_buffer(vk, total, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true);
+    memcpy(staging.mapped, data, (size_t)total);
+    VkCommandBuffer cmd = vk_begin_once(vk);
+    vk_image_barrier(cmd, t.image, VK_IMAGE_ASPECT_COLOR_BIT, 0, mips, VK_PIPELINE_STAGE_2_NONE, 0, VK_IMAGE_LAYOUT_UNDEFINED,
+                     VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+    VkBufferImageCopy regions[16] = {};
+    VkDeviceSize off = 0;
+    ASSERT(mips <= 16);
+    for (u32 m = 0; m < mips; m++) {
+        u32 s = MAX(size >> m, 1u);
+        regions[m].bufferOffset = off;
+        regions[m].imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, m, 0, 1};
+        regions[m].imageExtent = {s, s, 1};
+        off += (VkDeviceSize)s * s * texel_bytes;
+    }
+    vkCmdCopyBufferToImage(cmd, staging.buffer, t.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, mips, regions);
+    vk_image_barrier(cmd, t.image, VK_IMAGE_ASPECT_COLOR_BIT, 0, mips, VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
+                     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    vk_end_once(vk);
+    vk_buffer_destroy(vk, &staging);
+
+    VkImageViewCreateInfo vi = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    vi.image = t.image;
+    vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vi.format = format;
+    vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, mips, 0, 1};
     VK_CHECK(vkCreateImageView(vk->device, &vi, NULL, &t.view));
     return t;
 }
