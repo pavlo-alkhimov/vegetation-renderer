@@ -25,7 +25,7 @@ float height_at(FrameConstants f, float2 g, float lod)
     return g_textures[f.height_tex].SampleLevel(g_samplers[0], uv, lod).x * f.terrain_size.z + f.terrain.w;
 }
 
-// Vegetation mask (r = forest, g = grass) at grid sample coordinates g; texels cover the terrain extent evenly.
+// Vegetation mask (r = forest, g = ground cover) at grid sample coordinates g; texels cover the terrain extent evenly.
 float2 mask_at(FrameConstants f, float2 g, float lod)
 {
     float2 uv = g / (f.terrain_size.xy - 1.0);
@@ -103,7 +103,7 @@ float3 apply_fog(FrameConstants f, float3 c, float3 rel)
     return lerp(c, sky(f, -to_cam / max(dist, 1e-3)), fog);
 }
 
-// Foliage and grass: wrapped diffuse, sun transmission when looking towards the sun, sky ambient. ao darkens the
+// Foliage and ground cover: wrapped diffuse, sun transmission when looking towards the sun, sky ambient. ao darkens the
 // ambient fully and the sun partly (self-shadowing below shadow-map resolution); shadow = sun visibility.
 float3 shade_foliage(FrameConstants f, float3 albedo, float3 n, float3 to_cam, float ao, float transmission, float shadow)
 {
@@ -187,7 +187,7 @@ uint find_slot(uint prefix[33], uint gid)
 }
 
 // Meadow grass height (m) at terrain-local metres: patches of short (grazed, mown) and tall grass. One function for
-// blades, plant asset scale and terrain shading, so all three agree.
+// ground-cover scale and terrain shading, so both agree.
 float meadow_height(float2 pm)
 {
     float n = value_noise(pm / 23.0) * 0.65 + value_noise(pm / 6.0 + 31.7) * 0.35;
@@ -200,12 +200,12 @@ float meadow_dryness(float2 pm)
     return smoothstep(0.5, 0.85, value_noise(pm / 41.0 + 17.3));
 }
 
-float3 grass_tint(FrameConstants f, float2 pm)
+float3 cover_tint(FrameConstants f, float2 pm)
 {
-    return f.grass.rgb * lerp(float3(1, 1, 1), float3(1.35, 1.15, 0.7), meadow_dryness(pm));
+    return f.cover.rgb * lerp(float3(1, 1, 1), float3(1.35, 1.15, 0.7), meadow_dryness(pm));
 }
 
-// Same gust as the grass blades: a travelling wave along the wind direction (pm = terrain-local metres).
+// Gust: a travelling wave along the wind direction (pm = terrain-local metres).
 float wind_gust(FrameConstants f, float time, float2 pm, float phase)
 {
     return 0.35 + 0.3 * sin(time * 1.7 + dot(pm, f.wind.xz) * 0.35 + phase * 1.5);

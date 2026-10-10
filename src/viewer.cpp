@@ -9,7 +9,7 @@ typedef enum {
     CMD_TOGGLE_VSYNC,
     CMD_SCREENSHOT,
     CMD_PRINT_CAMERA,
-    CMD_TOGGLE_TREES, CMD_TOGGLE_GRASS, CMD_TOGGLE_PLANTS,
+    CMD_TOGGLE_TREES, CMD_TOGGLE_COVER,
     CMD_TREE_DIST_LESS, CMD_TREE_DIST_MORE,
     CMD_TOGGLE_OVERLAY,
     CMD_STANCE_CROUCH, CMD_STANCE_PRONE,
@@ -39,21 +39,20 @@ static const f32 STANCE_SPEED[3] = {1.5f, 1.0f, 0.4f};    // m/s
 
 #define CAMERA_MIN_CLEARANCE 0.5f
 #define CAMERA_FOV_Y (60.0f * 3.14159265f / 180.0f)
-#define CAMERA_NEAR 0.05f           // m; prone eyes are 0.35 m above the ground, among the grass
+#define CAMERA_NEAR 0.05f           // m; prone eyes are 0.35 m above the ground, among the ground cover
 
 typedef struct {
     Vk vk;
     Terrain terrain;
     Vegetation veg;
-    Plants plants;
+    GroundCover cover;
     Shadows shadows;
     Overlay overlay;
     Camera cam;
     u32 debug_mode;
     bool wireframe;
-    bool show_trees, show_grass, show_plants, show_shadows;
+    bool show_trees, show_cover, show_shadows;
     f32 tree_dist;              // m
-    f32 grass_radius;           // m
     f32 target_px;              // terrain triangle edge target (pixels)
     f32 time;
     // TAA: jitter sequence index; previous frame's camera (absolute) for motion vectors
@@ -67,7 +66,7 @@ typedef struct {
     // Stats
     u32 node_count;
     f32 gpu_ms;                 // whole frame
-    f32 gpu_pass_ms[GPU_PASSES];    // shadows, terrain, trees, grass blades, plants, post (sky + TAA)
+    f32 gpu_pass_ms[GPU_PASSES];    // shadows, terrain, trees, ground cover, post (sky + TAA)
     const char* screenshot_path;
     u32 screenshot_counter;
     bool swapchain_dirty;
@@ -117,8 +116,7 @@ static void viewer_update(Viewer* v, const ViewerInput* in, f32 dt)
         case CMD_SCREENSHOT: v->screenshot_path = "shot"; break;
         case CMD_PRINT_CAMERA: viewer_print_camera(v); break;
         case CMD_TOGGLE_TREES: v->show_trees = !v->show_trees; break;
-        case CMD_TOGGLE_GRASS: v->show_grass = !v->show_grass; break;
-        case CMD_TOGGLE_PLANTS: v->show_plants = !v->show_plants; break;
+        case CMD_TOGGLE_COVER: v->show_cover = !v->show_cover; break;
         case CMD_TREE_DIST_LESS: v->tree_dist = MAX(v->tree_dist / 1.25f, 100.0f); break;
         case CMD_TREE_DIST_MORE: v->tree_dist = MIN(v->tree_dist * 1.25f, 12000.0f); break;
         case CMD_TOGGLE_OVERLAY: v->overlay.visible = !v->overlay.visible; break;
@@ -186,8 +184,7 @@ static void viewer_overlay(const Viewer* v, OverlayData* d)
     overlay_line(d, 10, NULL, "5 S, TOP %.0f, LINES 30/60", d->params.y);
     u32 l = 12;
     overlay_line(d, l++, "T", "TREES       %s", v->show_trees ? "ON" : "OFF");
-    overlay_line(d, l++, "B", "GRASS       %s", v->show_grass ? "ON" : "OFF");
-    overlay_line(d, l++, "N", "PLANTS      %s", !v->plants.enabled ? "N/A" : v->show_plants ? "ON" : "OFF");
+    overlay_line(d, l++, "B", "GROUND COVER %s", !v->cover.enabled ? "N/A" : v->show_cover ? "ON" : "OFF");
     overlay_line(d, l++, "- =", "TREE DIST   %.0f M", v->tree_dist);
     overlay_line(d, l++, "1-4", "VIEW        %s", VIEW_NAMES[v->debug_mode & 3]);
     overlay_line(d, l++, "L", "WIREFRAME   %s", v->wireframe ? "ON" : "OFF");
@@ -328,26 +325,18 @@ static bool viewer_render(Viewer* v)
 
     // Vegetation.
     Vegetation* vg = &v->veg;
-    bool trees = vg->enabled && v->show_trees, grass = vg->enabled && v->show_grass;
-    bool plants = v->plants.enabled && v->show_plants && v->show_grass;
-    fc->veg = {v->tree_dist, v->grass_radius, proj_y * vk->extent.height * 0.5f, 1.0f};
+    bool trees = vg->enabled && v->show_trees;
+    bool cover = v->cover.enabled && v->show_cover;
+    fc->veg = {v->tree_dist, 0, proj_y * vk->extent.height * 0.5f, 0};
     fc->tree_lod = {400.0f, 120.0f, 30.0f, 0};
     fc->wind = {0.8f, 0.5f, 0.6f, 0};
-    v3 gc = v->plants.enabled ? v->plants.grass_color : v3_make(0.11f, 0.15f, 0.05f);
-    fc->grass = {gc.x, gc.y, gc.z, plants ? 0.6f : 1.0f};
-    fc->veg_flags = (trees ? VEG_TREES : 0u) | (grass ? VEG_GRASS : 0u);
+    v3 gc = v->cover.enabled ? v->cover.grass_color : v3_make(0.11f, 0.15f, 0.05f);
+    fc->cover = {gc.x, gc.y, gc.z, 0};
+    fc->veg_flags = (trees ? VEG_TREES : 0u) | (cover ? VEG_COVER : 0u);
     vg->chunk_count = vg->tree_candidates = 0;
     if (trees)
         veg_select_trees(vg, &sel, origin, c->pos, v->tree_dist, (TreeChunk*)((u8*)f->upload.mapped + CHUNKS_OFFSET));
-    if (grass) {
-        u32 n = 2 * (u32)ceilf(v->grass_radius / (f32)GRASS_TILE) + 2;
-        fc->grass_tiles = n;
-        fc->grass_tile_x = (i32)floor(c->pos[0] / GRASS_TILE) - (i32)(n / 2);
-        fc->grass_tile_z = (i32)floor(c->pos[2] / GRASS_TILE) - (i32)(n / 2);
-        vg->grass_groups_x = (n + 7) / 8;
-        vg->grass_groups_z = (n + 3) / 4;
-    }
-    if (plants) plants_frame(&v->plants, c->pos, fc);
+    if (cover) gc_frame(&v->cover, c->pos, fc);
     bool shadows = v->shadows.enabled && v->show_shadows;
     if (shadows)
         shadows_frame(&v->shadows, vg, views, fc, cam, fwd, proj_x, proj_y, CAMERA_NEAR, origin, c->pos, (TreeChunk*)((u8*)f->upload.mapped + CHUNKS_OFFSET), trees);
@@ -365,10 +354,10 @@ static bool viewer_render(Viewer* v)
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipeline_layout, 0, 1, &vk->set, 0, NULL);
     PushConstants pcs = {f->upload.address, f->upload.address + nodes_offset, vg->scene.address, f->upload.address + CHUNKS_OFFSET,
                          f->upload.address + OVERLAY_OFFSET, f->upload.address + UPLOAD_VIEWS_OFFSET,
-                         v->plants.scene.address};
+                         v->cover.scene.address};
     if (shadows)
-        shadows_record(&v->shadows, vk, cmd, pcs, f->upload.address + UPLOAD_VIEWS_OFFSET, f->upload.address + CHUNKS_OFFSET, vg, &v->plants,
-                       trees, grass, plants);
+        shadows_record(&v->shadows, vk, cmd, pcs, f->upload.address + UPLOAD_VIEWS_OFFSET, f->upload.address + CHUNKS_OFFSET, &v->cover,
+                       trees, cover);
     if (vk->timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, f->queries, 1);
 
     // Scene pass: colour + motion + depth into the frame targets (sampled by the previous frame's TAA pass).
@@ -419,16 +408,11 @@ static bool viewer_render(Viewer* v)
         vkCmdDrawMeshTasksEXT(cmd, vg->chunk_count, 1, 1);
     }
     if (vk->timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, f->queries, 3);
-    if (grass) {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vg->pipe_grass);
-        vkCmdDrawMeshTasksEXT(cmd, vg->grass_groups_x, vg->grass_groups_z, 1);
+    if (cover) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, v->cover.pipeline);
+        vkCmdDrawMeshTasksEXT(cmd, v->cover.cells, v->cover.cells, GC_LAYERS);
     }
     if (vk->timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, f->queries, 4);
-    if (plants) {
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, v->plants.pipeline);
-        vkCmdDrawMeshTasksEXT(cmd, v->plants.cells, v->plants.cells, PLANT_LAYERS);
-    }
-    if (vk->timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, f->queries, 5);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, t->pipeline_sky);
     vkCmdDraw(cmd, 3, 1, 0, 0);
     vkCmdEndRendering(cmd);
@@ -448,7 +432,7 @@ static bool viewer_render(Viewer* v)
     vkCmdDraw(cmd, 3, 1, 0, 0);
     vkCmdEndRendering(cmd);
     vk_image_barrier(cmd, vk->history[history_write].image, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, COLOR_OUT, WRITE, ATTACHMENT, FS, READ, SAMPLED);
-    if (vk->timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, f->queries, 6);
+    if (vk->timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, f->queries, 5);
 
     if (v->overlay.visible) {
         VkRenderingAttachmentInfo display = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};

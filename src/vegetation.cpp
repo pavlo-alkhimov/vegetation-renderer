@@ -1,14 +1,12 @@
-// Vegetation baseline (docs/06, "Baseline and steps"): the simplest complete trees + grass path, built to be
+// Vegetation baseline (docs/06, "Baseline and steps"): the simplest complete tree path, built to be
 // measured and then replaced piece by piece.
 //
-// - Vegetation mask: RG8 texture over the terrain (r = forest density, g = grass density), procedural noise in
-//   absolute map coordinates. One source for terrain colour, tree placement and grass (later: real land cover).
+// - Vegetation mask: RG8 texture over the terrain (r = forest density, g = ground-cover density), procedural noise in
+//   absolute map coordinates. One source for terrain colour, tree placement and ground cover (later: real land cover).
 // - Trees: 5 species x 2 variants generated procedurally at load (trunk/branch tubes + leaf/needle cards), 4 LODs
 //   (full, main branches, crown clusters, crossed billboards), split into meshlets. Instances on a jittered grid,
 //   stored per 256 m cell. CPU culls cells and emits chunks of 32 instances; the task shader culls instances and
 //   picks the LOD by projected height; the mesh shader outputs the LOD's meshlets.
-// - Grass: nothing stored. Task shader culls 4 m tiles around the camera and sets the blade count from the mask
-//   and distance; the mesh shader builds curved blades from a hash of tile and blade index.
 
 #define TREE_SPECIES   5
 #define TREE_VARIANTS  2
@@ -41,10 +39,9 @@ typedef struct {
     bool enabled;               // task/mesh shaders available
     VkTex mask_tex;
     VkBuf scene, instance_buf, type_buf, meshlet_buf, vertex_buf, triangle_buf;
-    VkPipeline pipe_trees, pipe_grass;
+    VkPipeline pipe_trees;
     // Per frame
     u32 chunk_count, tree_candidates;
-    u32 grass_groups_x, grass_groups_z;
 } Vegetation;
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -129,7 +126,7 @@ static void veg_build_mask(Vegetation* vg, const Terrain* t)
     for (u32 k = 0; k < nthreads; k++) threads[k].join();
 }
 
-// Bilinear mask channel (0 forest, 1 grass) at terrain-local metres; same texel mapping as mask_at() in the shaders.
+// Bilinear mask channel (0 forest, 1 ground cover) at terrain-local metres; same texel mapping as mask_at() in the shaders.
 static f32 veg_mask_sample(const Vegetation* vg, f64 x, f64 z, u32 channel)
 {
     f64 fx = CLAMP(x / vg->extent_x * vg->mask_w - 0.5, 0.0, vg->mask_w - 1.001);
@@ -685,7 +682,6 @@ static void veg_init(Vegetation* vg, const Terrain* t, Vk* vk, const char* shade
     free(ma.m);
 
     vg->pipe_trees = veg_pipeline(vk, shader_dir, "trees");
-    vg->pipe_grass = veg_pipeline(vk, shader_dir, "grass");
 }
 
 // ---------------------------------------------------------------------------------------------------------------

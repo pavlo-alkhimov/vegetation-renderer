@@ -62,12 +62,12 @@ SceneOut fs_terrain(TerrainVsOut i)
     // functions as the blades and plant assets, so the far field matches the near field. Inside the blade radius
     // the blades are drawn and the terrain shows the ground between them.
     float2 pm = i.grid * f.terrain.z;                                   // terrain-local metres
-    float3 grass_col = grass_tint(f, pm) * lerp(0.85, 1.12, variation);
+    float3 grass_col = cover_tint(f, pm) * lerp(0.85, 1.12, variation);
     float3 thatch = grass_col * float3(0.6, 0.55, 0.42);
     float cos_v = saturate(dot(n, to_cam / dist));
     float cover = 1.0 - exp(-mask.y * (0.4 + 5.0 * meadow_height(pm)) / max(cos_v, 0.05));
     float3 layer = lerp(thatch, grass_col * (1.0 + 0.25 * pow(1.0 - cos_v, 3.0)), cover);
-    float blades = (f.veg_flags & VEG_GRASS) != 0 ? 1.0 - smoothstep(f.veg.y * 0.3, f.veg.y * 0.95, dist) : 0.0;
+    float blades = (f.veg_flags & VEG_COVER) != 0 ? 1.0 - smoothstep(GC_NEAR_DISTANCE * 0.6, GC_NEAR_DISTANCE, dist) : 0.0;
     float3 meadow = lerp(layer, thatch * 0.85, blades);
     float canopy = (f.veg_flags & VEG_TREES) != 0 ? smoothstep(f.veg.x * 0.7, f.veg.x, dist) : 1.0;
     float3 forest = lerp(FOREST_FLOOR_ALBEDO, CANOPY_ALBEDO, canopy);

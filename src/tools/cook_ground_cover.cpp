@@ -1,7 +1,7 @@
-// cook_plants: Poly Haven plant assets (glTF + JPG maps, tools/fetch-polyhaven.sh) -> one cooked file (.vrp,
-// see plants_file.h).
+// cook_ground_cover: Poly Haven plant assets (glTF + JPG maps, tools/fetch-polyhaven.sh) -> one cooked file (.vgc,
+// see ground_cover_file.h).
 //
-//   cook_plants [-o out.vrp] [--size N] <asset directory>...     e.g. data/external/polyhaven/*
+//   cook_ground_cover [-o out.vrp] [--size N] <asset directory>...     e.g. data/external/polyhaven/*
 //
 // Every glTF node with a mesh becomes a variant, moved to its own origin (Poly Haven lays variants out along x).
 // LODs remove whole cards (connected components) and scale the kept ones up about their root to keep the
@@ -9,7 +9,7 @@
 // coverage so cards do not thin out with distance.
 #include "../base.h"
 #include "../gpu_shared.h"
-#include "../plants_file.h"
+#include "../ground_cover_file.h"
 
 #define CGLTF_IMPLEMENTATION
 #include "../../third_party/cgltf.h"
@@ -27,8 +27,8 @@ typedef struct { u32* v; u32 n, cap; } IndexArray;
 
 static VertexArray g_vertices;
 static IndexArray g_indices;
-static PlantsFileSpecies g_species[MAX_SPECIES];
-static PlantsFileVariant g_variants[MAX_VARIANTS];
+static GcFileSpecies g_species[MAX_SPECIES];
+static GcFileVariant g_variants[MAX_VARIANTS];
 static u32 g_species_count, g_variant_count;
 static u8* g_textures[MAX_SPECIES][2];      // all mips, RGBA8
 
@@ -119,7 +119,7 @@ static void read_node_mesh(const cgltf_node* node, RawMesh* m)
 static void add_variant(u32 species, const char* name, const RawMesh* m, bool info)
 {
     if (g_variant_count == MAX_VARIANTS) FATAL("too many variants");
-    PlantsFileVariant* var = &g_variants[g_variant_count++];
+    GcFileVariant* var = &g_variants[g_variant_count++];
     memset(var, 0, sizeof(*var));
     snprintf(var->name, sizeof(var->name), "%s", name);
     var->species = species;
@@ -164,9 +164,9 @@ static void add_variant(u32 species, const char* name, const RawMesh* m, bool in
     u32 largest = 0;
     for (u32 c = 1; c < comps; c++) if (area[c] > area[largest]) largest = c;
 
-    static const f32 KEEP[PLANT_LODS] = {1.0f, 0.4f, 0.12f};
-    u32 tris[PLANT_LODS] = {};
-    for (u32 lod = 0; lod < PLANT_LODS; lod++) {
+    static const f32 KEEP[GC_LODS] = {1.0f, 0.4f, 0.12f};
+    u32 tris[GC_LODS] = {};
+    for (u32 lod = 0; lod < GC_LODS; lod++) {
         bool* keep = (bool*)malloc(comps * sizeof(bool));
         f32 kept_area = 0;
         for (u32 c = 0; c < comps; c++) {
@@ -332,7 +332,7 @@ static const char* path_basename(const char* p)
 
 int main(int argc, char** argv)
 {
-    const char* out_path = "data/cooked/plants.vrp";
+    const char* out_path = "data/cooked/ground_cover.vgc";
     u32 size = 2048;
     bool info = true;
     const char* dirs[MAX_SPECIES];
@@ -340,10 +340,10 @@ int main(int argc, char** argv)
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "-o") && i + 1 < argc) out_path = argv[++i];
         else if (!strcmp(argv[i], "--size") && i + 1 < argc) size = (u32)atoi(argv[++i]);
-        else if (argv[i][0] == '-') FATAL("usage: cook_plants [-o out.vrp] [--size N] <asset directory>...");
+        else if (argv[i][0] == '-') FATAL("usage: cook_ground_cover [-o out.vrp] [--size N] <asset directory>...");
         else if (dir_count < MAX_SPECIES) dirs[dir_count++] = argv[i];
     }
-    if (!dir_count) FATAL("usage: cook_plants [-o out.vrp] [--size N] <asset directory>...");
+    if (!dir_count) FATAL("usage: cook_ground_cover [-o out.vrp] [--size N] <asset directory>...");
     if (size & (size - 1)) FATAL("--size must be a power of two");
     u32 mips = 0;
     while ((size >> mips) >= 1) mips++;
@@ -371,7 +371,7 @@ int main(int argc, char** argv)
         if (cgltf_load_buffers(&opt, data, gltf_path) != cgltf_result_success) FATAL("cannot load buffers of %s", gltf_path);
 
         u32 sp = g_species_count++;
-        PlantsFileSpecies* s = &g_species[sp];
+        GcFileSpecies* s = &g_species[sp];
         snprintf(s->name, sizeof(s->name), "%s", asset);
         s->first_variant = g_variant_count;
         printf("%s (%s)\n", asset, res);
@@ -394,10 +394,10 @@ int main(int argc, char** argv)
 
     FILE* f = fopen(out_path, "wb");
     if (!f) FATAL("cannot write %s", out_path);
-    PlantsFileHeader h = {PLANTS_FILE_MAGIC, PLANTS_FILE_VERSION, g_species_count, g_variant_count, g_vertices.n, g_indices.n, size, mips};
+    GcFileHeader h = {GC_FILE_MAGIC, GC_FILE_VERSION, g_species_count, g_variant_count, g_vertices.n, g_indices.n, size, mips};
     fwrite(&h, sizeof(h), 1, f);
-    fwrite(g_species, sizeof(PlantsFileSpecies), g_species_count, f);
-    fwrite(g_variants, sizeof(PlantsFileVariant), g_variant_count, f);
+    fwrite(g_species, sizeof(GcFileSpecies), g_species_count, f);
+    fwrite(g_variants, sizeof(GcFileVariant), g_variant_count, f);
     fwrite(g_vertices.v, sizeof(TreeVertex), g_vertices.n, f);
     fwrite(g_indices.v, sizeof(u32), g_indices.n, f);
     size_t tex_bytes = mip_chain_bytes(size, mips);

@@ -31,8 +31,8 @@ struct TerrainNode {
 
 // Bindless texture slots.
 #define TEX_HEIGHT 0
-#define TEX_MASK   1        // RG8: r = forest (canopy) density, g = grass density; covers the terrain extent
-#define TEX_PLANTS 2        // per plant species s: TEX_PLANTS + 2s albedo (sRGB + alpha), + 2s + 1 surface (plants_file.h)
+#define TEX_MASK   1        // RG8: r = forest (canopy) density, g = ground-cover density; covers the terrain extent
+#define TEX_GC     2        // per ground-cover species s: TEX_GC + 2s albedo (sRGB + alpha), + 2s + 1 surface (ground_cover_file.h)
 #define TEX_SCENE   64      // frame targets (recreated with the swapchain): scene colour (tonemapped, RGBA16F),
 #define TEX_MOTION  65      // motion (uv of this frame - uv of the previous frame, RG16F),
 #define TEX_DEPTH   66      // depth (D32, reversed Z),
@@ -40,23 +40,19 @@ struct TerrainNode {
 
 // Samplers (bindless sampler array).
 #define SAMPLER_LINEAR_CLAMP 0
-#define SAMPLER_ANISO_REPEAT 1  // trilinear + anisotropic, wrapping (plant atlases)
+#define SAMPLER_ANISO_REPEAT 1  // trilinear + anisotropic, wrapping (ground-cover atlases)
 #define SAMPLER_COUNT        2
 
 // Sun shadows: cascaded shadow map, D32 array, reversed Z (larger = closer to the sun).
 #define SHADOW_CASCADES 4
 #define SHADOW_SIZE     2048
 
-// Vegetation baseline (docs/06 §5, "baseline" section): trees as meshlets via task + mesh shaders, grass blades
-// generated per frame in mesh shaders.
+// Vegetation baseline (docs/06 §5, "baseline" section): trees as meshlets via task + mesh shaders.
 #define TREE_LODS            4
 #define TREE_MESHLET_VERTS   64
 #define TREE_MESHLET_TRIS    124
 #define TREE_CHUNK           32     // instances per task workgroup
 #define TREE_CELL            256.0  // placement cell = render-origin cell (docs/02)
-#define GRASS_TILE           4.0    // m
-#define GRASS_GROUP_BLADES   16     // blades per mesh workgroup
-#define GRASS_TILE_BLADES    3200   // blades per tile at full density and full LOD (200 per m²)
 
 #define MAT_BARK      0
 #define MAT_LEAF      1             // broadleaf card: a few procedural leaves
@@ -65,7 +61,7 @@ struct TerrainNode {
 #define MAT_BILLBOARD 4             // LOD3 crossed quads: whole-tree silhouette
 
 #define VEG_TREES 1u                // FrameConstants.veg_flags
-#define VEG_GRASS 2u
+#define VEG_COVER 2u
 
 struct TreeVertex {                 // 24 B, model space (metres, y up, origin at the stem base)
     f32 x, y, z;
@@ -102,37 +98,37 @@ struct TreeChunk {                  // ≤ TREE_CHUNK consecutive instances of o
     f32 ox, oz;                     // cell corner relative to the render origin
 };
 
-// Near-field ground cover: Poly Haven plant assets (plants_file.h) as meshlets, placed every frame from the
+// Ground cover (all small non-woody plants): Poly Haven scans (ground_cover_file.h) as meshlets, placed every frame from the
 // vegetation mask by hash (nothing stored). Two layers in one dispatch (SV_GroupID.z): dense small cells near the
 // camera for species with a short draw distance (grasses, low forbs), coarse cells further out for the tall ones.
-// One task workgroup per cell, PLANT_CELL_SLOTS candidates.
-#define PLANT_LODS          3
-#define PLANT_MAX_SPECIES   16
-#define PLANT_CELL_SLOTS    32
-#define PLANT_LAYERS        2
-#define PLANT_NEAR_DISTANCE 16.0    // m; species drawn up to here belong to layer 0
-static const float PLANT_LAYER_CELL[PLANT_LAYERS] = {0.6f, 2.0f};    // m
+// One task workgroup per cell, GC_CELL_SLOTS candidates.
+#define GC_LODS          3
+#define GC_MAX_SPECIES   16
+#define GC_CELL_SLOTS    32
+#define GC_LAYERS        2
+#define GC_NEAR_DISTANCE 16.0    // m; species drawn up to here belong to layer 0
+static const float GC_LAYER_CELL[GC_LAYERS] = {0.6f, 2.0f};    // m
 
-struct PlantVariant {               // 48 B
-    u32 meshlet_first[PLANT_LODS];
-    u32 meshlet_count[PLANT_LODS];
+struct GcVariant {               // 48 B
+    u32 meshlet_first[GC_LODS];
+    u32 meshlet_count[GC_LODS];
     u32 species;
     f32 height;                     // m at scale 1, base at y = 0
     f32 radius;                     // m, horizontal
     u32 pad[3];
 };
 
-struct PlantSpecies {               // 48 B
+struct GcSpecies {               // 48 B
     u32 first_variant, variant_count;
     u32 albedo_tex, surface_tex;    // bindless indices
-    v4 habitat;                     // plants per m²: x meadow, y forest edge, z forest floor;
+    v4 habitat;                     // cover per m²: x meadow, y forest edge, z forest floor;
                                     // w = flags as float: + 1 alpha-tested cards, + 2 follows the meadow height
     v4 shape;                       // x, y = scale range; z = draw distance (m); w = wind response (0 rigid .. 1)
 };
 
-struct PlantScene {                 // static, written once at load
-    GPU_PTR(PlantVariant) variants;
-    GPU_PTR(PlantSpecies) species;
+struct GcScene {                 // static, written once at load
+    GPU_PTR(GcVariant) variants;
+    GPU_PTR(GcSpecies) species;
     GPU_PTR(TreeMeshlet) meshlets;
     GPU_PTR(TreeVertex) vertices;   // uv = 2 x unorm16 mapping [-4, 4]
     GPU_PTR(u32) triangles;
@@ -170,12 +166,11 @@ struct FrameConstants {
     v4 terrain;             // x, z of sample (0,0) relative to render origin; z = spacing (m); w = height_min - origin.y
     v4 terrain_size;        // x = width, y = height (samples), z = height_scale * 65535 (m per unorm unit), w = unused
     v4 morph[TERRAIN_MAX_LEVELS];   // per level: x = morph start (m), y = 1 / (end - start)
-    v4 veg;                 // x = tree draw distance (m), y = grass radius (m), z = pixels per unit of size/distance,
-                            // w = grass density scale
+    v4 veg;                 // x = tree draw distance (m), y = unused, z = pixels per unit of size/distance at 1 m,
+                            // w = unused
     v4 tree_lod;            // projected tree height (px) above which LOD 0 / 1 / 2 is used; w = unused
     v4 wind;                // xz = wind direction (unit), y = strength, w = unused
-    v4 grass;               // rgb = meadow grass albedo (linear; mean of the plant assets), w = blade density inside
-                            // the plant radius (the plant assets carry the volume there)
+    v4 cover;               // rgb = meadow ground-cover albedo (linear; mean of the living grass texels), w = unused
     v4 screen;              // xy = render size (px), zw = 1 / size
     v4 taa;                 // x = previous frame's time (s, for motion vectors of wind), y = weight of the current
                             // frame in the TAA blend (1 = no history), z, w = unused
@@ -185,13 +180,10 @@ struct FrameConstants {
     u32 debug_mode;         // DEBUG_*
     u32 mask_tex;           // bindless index
     u32 veg_flags;          // VEG_*
-    i32 grass_tile_x;       // terrain-local tile index of the grass dispatch grid's (0,0)
-    i32 grass_tile_z;
-    u32 grass_tiles;        // grass dispatch grid side, tiles
     u32 history_tex;        // bindless index of the TAA history read this frame
-    i32 plant_cell_x[PLANT_LAYERS]; // per layer: terrain-local cell index of the dispatch grid's (0,0)
-    i32 plant_cell_z[PLANT_LAYERS];
-    u32 plant_cells[PLANT_LAYERS];  // per layer: grid side in cells (the dispatch covers the largest)
+    i32 gc_cell_x[GC_LAYERS]; // per layer: terrain-local cell index of the dispatch grid's (0,0)
+    i32 gc_cell_z[GC_LAYERS];
+    u32 gc_cells[GC_LAYERS];  // per layer: grid side in cells (the dispatch covers the largest)
     u32 shadows;            // 1 = sun shadow map valid this frame
     u32 pad3;
 };
@@ -220,5 +212,5 @@ struct PushConstants {
     GPU_PTR(TreeChunk) chunks;
     GPU_PTR(OverlayData) overlay;
     GPU_PTR(ViewConstants) view;
-    GPU_PTR(PlantScene) plants;
+    GPU_PTR(GcScene) gc;
 };

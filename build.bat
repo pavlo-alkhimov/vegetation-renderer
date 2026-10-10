@@ -17,19 +17,19 @@ set SLANGC="%VULKAN_SDK%\Bin\slangc.exe"
 %SLANGC% shaders\overlay.slang -target spirv -o build\shaders\overlay.spv || exit /b 1
 %SLANGC% shaders\taa.slang -target spirv -o build\shaders\taa.spv || exit /b 1
 rem Task shaders in their own modules (driver issue with task + mesh in one module, see vk.cpp PipelineDesc).
-for %%v in (trees grass) do (
+for %%v in (trees) do (
     %SLANGC% shaders\vegetation.slang -target spirv -fvk-use-entrypoint-name -entry as_%%v -stage amplification ^
         -o build\shaders\veg_%%v_task.spv || exit /b 1
     %SLANGC% shaders\vegetation.slang -target spirv -fvk-use-entrypoint-name -entry ms_%%v -stage mesh ^
         -entry fs_%%v -stage fragment -entry fs_%%v_shadow -stage fragment -o build\shaders\veg_%%v.spv || exit /b 1
 )
-%SLANGC% shaders\plants.slang -target spirv -fvk-use-entrypoint-name -entry as_plants -stage amplification ^
-    -o build\shaders\veg_plants_task.spv || exit /b 1
-%SLANGC% shaders\plants.slang -target spirv -fvk-use-entrypoint-name -entry ms_plants -stage mesh ^
-    -entry fs_plants -stage fragment -entry fs_plants_shadow -stage fragment -o build\shaders\veg_plants.spv || exit /b 1
+%SLANGC% shaders\ground_cover.slang -target spirv -fvk-use-entrypoint-name -entry as_gc -stage amplification ^
+    -o build\shaders\veg_gc_task.spv || exit /b 1
+%SLANGC% shaders\ground_cover.slang -target spirv -fvk-use-entrypoint-name -entry ms_gc -stage mesh ^
+    -entry fs_gc -stage fragment -entry fs_gc_shadow -stage fragment -o build\shaders\veg_gc.spv || exit /b 1
 clang++ %COMMON% %OPT% -I"%VULKAN_SDK%\Include" -I"%SDL3_DIR%\include" src\vr.cpp -o build\vr.exe ^
     -L"%SDL3_DIR%\lib\x64" -lSDL3 -Xlinker /subsystem:console || exit /b 1
 copy /y "%SDL3_DIR%\lib\x64\SDL3.dll" build\ >nul
 clang++ %COMMON% -g -O2 src\tools\cook_terrain.cpp -o build\cook_terrain.exe || exit /b 1
-clang++ %COMMON% -g -O2 src\tools\cook_plants.cpp -o build\cook_plants.exe || exit /b 1
+clang++ %COMMON% -g -O2 src\tools\cook_ground_cover.cpp -o build\cook_ground_cover.exe || exit /b 1
 echo built (%MODE%)

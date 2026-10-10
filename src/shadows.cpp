@@ -1,6 +1,6 @@
 // Sun shadows: SHADOW_CASCADES orthographic cascades in one D32 array (reversed Z), rendered with the vegetation
 // task/mesh shaders through depth-only pipelines (views[1 + c] in the upload buffer). Casters: trees in all cascades
-// (one LOD coarser in cascades 0-1, two in 2, billboards in 3), grass blades and plants only in cascade 0 (further out their
+// (one LOD coarser in cascades 0-1, two in 2, billboards in 3), cover only in cascade 0 (further out their
 // self-shadowing is left to AO). The terrain does not cast yet (its n.l term covers the large-scale shading; hills
 // behind the camera would need their own node selection).
 
@@ -13,7 +13,7 @@ typedef struct {
     VkDeviceMemory memory;
     VkImageView array_view;
     VkImageView layer_view[SHADOW_CASCADES];
-    VkPipeline trees, grass, plants;
+    VkPipeline trees, cover;
     // Per frame
     u32 chunk_first, chunk_count;       // tree chunks for the shadow passes (after the main view's chunks)
     u32 update;                         // bit c: cascade c is rendered this frame
@@ -88,8 +88,7 @@ static void shadows_init(Shadows* s, Vk* vk, const char* shader_dir)
     vkUpdateDescriptorSets(vk->device, 1, &w, 0, NULL);
 
     s->trees = veg_pipeline(vk, shader_dir, "trees", true);
-    s->grass = veg_pipeline(vk, shader_dir, "grass", true);
-    s->plants = veg_pipeline(vk, shader_dir, "plants", true);
+    s->cover = veg_pipeline(vk, shader_dir, "gc", true);
     s->enabled = true;
 }
 
@@ -164,7 +163,7 @@ static void shadows_frame(Shadows* s, Vegetation* vg, ViewConstants* views, Fram
 
 // Records the cascades. pcs: the main view's push constants (view and chunk pointers are changed per pass).
 static void shadows_record(Shadows* s, Vk* vk, VkCommandBuffer cmd, PushConstants pcs, VkDeviceAddress views, VkDeviceAddress chunks,
-                           const Vegetation* vg, const Plants* p, bool trees, bool grass, bool plants)
+                           const GroundCover* p, bool trees, bool cover)
 {
     const VkPipelineStageFlags2 FS = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
     VkImageMemoryBarrier2 b = {VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2};
@@ -205,13 +204,9 @@ static void shadows_record(Shadows* s, Vk* vk, VkCommandBuffer cmd, PushConstant
             vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s->trees);
             vkCmdDrawMeshTasksEXT(cmd, s->chunk_count, 1, 1);
         }
-        if (c == 0 && grass) {
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s->grass);
-            vkCmdDrawMeshTasksEXT(cmd, vg->grass_groups_x, vg->grass_groups_z, 1);
-        }
-        if (c == 0 && plants) {
-            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s->plants);
-            vkCmdDrawMeshTasksEXT(cmd, p->cells, p->cells, PLANT_LAYERS);
+        if (c == 0 && cover) {
+            vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, s->cover);
+            vkCmdDrawMeshTasksEXT(cmd, p->cells, p->cells, GC_LAYERS);
         }
         vkCmdEndRendering(cmd);
     }

@@ -2,7 +2,7 @@
 #include "base.h"
 #include "gpu_shared.h"
 #include "terrain_file.h"
-#include "plants_file.h"
+#include "ground_cover_file.h"
 
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan.h>
@@ -17,7 +17,7 @@
 #include "vk.cpp"
 #include "terrain.cpp"
 #include "vegetation.cpp"
-#include "plants.cpp"
+#include "ground_cover.cpp"
 #include "shadows.cpp"
 #include "overlay.cpp"
 #include "viewer.cpp"
