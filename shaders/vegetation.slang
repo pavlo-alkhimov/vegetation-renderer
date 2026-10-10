@@ -51,7 +51,7 @@ void as_trees(uint tid : SV_GroupThreadID, uint gid : SV_GroupID)
         float3 centre = base + tt.bounds.xyz * scale;
         float r = tt.bounds.w * scale;
         float dist = distance(centre, f.cam_pos.xyz);
-        if (dist - r < f.veg.x && sphere_visible(f, centre, r)) {
+        if (dist - r < f.veg.x && sphere_visible(centre, r)) {
             float px = tt.bark_color.w * scale * f.veg.z / max(dist, 1.0);
             uint lod = px > f.tree_lod.x ? 0 : px > f.tree_lod.y ? 1 : px > f.tree_lod.z ? 2 : 3;
             meshlets = tt.meshlet_count[lod];
@@ -124,7 +124,7 @@ void ms_trees(uint tid : SV_GroupThreadID, uint gid : SV_GroupID, in payload Veg
         rp.xz += f.wind.xz * sway * w * 0.25 * scale;
         TreeVsOut o;
         o.rel = base + rp;
-        o.pos = project(f, o.rel);
+        o.pos = project(o.rel);
         o.n = rn;
         o.uv = float2(tv.uv & 0xffff, tv.uv >> 16) / 1024.0;
         o.color = mat == MAT_BARK ? tt.bark_color.rgb : leaf;
@@ -252,7 +252,7 @@ void as_grass(uint tid : SV_GroupThreadID, uint3 gid : SV_GroupID)
         if (all(g >= 0.0) && all(g <= extent)) {
             float3 c = float3(f.terrain.x + centre_m.x, height_at(f, g, 0), f.terrain.y + centre_m.y);
             float dist = distance(c, f.cam_pos.xyz);
-            if (dist < f.veg.y + 3.0 && sphere_visible(f, c + float3(0, 0.5, 0), 4.0)) {
+            if (dist < f.veg.y + 3.0 && sphere_visible(c + float3(0, 0.5, 0), 4.0)) {
                 float density = mask_at(f, g, 0).y * f.veg.w;
                 float lod = min(1.0, pow(12.0 / max(dist, 12.0), 1.6));
                 uint blades = uint(float(GRASS_TILE_BLADES) * density * lod + 0.5);
@@ -327,7 +327,7 @@ void ms_grass(uint tid : SV_GroupThreadID, uint gid : SV_GroupID, in payload Veg
     for (uint k = 0; k < 5; k++) {
         GrassVsOut o;
         o.rel = pos[k];
-        o.pos = project(f, pos[k]);
+        o.pos = project(pos[k]);
         o.n = normalize(n + across * side[k] * 0.5);                  // rounded blade normal
         o.color = base_col;
         o.t = t[k];

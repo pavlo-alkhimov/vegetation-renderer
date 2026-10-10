@@ -12,6 +12,7 @@ typedef enum {
     CMD_TOGGLE_TREES, CMD_TOGGLE_GRASS,
     CMD_TREE_DIST_LESS, CMD_TREE_DIST_MORE,
     CMD_TOGGLE_OVERLAY,
+    CMD_STANCE_CROUCH, CMD_STANCE_PRONE,
 } ViewerCommand;
 
 typedef struct {
@@ -27,12 +28,17 @@ typedef struct {
     f32 yaw, pitch;             // radians; yaw 0 = north, +pi/2 = east
     f32 speed;                  // m/s
     bool walk;
+    u32 stance;                 // STANCE_*, walk mode only
+    f32 eye;                    // walk mode: current eye height above ground (m), eases towards the stance's
 } Camera;
 
-#define CAMERA_EYE_HEIGHT 1.75f
+enum { STANCE_STAND, STANCE_CROUCH, STANCE_PRONE };
+static const f32 STANCE_EYE[3] = {1.75f, 1.0f, 0.35f};     // m above ground
+static const f32 STANCE_SPEED[3] = {1.5f, 1.0f, 0.4f};    // m/s
+
 #define CAMERA_MIN_CLEARANCE 0.5f
 #define CAMERA_FOV_Y (60.0f * 3.14159265f / 180.0f)
-#define CAMERA_NEAR 0.1f
+#define CAMERA_NEAR 0.05f           // m; prone eyes are 0.35 m above the ground, among the grass
 
 typedef struct {
     Vk vk;
@@ -76,7 +82,19 @@ static void viewer_update(Viewer* v, const ViewerInput* in, f32 dt)
     v->time += dt;
     for (u32 i = 0; i < in->command_count; i++) {
         switch (in->commands[i]) {
-        case CMD_TOGGLE_WALK: c->walk = !c->walk; c->speed = c->walk ? 1.5f : 15.0f; break;
+        case CMD_TOGGLE_WALK:
+            c->walk = !c->walk;
+            c->speed = c->walk ? STANCE_SPEED[c->stance] : 15.0f;
+            c->eye = STANCE_EYE[c->stance];
+            break;
+        case CMD_STANCE_CROUCH:
+        case CMD_STANCE_PRONE: {
+            u32 s = in->commands[i] == CMD_STANCE_CROUCH ? STANCE_CROUCH : STANCE_PRONE;
+            c->stance = c->stance == s ? STANCE_STAND : s;   // same key again: stand up
+            if (!c->walk) { c->walk = true; c->eye = STANCE_EYE[c->stance]; }
+            c->speed = STANCE_SPEED[c->stance];
+            break;
+        }
         case CMD_DEBUG_SHADED: v->debug_mode = DEBUG_SHADED; break;
         case CMD_DEBUG_LOD: v->debug_mode = DEBUG_LOD; break;
         case CMD_DEBUG_CONTOUR: v->debug_mode = DEBUG_CONTOUR; break;
@@ -118,7 +136,8 @@ static void viewer_update(Viewer* v, const ViewerInput* in, f32 dt)
     c->pos[2] += move.z * speed * dt;
 
     f32 ground = terrain_height(&v->terrain, c->pos[0], c->pos[2]);
-    if (c->walk) c->pos[1] = ground + CAMERA_EYE_HEIGHT;
+    c->eye += (STANCE_EYE[c->stance] - c->eye) * MIN(dt * 8.0f, 1.0f);   // ~0.3 s to change stance
+    if (c->walk) c->pos[1] = ground + c->eye;
     else c->pos[1] = MAX(c->pos[1], (f64)ground + CAMERA_MIN_CLEARANCE);
 }
 
@@ -162,6 +181,27 @@ static void viewer_overlay(const Viewer* v, OverlayData* d)
     overlay_line(d, l++, "K", "SCREENSHOT");
     overlay_line(d, l++, "P", "PRINT CAMERA");
     overlay_line(d, l++, "H", "HIDE OVERLAY");
+}
+
+// Perspective view with reversed Z and an infinite far plane: clip = (x * px, -y * py, near, z) in camera space
+// (x right, y up, z forward); positions relative to the render origin. Jitter (NDC) shifts x/y by jitter * w.
+static void view_perspective(ViewConstants* vc, v3 cam, v3 right, v3 up, v3 fwd, f32 px, f32 py, f32 near, f32 jx, f32 jy)
+{
+    v4 rx = {right.x * px, right.y * px, right.z * px, -v3_dot(right, cam) * px};
+    v4 ry = {-up.x * py, -up.y * py, -up.z * py, v3_dot(up, cam) * py};
+    v4 rw = {fwd.x, fwd.y, fwd.z, -v3_dot(fwd, cam)};
+    vc->view_proj[0] = {rx.x + jx * rw.x, rx.y + jx * rw.y, rx.z + jx * rw.z, rx.w + jx * rw.w};
+    vc->view_proj[1] = {ry.x + jy * rw.x, ry.y + jy * rw.y, ry.z + jy * rw.z, ry.w + jy * rw.w};
+    vc->view_proj[2] = {0, 0, 0, near};
+    vc->view_proj[3] = rw;
+    v3 n[5] = {fwd, v3_add(right, v3_scale(fwd, 1.0f / px)), v3_sub(v3_scale(fwd, 1.0f / px), right),
+               v3_add(up, v3_scale(fwd, 1.0f / py)), v3_sub(v3_scale(fwd, 1.0f / py), up)};
+    for (u32 i = 0; i < 5; i++) {
+        v3 m = v3_norm(n[i]);
+        vc->planes[i] = {m.x, m.y, m.z, -v3_dot(m, cam) - (i == 0 ? near : 0.0f)};
+    }
+    vc->planes[5] = {0, 0, 0, 1};
+    vc->jitter = {jx, jy, 0, 0};
 }
 
 // Records and submits one frame. Returns false if the swapchain must be recreated.
@@ -213,9 +253,13 @@ static bool viewer_render(Viewer* v)
     fc->debug_mode = v->debug_mode;
     terrain_set_ranges(t, proj_y * vk->extent.height * 0.5f, v->target_px, fc);
 
-    const VkDeviceSize nodes_offset = 1024;
-    static_assert(sizeof(FrameConstants) <= 1024, "FrameConstants too large");
-    static_assert(1024 + TERRAIN_MAX_NODES * sizeof(TerrainNode) <= UPLOAD_BYTES, "upload buffer too small");
+    const VkDeviceSize nodes_offset = UPLOAD_NODES_OFFSET;
+    static_assert(sizeof(FrameConstants) <= UPLOAD_VIEWS_OFFSET, "FrameConstants too large");
+    static_assert(UPLOAD_VIEWS_OFFSET + MAX_VIEWS * sizeof(ViewConstants) <= UPLOAD_NODES_OFFSET, "too many views");
+    static_assert(UPLOAD_NODES_OFFSET + TERRAIN_MAX_NODES * sizeof(TerrainNode) <= UPLOAD_BYTES, "upload buffer too small");
+    ViewConstants* views = (ViewConstants*)((u8*)f->upload.mapped + UPLOAD_VIEWS_OFFSET);
+    view_perspective(&views[0], cam, right, up, fwd, proj_x, proj_y, CAMERA_NEAR, 0, 0);
+    memcpy(views[0].prev_view_proj, views[0].view_proj, sizeof(views[0].view_proj));
     TerrainSelect sel = {};
     sel.cam = cam;
     sel.near_d = CAMERA_NEAR;
@@ -232,10 +276,6 @@ static bool viewer_render(Viewer* v)
     // Vegetation.
     Vegetation* vg = &v->veg;
     bool trees = vg->enabled && v->show_trees, grass = vg->enabled && v->show_grass;
-    for (u32 i = 0; i < 4; i++) {
-        v3 n = v3_norm(sel.planes_n[i + 1]);
-        fc->planes[i] = {n.x, n.y, n.z, 0};
-    }
     fc->veg = {v->tree_dist, v->grass_radius, proj_y * vk->extent.height * 0.5f, 1.0f};
     fc->tree_lod = {400.0f, 120.0f, 30.0f, 0};
     fc->wind = {0.8f, 0.5f, 0.6f, 0};
@@ -294,7 +334,7 @@ static bool viewer_render(Viewer* v)
     vkCmdSetScissor(cmd, 0, 1, &sc);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipeline_layout, 0, 1, &vk->set, 0, NULL);
     PushConstants pcs = {f->upload.address, f->upload.address + nodes_offset, vg->scene.address, f->upload.address + CHUNKS_OFFSET,
-                         f->upload.address + OVERLAY_OFFSET};
+                         f->upload.address + OVERLAY_OFFSET, f->upload.address + UPLOAD_VIEWS_OFFSET};
     vkCmdPushConstants(cmd, vk->pipeline_layout, VK_SHADER_STAGE_ALL, 0, sizeof(pcs), &pcs);
     if (sel.count) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, v->wireframe ? t->pipeline_wire : t->pipeline);

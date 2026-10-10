@@ -14,7 +14,7 @@ static const char* USAGE =
     "  --treedist M              tree draw distance in m (default 3000); --grass M: grass radius (default 60)\n"
     "\n"
     "controls: click = capture mouse, Esc = release (again = quit), WASD move, Q/E down/up (Space = up),\n"
-    "  Shift x8, Ctrl x1/8, wheel = speed, G walk/fly, 1-4 shaded/LOD/contours/normals, L wireframe,\n"
+    "  Shift x8, Ctrl x1/8, wheel = speed, G walk/fly, C/Z crouch/prone (walk), 1-4 shaded/LOD/contours/normals, L wireframe,\n"
     "  [ ] finer/coarser terrain LOD, T trees, B grass, - = tree distance, V vsync, F12 or K screenshot,\n"
     "  P print camera, H overlay (FPS graph, keys)\n";
 
@@ -38,6 +38,8 @@ static ViewerCommand map_key(SDL_Scancode sc)
     case SDL_SCANCODE_MINUS: return CMD_TREE_DIST_LESS;
     case SDL_SCANCODE_EQUALS: return CMD_TREE_DIST_MORE;
     case SDL_SCANCODE_H: return CMD_TOGGLE_OVERLAY;
+    case SDL_SCANCODE_C: return CMD_STANCE_CROUCH;
+    case SDL_SCANCODE_Z: return CMD_STANCE_PRONE;
     default: return CMD_NONE;
     }
 }
@@ -209,7 +211,7 @@ int main(int argc, char** argv)
                      v.vk.extent.width, v.vk.extent.height, title_cpu_ms / title_frames, v.gpu_ms, v.gpu_pass_ms[0], v.gpu_pass_ms[1], v.gpu_pass_ms[2],
                      v.veg.tree_candidates, v.veg.chunk_count, v.tree_dist,
                      th->origin_e + c->pos[0], th->origin_n + c->pos[2], c->pos[1], c->pos[1] - terrain_height(&v.terrain, c->pos[0], c->pos[2]),
-                     c->speed, c->walk ? "walk" : "fly", captured ? "" : " | click to look");
+                     c->speed, c->walk ? (c->stance == STANCE_PRONE ? "prone" : c->stance == STANCE_CROUCH ? "crouch" : "walk") : "fly", captured ? "" : " | click to look");
             SDL_SetWindowTitle(window, title);
             title_time = now;
             title_frames = 0;

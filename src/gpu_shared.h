@@ -98,6 +98,17 @@ struct VegScene {                   // static, written once at load
 
 // Camera-space convention: x east, y up, z north (left-handed), all positions relative to the render origin
 // (docs/02). Projection: reversed-Z, infinite far plane.
+
+// One per rendered view (main camera; later shadow cascades). Culling and projection use the view; LOD, fog and
+// shading use the main camera in FrameConstants, so every view sees the same geometry.
+#define MAX_VIEWS 8
+struct ViewConstants {
+    v4 view_proj[4];        // rows: clip = (dot(r0, p), dot(r1, p), dot(r2, p), dot(r3, p)), p = (rel, 1); jittered
+    v4 prev_view_proj[4];   // previous frame, expressed relative to the current render origin
+    v4 planes[6];           // inward: xyz unit normal, w = d; inside if dot(n, p) + d >= 0; unused = (0, 0, 0, 1)
+    v4 jitter;              // xy = sub-pixel jitter (NDC) contained in view_proj, zw = previous frame's
+};
+
 struct FrameConstants {
     v4 cam_pos;             // xyz, w = near plane (m)
     v4 cam_right;           // xyz, w = proj_x = 1 / (tan(fov_y / 2) * aspect)
@@ -107,7 +118,6 @@ struct FrameConstants {
     v4 terrain;             // x, z of sample (0,0) relative to render origin; z = spacing (m); w = height_min - origin.y
     v4 terrain_size;        // x = width, y = height (samples), z = height_scale * 65535 (m per unorm unit), w = unused
     v4 morph[TERRAIN_MAX_LEVELS];   // per level: x = morph start (m), y = 1 / (end - start)
-    v4 planes[4];           // side frustum planes through cam_pos: inward unit normals (left, right, bottom, top)
     v4 veg;                 // x = tree draw distance (m), y = grass radius (m), z = pixels per unit of size/distance,
                             // w = grass density scale
     v4 tree_lod;            // projected tree height (px) above which LOD 0 / 1 / 2 is used; w = unused
@@ -145,4 +155,5 @@ struct PushConstants {
     GPU_PTR(VegScene) veg;
     GPU_PTR(TreeChunk) chunks;
     GPU_PTR(OverlayData) overlay;
+    GPU_PTR(ViewConstants) view;
 };

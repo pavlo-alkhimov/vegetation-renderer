@@ -40,20 +40,23 @@ float3 sky(FrameConstants f, float3 dir)
     return c;
 }
 
-float4 project(FrameConstants f, float3 rel)
+float4 xform(v4 m[4], float3 p)
 {
-    float3 v = rel - f.cam_pos.xyz;
-    float x = dot(v, f.cam_right.xyz), y = dot(v, f.cam_up.xyz), z = dot(v, f.cam_fwd.xyz);
-    return float4(x * f.cam_right.w, -y * f.cam_up.w, f.cam_pos.w, z);   // reversed Z: depth = near / z
+    float4 q = float4(p, 1.0);
+    return float4(dot(m[0], q), dot(m[1], q), dot(m[2], q), dot(m[3], q));
 }
 
-// Sphere against the near plane and the four side planes.
-bool sphere_visible(FrameConstants f, float3 c, float r)
+// Clip position in the current view (reversed Z: depth = near / view depth).
+float4 project(float3 rel)
 {
-    float3 v = c - f.cam_pos.xyz;
-    if (dot(v, f.cam_fwd.xyz) < f.cam_pos.w - r) return false;
-    for (uint i = 0; i < 4; i++)
-        if (dot(v, f.planes[i].xyz) < -r) return false;
+    return xform(pc.view->view_proj, rel);
+}
+
+// Sphere against the view's planes.
+bool sphere_visible(float3 c, float r)
+{
+    for (uint i = 0; i < 6; i++)
+        if (dot(pc.view->planes[i].xyz, c) + pc.view->planes[i].w < -r) return false;
     return true;
 }
 

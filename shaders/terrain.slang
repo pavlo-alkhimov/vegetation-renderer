@@ -29,7 +29,7 @@ TerrainVsOut vs_terrain(uint vid : SV_VertexID, uint iid : SV_InstanceID)
 
     TerrainVsOut o;
     o.rel = float3(f.terrain.x + g.x * f.terrain.z, height_at(f, g, 0), f.terrain.y + g.y * f.terrain.z);
-    o.pos = project(f, o.rel);
+    o.pos = project(o.rel);
     o.grid = g;
     o.level = n.level;
     return o;

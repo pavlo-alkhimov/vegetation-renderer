@@ -4,7 +4,9 @@
 #define FRAMES_IN_FLIGHT 2
 #define MAX_SWAP_IMAGES  8
 #define BINDLESS_TEXTURES 256
-#define UPLOAD_BYTES (4u << 20)     // per frame in flight: FrameConstants + TerrainNode array + TreeChunk array + overlay
+#define UPLOAD_BYTES (4u << 20)     // per frame in flight, layout below
+#define UPLOAD_VIEWS_OFFSET 1024    // FrameConstants at 0 (<= 1 KB), then ViewConstants[MAX_VIEWS]
+#define UPLOAD_NODES_OFFSET 4096    // TerrainNode array, then TreeChunk array (vegetation.cpp), then OverlayData
 #define GPU_TIMESTAMPS 5            // frame start, after terrain, after trees, after grass, frame end
 
 #define VK_CHECK(x) do { VkResult r_ = (x); if (r_ != VK_SUCCESS) FATAL("%s:%d: %s = %d", __FILE__, __LINE__, #x, (int)r_); } while (0)

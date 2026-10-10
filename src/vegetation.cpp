@@ -16,7 +16,7 @@
 #define TREE_SPACING   5.5                  // m, jittered grid; ~330 trees/ha in full forest
 #define MASK_TEXEL     4.0                  // m, approximate (exactly extent / texels)
 #define MAX_TREE_CHUNKS 65535u              // minimum guaranteed maxTaskWorkGroupCount[0]
-#define CHUNKS_OFFSET  (1024 + TERRAIN_MAX_NODES * sizeof(TerrainNode))   // in the per-frame upload buffer
+#define CHUNKS_OFFSET  (UPLOAD_NODES_OFFSET + TERRAIN_MAX_NODES * sizeof(TerrainNode))   // in the per-frame upload buffer
 
 static_assert(CHUNKS_OFFSET + MAX_TREE_CHUNKS * sizeof(TreeChunk) <= UPLOAD_BYTES, "upload buffer too small");
 static_assert(sizeof(TreeVertex) == 24 && sizeof(TreeType) == 96 && sizeof(TreeInstance) == 16, "GPU struct size");
