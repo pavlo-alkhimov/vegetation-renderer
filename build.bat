@@ -1,7 +1,8 @@
 @echo off
-rem Unity builds with clang on Windows (docs/01). Untested so far; mirrors build.sh.
+rem Unity builds with clang on Windows (docs/01); mirrors build.sh.
 rem   build.bat [debug|release]
-rem Needs: clang (LLVM), VULKAN_SDK (provides headers, vulkan-1.lib, slangc), SDL3_DIR (SDL3 VC dev package).
+rem Needs: clang (LLVM) + Visual Studio C++ tools (headers, linker), VULKAN_SDK (headers, slangc; the Vulkan loader
+rem comes with the GPU driver and is opened at runtime by SDL), SDL3_DIR (SDL3-devel-*-VC.zip unpacked).
 setlocal
 cd /d "%~dp0"
 set MODE=%1

@@ -42,9 +42,15 @@ static void* read_file(const char* path, size_t* size_out)
 {
     FILE* f = fopen(path, "rb");
     if (!f) return NULL;
+#ifdef _WIN32   // long is 32-bit on Windows
+    _fseeki64(f, 0, SEEK_END);
+    i64 size = _ftelli64(f);
+    _fseeki64(f, 0, SEEK_SET);
+#else
     fseek(f, 0, SEEK_END);
-    long size = ftell(f);
+    i64 size = ftell(f);
     fseek(f, 0, SEEK_SET);
+#endif
     void* data = malloc(size > 0 ? (size_t)size : 1);
     if (size < 0 || fread(data, 1, (size_t)size, f) != (size_t)size) { free(data); fclose(f); return NULL; }
     fclose(f);
