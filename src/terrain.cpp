@@ -12,9 +12,7 @@ typedef struct {
     u16* minmax[TERRAIN_MAX_LEVELS];    // per node: min, max (u16 height units)
     f32 range[TERRAIN_MAX_LEVELS];      // LOD distance per level (m)
 
-    VkImage image;
-    VkDeviceMemory image_memory;
-    VkImageView view;
+    VkTex height_tex;
     VkBuf indices;
     u32 index_count;
     VkPipeline pipeline, pipeline_wire, pipeline_sky;
@@ -100,73 +98,9 @@ static void terrain_upload(Terrain* t, Vk* vk)
     if (MAX(h->width, h->height) > vk->props.limits.maxImageDimension2D)
         FATAL("terrain %u x %u exceeds maxImageDimension2D %u; cook with --step 2", h->width, h->height, vk->props.limits.maxImageDimension2D);
 
-    VkFormatProperties fp;
-    vkGetPhysicalDeviceFormatProperties(vk->phys, VK_FORMAT_R16_UNORM, &fp);
-    VkFormatFeatureFlags need = VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_BLIT_DST_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
-    u32 mips = 1;
-    if ((fp.optimalTilingFeatures & need) == need)
-        while ((MAX(h->width, h->height) >> mips) > 0) mips++;
-
-    VkImageCreateInfo ci = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
-    ci.imageType = VK_IMAGE_TYPE_2D;
-    ci.format = VK_FORMAT_R16_UNORM;
-    ci.extent = {h->width, h->height, 1};
-    ci.mipLevels = mips;
-    ci.arrayLayers = 1;
-    ci.samples = VK_SAMPLE_COUNT_1_BIT;
-    ci.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
-    VK_CHECK(vkCreateImage(vk->device, &ci, NULL, &t->image));
-    VkMemoryRequirements req;
-    vkGetImageMemoryRequirements(vk->device, t->image, &req);
-    t->image_memory = vk_alloc(vk, req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, false);
-    VK_CHECK(vkBindImageMemory(vk->device, t->image, t->image_memory, 0));
-
-    // Upload level 0 in row bands through a staging buffer.
-    VkDeviceSize staging_size = 64u << 20;
-    VkBuf staging = vk_buffer(vk, staging_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true);
-    u32 rows_per_band = (u32)(staging_size / ((VkDeviceSize)h->width * 2));
-    for (u32 row = 0; row < h->height; row += rows_per_band) {
-        u32 rows = MIN(rows_per_band, h->height - row);
-        memcpy(staging.mapped, t->heights + (size_t)row * h->width, (size_t)rows * h->width * 2);
-        VkCommandBuffer cmd = vk_begin_once(vk);
-        if (row == 0)
-            vk_image_barrier(cmd, t->image, VK_IMAGE_ASPECT_COLOR_BIT, 0, mips, VK_PIPELINE_STAGE_2_NONE, 0, VK_IMAGE_LAYOUT_UNDEFINED,
-                             VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
-        VkBufferImageCopy region = {};
-        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-        region.imageOffset = {0, (i32)row, 0};
-        region.imageExtent = {h->width, rows, 1};
-        vkCmdCopyBufferToImage(cmd, staging.buffer, t->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
-        vk_end_once(vk);
-    }
-    vk_buffer_destroy(vk, &staging);
-
-    // Mips by successive linear blits (used for footprint-filtered normals in the fragment shader).
-    VkCommandBuffer cmd = vk_begin_once(vk);
-    for (u32 m = 1; m < mips; m++) {
-        vk_image_barrier(cmd, t->image, VK_IMAGE_ASPECT_COLOR_BIT, m - 1, 1, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
-        VkImageBlit b = {};
-        b.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, m - 1, 0, 1};
-        b.srcOffsets[1] = {(i32)MAX(h->width >> (m - 1), 1u), (i32)MAX(h->height >> (m - 1), 1u), 1};
-        b.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, m, 0, 1};
-        b.dstOffsets[1] = {(i32)MAX(h->width >> m, 1u), (i32)MAX(h->height >> m, 1u), 1};
-        vkCmdBlitImage(cmd, t->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, t->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &b, VK_FILTER_LINEAR);
-    }
-    if (mips > 1)
-        vk_image_barrier(cmd, t->image, VK_IMAGE_ASPECT_COLOR_BIT, 0, mips - 1, VK_PIPELINE_STAGE_2_BLIT_BIT, 0, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-                         VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    vk_image_barrier(cmd, t->image, VK_IMAGE_ASPECT_COLOR_BIT, mips - 1, 1, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
-                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    vk_end_once(vk);
-
-    VkImageViewCreateInfo vi = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
-    vi.image = t->image;
-    vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    vi.format = VK_FORMAT_R16_UNORM;
-    vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, mips, 0, 1};
-    VK_CHECK(vkCreateImageView(vk->device, &vi, NULL, &t->view));
-    vk_bind_texture(vk, 0, t->view);
+    // Mips are used for footprint-filtered normals in the fragment shader.
+    t->height_tex = vk_texture_2d(vk, VK_FORMAT_R16_UNORM, 2, h->width, h->height, t->heights, true);
+    vk_bind_texture(vk, TEX_HEIGHT, t->height_tex.view);
 
     // One shared patch index buffer; vertices are generated from gl_VertexIndex.
     const u32 q = TERRAIN_PATCH_QUADS, row = q + 1;

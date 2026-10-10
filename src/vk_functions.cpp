@@ -20,6 +20,7 @@
     X(vkCmdBindIndexBuffer) \
     X(vkCmdBindPipeline) \
     X(vkCmdBlitImage) \
+    X(vkCmdCopyBuffer) \
     X(vkCmdCopyBufferToImage) \
     X(vkCmdCopyImageToBuffer) \
     X(vkCmdDraw) \
@@ -59,6 +60,7 @@
     X(vkFreeMemory) \
     X(vkGetBufferDeviceAddress) \
     X(vkGetBufferMemoryRequirements) \
+    X(vkGetDeviceProcAddr) \
     X(vkGetDeviceQueue) \
     X(vkGetImageMemoryRequirements) \
     X(vkGetPhysicalDeviceFeatures2) \
@@ -81,10 +83,15 @@
     X(vkUpdateDescriptorSets) \
     X(vkWaitForFences)
 
+// Optional device-extension functions, loaded with vkGetDeviceProcAddr when the extension is enabled; NULL otherwise.
+#define VK_DEVICE_EXT_FUNCTIONS(X) \
+    X(vkCmdDrawMeshTasksEXT)
+
 #define X(name) static PFN_##name name;
 X(vkGetInstanceProcAddr)
 VK_GLOBAL_FUNCTIONS(X)
 VK_INSTANCE_FUNCTIONS(X)
+VK_DEVICE_EXT_FUNCTIONS(X)
 #undef X
 
 static void vk_load_global(PFN_vkGetInstanceProcAddr get_proc)
@@ -99,5 +106,12 @@ static void vk_load_instance(VkInstance instance)
 {
 #define X(name) if (!(name = (PFN_##name)vkGetInstanceProcAddr(instance, #name))) FATAL("Vulkan instance lacks %s", #name);
     VK_INSTANCE_FUNCTIONS(X)
+#undef X
+}
+
+static void vk_load_device_ext(VkDevice device)
+{
+#define X(name) name = (PFN_##name)vkGetDeviceProcAddr(device, #name);
+    VK_DEVICE_EXT_FUNCTIONS(X)
 #undef X
 }

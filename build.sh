@@ -27,6 +27,13 @@ command -v "$SLANGC" >/dev/null || { echo "slangc not found (Vulkan SDK or githu
 
 mkdir -p build/shaders
 "$SLANGC" shaders/terrain.slang -target spirv -o build/shaders/terrain.spv
+# Task shaders in their own modules (driver issue with task + mesh in one module, see vk.cpp PipelineDesc).
+for v in trees grass; do
+    "$SLANGC" shaders/vegetation.slang -target spirv -fvk-use-entrypoint-name -entry "as_$v" -stage amplification \
+        -o "build/shaders/veg_${v}_task.spv"
+    "$SLANGC" shaders/vegetation.slang -target spirv -fvk-use-entrypoint-name -entry "ms_$v" -stage mesh \
+        -entry "fs_$v" -stage fragment -o "build/shaders/veg_$v.spv"
+done
 
 vk_cflags=""
 [[ -n "${VULKAN_SDK:-}" ]] && vk_cflags="-I$VULKAN_SDK/include"
@@ -37,4 +44,4 @@ sdl_libs="$(pkg-config --libs sdl3) -Wl,-rpath,$(pkg-config --variable=libdir sd
 # The cooker decodes ~1 GB of GeoTIFF: always optimized.
 # shellcheck disable=SC2086
 "$CXX" $common -g -O2 src/tools/cook_terrain.cpp -o build/cook_terrain -lpthread -lm
-echo "built ($mode): build/vr build/cook_terrain build/shaders/terrain.spv"
+echo "built ($mode): build/vr build/cook_terrain build/shaders/*.spv"

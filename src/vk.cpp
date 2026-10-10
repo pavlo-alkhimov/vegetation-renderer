@@ -4,7 +4,8 @@
 #define FRAMES_IN_FLIGHT 2
 #define MAX_SWAP_IMAGES  8
 #define BINDLESS_TEXTURES 256
-#define UPLOAD_BYTES (4u << 20)     // per frame in flight: FrameConstants + TerrainNode array
+#define UPLOAD_BYTES (4u << 20)     // per frame in flight: FrameConstants + TerrainNode array + TreeChunk array
+#define GPU_TIMESTAMPS 5            // frame start, after terrain, after trees, after grass, frame end
 
 #define VK_CHECK(x) do { VkResult r_ = (x); if (r_ != VK_SUCCESS) FATAL("%s:%d: %s = %d", __FILE__, __LINE__, #x, (int)r_); } while (0)
 
@@ -38,6 +39,7 @@ typedef struct {
     u32 queue_family;
     bool timestamps;
     bool wireframe_supported;
+    bool mesh_shaders;          // VK_EXT_mesh_shader with task + mesh shaders (vegetation); optional
 
     VkSwapchainKHR swapchain;
     VkFormat swap_format;
@@ -276,12 +278,28 @@ static void vk_init_device(Vk* vk, VkSurfaceKHR surface)
 
     // Query, check and enable exactly the features this code uses; name what is missing instead of failing in
     // vkCreateDevice. Portability drivers (MoltenVK) are the likely place for gaps.
+    bool has_portability_subset = false, has_mesh_shader = false;
+    {
+        u32 count = 0;
+        vkEnumerateDeviceExtensionProperties(vk->phys, NULL, &count, NULL);
+        VkExtensionProperties* props = (VkExtensionProperties*)malloc(MAX(count, 1u) * sizeof(VkExtensionProperties));
+        vkEnumerateDeviceExtensionProperties(vk->phys, NULL, &count, props);
+        for (u32 i = 0; i < count; i++) {
+            if (!strcmp(props[i].extensionName, "VK_KHR_portability_subset")) has_portability_subset = true;
+            if (!strcmp(props[i].extensionName, VK_EXT_MESH_SHADER_EXTENSION_NAME)) has_mesh_shader = true;
+        }
+        free(props);
+    }
+    VkPhysicalDeviceMeshShaderFeaturesEXT smesh = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT};
     VkPhysicalDeviceVulkan13Features s13 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
     VkPhysicalDeviceVulkan12Features s12 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
     VkPhysicalDeviceVulkan11Features s11 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
     VkPhysicalDeviceFeatures2 s2 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     s2.pNext = &s11; s11.pNext = &s12; s12.pNext = &s13;
+    if (has_mesh_shader) s13.pNext = &smesh;
     vkGetPhysicalDeviceFeatures2(vk->phys, &s2);
+    vk->mesh_shaders = has_mesh_shader && smesh.taskShader && smesh.meshShader;
+    if (!vk->mesh_shaders) printf("no task/mesh shader support (VK_EXT_mesh_shader): vegetation disabled\n");
     struct { VkBool32 ok; const char* name; } required[] = {
         {s13.dynamicRendering, "dynamicRendering"},
         {s13.synchronization2, "synchronization2"},
@@ -298,7 +316,11 @@ static void vk_init_device(Vk* vk, VkSurfaceKHR surface)
     if (missing[0]) FATAL("%s lacks required Vulkan features:%s", vk->props.deviceName, missing);
     vk->wireframe_supported = s2.features.fillModeNonSolid;
 
+    VkPhysicalDeviceMeshShaderFeaturesEXT fmesh = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT};
+    fmesh.taskShader = VK_TRUE;
+    fmesh.meshShader = VK_TRUE;
     VkPhysicalDeviceVulkan13Features f13 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES};
+    f13.pNext = vk->mesh_shaders ? &fmesh : NULL;
     f13.dynamicRendering = VK_TRUE;
     f13.synchronization2 = VK_TRUE;
     VkPhysicalDeviceVulkan12Features f12 = {VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
@@ -321,17 +343,10 @@ static void vk_init_device(Vk* vk, VkSurfaceKHR surface)
     qi.queueCount = 1;
     qi.pQueuePriorities = &priority;
     // VK_KHR_portability_subset must be enabled whenever the device exposes it (MoltenVK).
-    const char* exts[2] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+    const char* exts[3] = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
     u32 ext_count = 1;
-    {
-        u32 count = 0;
-        vkEnumerateDeviceExtensionProperties(vk->phys, NULL, &count, NULL);
-        VkExtensionProperties* props = (VkExtensionProperties*)malloc(MAX(count, 1u) * sizeof(VkExtensionProperties));
-        vkEnumerateDeviceExtensionProperties(vk->phys, NULL, &count, props);
-        for (u32 i = 0; i < count; i++)
-            if (!strcmp(props[i].extensionName, "VK_KHR_portability_subset")) exts[ext_count++] = "VK_KHR_portability_subset";
-        free(props);
-    }
+    if (has_portability_subset) exts[ext_count++] = "VK_KHR_portability_subset";
+    if (vk->mesh_shaders) exts[ext_count++] = VK_EXT_MESH_SHADER_EXTENSION_NAME;
     VkDeviceCreateInfo ci = {VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO};
     ci.pNext = &f2;
     ci.queueCreateInfoCount = 1;
@@ -340,6 +355,8 @@ static void vk_init_device(Vk* vk, VkSurfaceKHR surface)
     ci.ppEnabledExtensionNames = exts;
     VK_CHECK(vkCreateDevice(vk->phys, &ci, NULL, &vk->device));
     vkGetDeviceQueue(vk->device, vk->queue_family, 0, &vk->queue);
+    vk_load_device_ext(vk->device);
+    if (vk->mesh_shaders && !vkCmdDrawMeshTasksEXT) { printf("vkCmdDrawMeshTasksEXT missing: vegetation disabled\n"); vk->mesh_shaders = false; }
 
     for (u32 i = 0; i < FRAMES_IN_FLIGHT; i++) {
         VkFrame* f = &vk->frames[i];
@@ -359,7 +376,7 @@ static void vk_init_device(Vk* vk, VkSurfaceKHR surface)
         VK_CHECK(vkCreateSemaphore(vk->device, &si, NULL, &f->acquired));
         VkQueryPoolCreateInfo qpi = {VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO};
         qpi.queryType = VK_QUERY_TYPE_TIMESTAMP;
-        qpi.queryCount = 2;
+        qpi.queryCount = GPU_TIMESTAMPS;
         VK_CHECK(vkCreateQueryPool(vk->device, &qpi, NULL, &f->queries));   // reset in the command buffer before use
         f->upload = vk_buffer(vk, UPLOAD_BYTES, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, true);
     }
@@ -556,24 +573,34 @@ static VkShaderModule vk_load_shader(Vk* vk, const char* path)
 
 typedef struct {
     VkShaderModule module;
-    const char* vs;
+    const char* vs;             // vertex pipeline: vertex shader; mesh pipeline: NULL
     const char* fs;
     VkCompareOp depth_compare;
     bool depth_write;
     VkCullModeFlags cull;
     VkPolygonMode polygon;
+    const char* ts;             // mesh pipeline: task shader (optional)
+    const char* ms;             // mesh pipeline: mesh shader
+    VkShaderModule task_module; // task shader module if different from module. Task shaders get their own module:
+                                // with task and mesh shader in one module, the NVIDIA driver (2026-10) passed garbage
+                                // payloads to the mesh shader although the SPIR-V validates.
 } PipelineDesc;
 
 static VkPipeline vk_create_pipeline(Vk* vk, const PipelineDesc* d)
 {
-    VkPipelineShaderStageCreateInfo stages[2] = {};
-    stages[0].sType = stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-    stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
-    stages[0].module = d->module;
-    stages[0].pName = d->vs;
-    stages[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-    stages[1].module = d->module;
-    stages[1].pName = d->fs;
+    VkPipelineShaderStageCreateInfo stages[3] = {};
+    u32 stage_count = 0;
+    struct { const char* name; VkShaderStageFlagBits stage; } list[4] = {
+        {d->ts, VK_SHADER_STAGE_TASK_BIT_EXT}, {d->ms, VK_SHADER_STAGE_MESH_BIT_EXT},
+        {d->vs, VK_SHADER_STAGE_VERTEX_BIT}, {d->fs, VK_SHADER_STAGE_FRAGMENT_BIT}};
+    for (u32 i = 0; i < 4; i++) {
+        if (!list[i].name) continue;
+        stages[stage_count].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[stage_count].stage = list[i].stage;
+        stages[stage_count].module = list[i].stage == VK_SHADER_STAGE_TASK_BIT_EXT && d->task_module ? d->task_module : d->module;
+        stages[stage_count].pName = list[i].name;
+        stage_count++;
+    }
     VkPipelineVertexInputStateCreateInfo vi = {VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO};
     VkPipelineInputAssemblyStateCreateInfo ia = {VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO};
     ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
@@ -605,10 +632,10 @@ static VkPipeline vk_create_pipeline(Vk* vk, const PipelineDesc* d)
     ri.depthAttachmentFormat = VK_FORMAT_D32_SFLOAT;
     VkGraphicsPipelineCreateInfo ci = {VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO};
     ci.pNext = &ri;
-    ci.stageCount = 2;
+    ci.stageCount = stage_count;
     ci.pStages = stages;
-    ci.pVertexInputState = &vi;
-    ci.pInputAssemblyState = &ia;
+    ci.pVertexInputState = d->ms ? NULL : &vi;
+    ci.pInputAssemblyState = d->ms ? NULL : &ia;
     ci.pViewportState = &vp;
     ci.pRasterizationState = &rs;
     ci.pMultisampleState = &ms;
@@ -619,4 +646,101 @@ static VkPipeline vk_create_pipeline(Vk* vk, const PipelineDesc* d)
     VkPipeline p;
     VK_CHECK(vkCreateGraphicsPipelines(vk->device, VK_NULL_HANDLE, 1, &ci, NULL, &p));
     return p;
+}
+
+// Device-local buffer filled from CPU memory through a host-visible staging buffer (blocking; load time only).
+static VkBuf vk_buffer_static(Vk* vk, VkDeviceSize size, VkBufferUsageFlags usage, const void* data)
+{
+    VkBuf b = vk_buffer(vk, MAX(size, (VkDeviceSize)16), usage | VK_BUFFER_USAGE_TRANSFER_DST_BIT, false);
+    const VkDeviceSize piece = 64u << 20;
+    VkBuf staging = vk_buffer(vk, MIN(MAX(size, (VkDeviceSize)16), piece), VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true);
+    for (VkDeviceSize off = 0; off < size; off += piece) {
+        VkDeviceSize n = MIN(piece, size - off);
+        memcpy(staging.mapped, (const u8*)data + off, (size_t)n);
+        VkCommandBuffer cmd = vk_begin_once(vk);
+        VkBufferCopy region = {0, off, n};
+        vkCmdCopyBuffer(cmd, staging.buffer, b.buffer, 1, &region);
+        vk_end_once(vk);
+    }
+    vk_buffer_destroy(vk, &staging);
+    return b;
+}
+
+typedef struct {
+    VkImage image;
+    VkDeviceMemory memory;
+    VkImageView view;
+    u32 mips;
+} VkTex;
+
+// 2D texture from tightly packed texels (row 0 first), uploaded in row bands; full mip chain by linear blits when
+// the format supports it. Left in SHADER_READ_ONLY_OPTIMAL.
+static VkTex vk_texture_2d(Vk* vk, VkFormat format, u32 texel_bytes, u32 w, u32 h, const void* data, bool mips)
+{
+    VkTex t = {};
+    VkFormatProperties fp;
+    vkGetPhysicalDeviceFormatProperties(vk->phys, format, &fp);
+    VkFormatFeatureFlags need = VK_FORMAT_FEATURE_BLIT_SRC_BIT | VK_FORMAT_FEATURE_BLIT_DST_BIT | VK_FORMAT_FEATURE_SAMPLED_IMAGE_FILTER_LINEAR_BIT;
+    t.mips = 1;
+    if (mips && (fp.optimalTilingFeatures & need) == need)
+        while ((MAX(w, h) >> t.mips) > 0) t.mips++;
+
+    VkImageCreateInfo ci = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
+    ci.imageType = VK_IMAGE_TYPE_2D;
+    ci.format = format;
+    ci.extent = {w, h, 1};
+    ci.mipLevels = t.mips;
+    ci.arrayLayers = 1;
+    ci.samples = VK_SAMPLE_COUNT_1_BIT;
+    ci.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+    VK_CHECK(vkCreateImage(vk->device, &ci, NULL, &t.image));
+    VkMemoryRequirements req;
+    vkGetImageMemoryRequirements(vk->device, t.image, &req);
+    t.memory = vk_alloc(vk, req, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, 0, false);
+    VK_CHECK(vkBindImageMemory(vk->device, t.image, t.memory, 0));
+
+    VkDeviceSize row_bytes = (VkDeviceSize)w * texel_bytes, staging_size = MAX(row_bytes, (VkDeviceSize)64u << 20);
+    VkBuf staging = vk_buffer(vk, staging_size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, true);
+    u32 rows_per_band = (u32)(staging_size / row_bytes);
+    for (u32 row = 0; row < h; row += rows_per_band) {
+        u32 rows = MIN(rows_per_band, h - row);
+        memcpy(staging.mapped, (const u8*)data + row * row_bytes, (size_t)(rows * row_bytes));
+        VkCommandBuffer cmd = vk_begin_once(vk);
+        if (row == 0)
+            vk_image_barrier(cmd, t.image, VK_IMAGE_ASPECT_COLOR_BIT, 0, t.mips, VK_PIPELINE_STAGE_2_NONE, 0, VK_IMAGE_LAYOUT_UNDEFINED,
+                             VK_PIPELINE_STAGE_2_COPY_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        VkBufferImageCopy region = {};
+        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+        region.imageOffset = {0, (i32)row, 0};
+        region.imageExtent = {w, rows, 1};
+        vkCmdCopyBufferToImage(cmd, staging.buffer, t.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+        vk_end_once(vk);
+    }
+    vk_buffer_destroy(vk, &staging);
+
+    VkCommandBuffer cmd = vk_begin_once(vk);
+    for (u32 m = 1; m < t.mips; m++) {
+        vk_image_barrier(cmd, t.image, VK_IMAGE_ASPECT_COLOR_BIT, m - 1, 1, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+        VkImageBlit b = {};
+        b.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, m - 1, 0, 1};
+        b.srcOffsets[1] = {(i32)MAX(w >> (m - 1), 1u), (i32)MAX(h >> (m - 1), 1u), 1};
+        b.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, m, 0, 1};
+        b.dstOffsets[1] = {(i32)MAX(w >> m, 1u), (i32)MAX(h >> m, 1u), 1};
+        vkCmdBlitImage(cmd, t.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, t.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &b, VK_FILTER_LINEAR);
+    }
+    if (t.mips > 1)
+        vk_image_barrier(cmd, t.image, VK_IMAGE_ASPECT_COLOR_BIT, 0, t.mips - 1, VK_PIPELINE_STAGE_2_BLIT_BIT, 0, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                         VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    vk_image_barrier(cmd, t.image, VK_IMAGE_ASPECT_COLOR_BIT, t.mips - 1, 1, VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                     VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+    vk_end_once(vk);
+
+    VkImageViewCreateInfo vi = {VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO};
+    vi.image = t.image;
+    vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    vi.format = format;
+    vi.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, t.mips, 0, 1};
+    VK_CHECK(vkCreateImageView(vk->device, &vi, NULL, &t.view));
+    return t;
 }

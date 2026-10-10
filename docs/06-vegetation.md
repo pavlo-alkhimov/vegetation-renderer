@@ -265,6 +265,40 @@ visible blades per frame; budget ≤ 2 ms for generation + raster + resolve.
 | GI/reflection rays hitting vegetation proxies | ~2.0 |
 | **Total vegetation-attributable** | **~10.3 of 27.4** |
 
+### 5.13 Baseline and steps (implemented, M0b)
+
+The first code path for trees and grass ([`src/vegetation.cpp`](../src/vegetation.cpp),
+[`shaders/vegetation.slang`](../shaders/vegetation.slang)): deliberately simple, complete and measured, so every later
+step from §5 replaces one part and is judged against it.
+
+| Part | Baseline | Replaced by (step) |
+|---|---|---|
+| Placement source | RG8 mask at 4 m (forest density, grass density) from noise in absolute UTM coordinates; terrain colour reads the same mask | real land cover: forest mask + tree heights (DSM − DTM, ESA WorldCover), species from stand data ([13](13-reference-maps.md)) |
+| Tree assets | 5 species × 2 variants generated at load: trunk/branch tubes, broadleaf cards (procedural 6-leaf alpha), needle spray cards (procedural fishbone alpha) | species pipeline: assemblies, twig instancing, per-cluster bones (§5.1) |
+| Tree LOD | 4 discrete LODs by projected height (> 400 / 120 / 30 px): full, main branches + bigger cards, trunk + crown blob cards, 3 crossed billboards with procedural silhouette; hard switches | cluster DAG (§5.3), impostors / voxels / Gaussians for the far field (§5.4) |
+| Tree culling | CPU: 256 m cells (frustum + distance) → chunks of 32 instances; task shader: per-instance sphere vs frustum, LOD choice; mesh shader: whole meshlets | two-phase HiZ occlusion culling, per-meshlet cone/sphere culling, visibility buffer (docs/05) |
+| Instances | 3.3 M on a jittered 5.5 m grid in the forest mask (16 B each), solitary trees in meadows; species from stand noise | per-cell streaming, real tree positions |
+| Grass | per-frame blades: 4 m tiles within 60 m, 48 blades/m² near, density falls as (12/d)^1.6 with width compensation; quadratic Bézier blade, 3 triangles; nothing stored | Tsushima-style clumping, blade LOD, Bézier wind field, statistical occlusion beyond the blade radius (§5.5) |
+| Wind | per-tree sine sway weighted by height; grass gust sine along the wind direction | wind field + bone rig, exact motion vectors (§5.6) |
+| Shading | forward; wrapped diffuse + transmission + sky ambient; baked crown AO; alpha test | visibility buffer resolve, foliage BSDF, VSM shadows, GI (§5.8–5.9) |
+| Far field | terrain colour switches to canopy albedo beyond 70–100 % of the tree draw distance (3 km) | impostors (§5.4) |
+
+Measured (RTX 4060, 1080p, Grafenwöhr 16 × 16 km DGM1, `--frames 200 --novsync`): eye height at a forest edge,
+104 k tree candidates within 3 km: trees 4.3 ms, grass ~0.05 ms, terrain 0.15 ms; 60 m above the forest,
+178 k candidates: trees 3.7 ms. Per-pass times are timestamps inside one render pass (approximate); the A/B switches
+`--notrees` / `--nograss` give the exact difference.
+
+Known weaknesses of the baseline (expected, each is a step): LOD pops; alpha-tested cards alias and shimmer (no TAA);
+no shadows, crowns lit only by baked AO; spruce sprays read as flat fronds at close range; all trees of a type are
+identical apart from scale, yaw and tint; regular grid placement is visible from above; task + mesh shaders must live in
+separate SPIR-V modules (NVIDIA driver passed garbage payloads otherwise; see `PipelineDesc` in `src/vk.cpp`); trees
+need `VK_EXT_mesh_shader` and are off without it (e.g. on macOS unless the driver exposes it).
+
+Suggested order of steps: (1) VSM or a simple sun shadow map — biggest visual gain; (2) TAA + alpha-to-coverage
+for foliage; (3) occlusion culling (HiZ) and per-meshlet culling — biggest cost gain, as most of the 4 ms is hidden
+trees; (4) real land-cover placement; (5) dithered LOD transitions, then the cluster DAG; (6) species pipeline with
+assemblies; (7) wind field; (8) grass clumping and statistical occlusion.
+
 ## 6. Research items and watch list
 
 - Switch point between foliage DAG simplification and voxels; aggregate-aware simplification of leaf clusters.

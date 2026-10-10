@@ -9,6 +9,8 @@ typedef enum {
     CMD_TOGGLE_VSYNC,
     CMD_SCREENSHOT,
     CMD_PRINT_CAMERA,
+    CMD_TOGGLE_TREES, CMD_TOGGLE_GRASS,
+    CMD_TREE_DIST_LESS, CMD_TREE_DIST_MORE,
 } ViewerCommand;
 
 typedef struct {
@@ -34,14 +36,19 @@ typedef struct {
 typedef struct {
     Vk vk;
     Terrain terrain;
+    Vegetation veg;
     Camera cam;
     u32 debug_mode;
     bool wireframe;
+    bool show_trees, show_grass;
+    f32 tree_dist;              // m
+    f32 grass_radius;           // m
     f32 target_px;              // terrain triangle edge target (pixels)
     f32 time;
     // Stats
     u32 node_count;
-    f32 gpu_ms;
+    f32 gpu_ms;                 // whole frame
+    f32 gpu_pass_ms[3];         // terrain, trees, grass
     const char* screenshot_path;
     u32 screenshot_counter;
     bool swapchain_dirty;
@@ -78,6 +85,10 @@ static void viewer_update(Viewer* v, const ViewerInput* in, f32 dt)
         case CMD_TOGGLE_VSYNC: v->vk.vsync = !v->vk.vsync; v->swapchain_dirty = true; break;
         case CMD_SCREENSHOT: v->screenshot_path = "shot"; break;
         case CMD_PRINT_CAMERA: viewer_print_camera(v); break;
+        case CMD_TOGGLE_TREES: v->show_trees = !v->show_trees; break;
+        case CMD_TOGGLE_GRASS: v->show_grass = !v->show_grass; break;
+        case CMD_TREE_DIST_LESS: v->tree_dist = MAX(v->tree_dist / 1.25f, 100.0f); break;
+        case CMD_TREE_DIST_MORE: v->tree_dist = MIN(v->tree_dist * 1.25f, 12000.0f); break;
         case CMD_NONE: break;
         }
     }
@@ -136,9 +147,12 @@ static bool viewer_render(Viewer* v)
     VkFrame* f = &vk->frames[vk->frame_index % FRAMES_IN_FLIGHT];
     VK_CHECK(vkWaitForFences(vk->device, 1, &f->fence, VK_TRUE, UINT64_MAX));
     if (f->submitted && vk->timestamps) {
-        u64 ts[2];
-        if (vkGetQueryPoolResults(vk->device, f->queries, 0, 2, sizeof(ts), ts, sizeof(u64), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS)
-            v->gpu_ms = (f32)((ts[1] - ts[0]) * vk->props.limits.timestampPeriod * 1e-6);
+        u64 ts[GPU_TIMESTAMPS];
+        if (vkGetQueryPoolResults(vk->device, f->queries, 0, GPU_TIMESTAMPS, sizeof(ts), ts, sizeof(u64), VK_QUERY_RESULT_64_BIT) == VK_SUCCESS) {
+            f64 ms = vk->props.limits.timestampPeriod * 1e-6;
+            v->gpu_ms = (f32)((ts[GPU_TIMESTAMPS - 1] - ts[0]) * ms);
+            for (u32 i = 0; i < 3; i++) v->gpu_pass_ms[i] = (f32)((ts[i + 1] - ts[i]) * ms);
+        }
     }
 
     u32 image;
@@ -169,7 +183,8 @@ static bool viewer_render(Viewer* v)
     v3 terrain_origin = v3_make((f32)-origin[0], (f32)(h->height_min - origin[1]), (f32)-origin[2]);
     fc->terrain = {terrain_origin.x, terrain_origin.z, h->spacing, terrain_origin.y};
     fc->terrain_size = {(f32)h->width, (f32)h->height, h->height_scale * 65535.0f, 0};
-    fc->height_tex = 0;
+    fc->height_tex = TEX_HEIGHT;
+    fc->mask_tex = TEX_MASK;
     fc->debug_mode = v->debug_mode;
     terrain_set_ranges(t, proj_y * vk->extent.height * 0.5f, v->target_px, fc);
 
@@ -189,13 +204,36 @@ static bool viewer_render(Viewer* v)
     terrain_select_node(t, &sel, t->levels - 1, 0, 0);
     v->node_count = sel.count;
 
+    // Vegetation.
+    Vegetation* vg = &v->veg;
+    bool trees = vg->enabled && v->show_trees, grass = vg->enabled && v->show_grass;
+    for (u32 i = 0; i < 4; i++) {
+        v3 n = v3_norm(sel.planes_n[i + 1]);
+        fc->planes[i] = {n.x, n.y, n.z, 0};
+    }
+    fc->veg = {v->tree_dist, v->grass_radius, proj_y * vk->extent.height * 0.5f, 1.0f};
+    fc->tree_lod = {400.0f, 120.0f, 30.0f, 0};
+    fc->wind = {0.8f, 0.5f, 0.6f, 0};
+    fc->veg_flags = (trees ? VEG_TREES : 0u) | (grass ? VEG_GRASS : 0u);
+    vg->chunk_count = vg->tree_candidates = 0;
+    if (trees)
+        veg_select_trees(vg, &sel, origin, c->pos, v->tree_dist, (TreeChunk*)((u8*)f->upload.mapped + CHUNKS_OFFSET));
+    if (grass) {
+        u32 n = 2 * (u32)ceilf(v->grass_radius / (f32)GRASS_TILE) + 2;
+        fc->grass_tiles = n;
+        fc->grass_tile_x = (i32)floor(c->pos[0] / GRASS_TILE) - (i32)(n / 2);
+        fc->grass_tile_z = (i32)floor(c->pos[2] / GRASS_TILE) - (i32)(n / 2);
+        vg->grass_groups_x = (n + 7) / 8;
+        vg->grass_groups_z = (n + 3) / 4;
+    }
+
     VkCommandBuffer cmd = f->cmd;
     VK_CHECK(vkResetCommandPool(vk->device, f->pool, 0));
     VkCommandBufferBeginInfo bi = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
     bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     VK_CHECK(vkBeginCommandBuffer(cmd, &bi));
     if (vk->timestamps) {
-        vkCmdResetQueryPool(cmd, f->queries, 0, 2);
+        vkCmdResetQueryPool(cmd, f->queries, 0, GPU_TIMESTAMPS);
         vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, f->queries, 0);
     }
     vk_image_barrier(cmd, vk->images[image], VK_IMAGE_ASPECT_COLOR_BIT, 0, 1,
@@ -229,17 +267,29 @@ static bool viewer_render(Viewer* v)
     vkCmdSetViewport(cmd, 0, 1, &vp);
     vkCmdSetScissor(cmd, 0, 1, &sc);
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipeline_layout, 0, 1, &vk->set, 0, NULL);
-    PushConstants pcs = {f->upload.address, f->upload.address + nodes_offset};
+    PushConstants pcs = {f->upload.address, f->upload.address + nodes_offset, vg->scene.address, f->upload.address + CHUNKS_OFFSET};
     vkCmdPushConstants(cmd, vk->pipeline_layout, VK_SHADER_STAGE_ALL, 0, sizeof(pcs), &pcs);
     if (sel.count) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, v->wireframe ? t->pipeline_wire : t->pipeline);
         vkCmdBindIndexBuffer(cmd, t->indices.buffer, 0, VK_INDEX_TYPE_UINT16);
         vkCmdDrawIndexed(cmd, t->index_count, sel.count, 0, 0, 0);
     }
+    // Per-pass timestamps inside the render pass: approximate (passes overlap in the pipeline), good for trends.
+    if (vk->timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, f->queries, 1);
+    if (trees && vg->chunk_count) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vg->pipe_trees);
+        vkCmdDrawMeshTasksEXT(cmd, vg->chunk_count, 1, 1);
+    }
+    if (vk->timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, f->queries, 2);
+    if (grass) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vg->pipe_grass);
+        vkCmdDrawMeshTasksEXT(cmd, vg->grass_groups_x, vg->grass_groups_z, 1);
+    }
+    if (vk->timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, f->queries, 3);
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, t->pipeline_sky);
     vkCmdDraw(cmd, 3, 1, 0, 0);
     vkCmdEndRendering(cmd);
-    if (vk->timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, f->queries, 1);
+    if (vk->timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, f->queries, GPU_TIMESTAMPS - 1);
 
     VkBuf readback = {};
     bool shot = v->screenshot_path && vk->swap_transfer_src;

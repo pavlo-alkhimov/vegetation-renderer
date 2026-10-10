@@ -1,0 +1,114 @@
+// Shared by all shader modules: bindings, terrain height function, camera projection, sky, fog, lighting, noise.
+#pragma once
+#include "../src/gpu_shared.h"
+
+[[vk::push_constant]] PushConstants pc;
+[[vk::binding(0, 0)]] Texture2D g_textures[];
+[[vk::binding(1, 0)]] SamplerState g_samplers[];
+
+static const float3 SUN_COLOR = float3(1.0, 0.95, 0.88) * 3.2;
+static const float3 SKY_AMBIENT = float3(0.30, 0.38, 0.52);
+
+// Ground and canopy albedos shared by terrain and vegetation, so the far field (terrain only) matches the near
+// field (blades, trees) on average.
+static const float3 MEADOW_ALBEDO = float3(0.13, 0.20, 0.06);
+static const float3 FOREST_FLOOR_ALBEDO = float3(0.075, 0.08, 0.04);
+static const float3 CANOPY_ALBEDO = float3(0.045, 0.085, 0.035);
+
+// Terrain height (relative to the render origin) at grid sample coordinates g. The same bilinear function as
+// terrain_height() on the CPU (docs/12: one height function).
+float height_at(FrameConstants f, float2 g, float lod)
+{
+    float2 uv = (g + 0.5) / f.terrain_size.xy;
+    return g_textures[f.height_tex].SampleLevel(g_samplers[0], uv, lod).x * f.terrain_size.z + f.terrain.w;
+}
+
+// Vegetation mask (r = forest, g = grass) at grid sample coordinates g; texels cover the terrain extent evenly.
+float2 mask_at(FrameConstants f, float2 g, float lod)
+{
+    float2 uv = g / (f.terrain_size.xy - 1.0);
+    return g_textures[f.mask_tex].SampleLevel(g_samplers[0], uv, lod).xy;
+}
+
+float3 sky(FrameConstants f, float3 dir)
+{
+    float up = saturate(dir.y);
+    float3 c = lerp(float3(0.62, 0.72, 0.85), float3(0.22, 0.38, 0.72), pow(up, 0.6));
+    c = lerp(c, float3(0.55, 0.55, 0.52), saturate(-dir.y * 4.0));   // below the horizon: haze
+    float s = saturate(dot(dir, f.sun_dir.xyz));
+    c += SUN_COLOR * (pow(s, 1200.0) * 8.0 + pow(s, 12.0) * 0.08);
+    return c;
+}
+
+float4 project(FrameConstants f, float3 rel)
+{
+    float3 v = rel - f.cam_pos.xyz;
+    float x = dot(v, f.cam_right.xyz), y = dot(v, f.cam_up.xyz), z = dot(v, f.cam_fwd.xyz);
+    return float4(x * f.cam_right.w, -y * f.cam_up.w, f.cam_pos.w, z);   // reversed Z: depth = near / z
+}
+
+// Sphere against the near plane and the four side planes.
+bool sphere_visible(FrameConstants f, float3 c, float r)
+{
+    float3 v = c - f.cam_pos.xyz;
+    if (dot(v, f.cam_fwd.xyz) < f.cam_pos.w - r) return false;
+    for (uint i = 0; i < 4; i++)
+        if (dot(v, f.planes[i].xyz) < -r) return false;
+    return true;
+}
+
+float3 tonemap(float3 c)
+{
+    return 1.0 - exp(-c * 0.9);
+}
+
+float3 apply_fog(FrameConstants f, float3 c, float3 rel)
+{
+    float3 to_cam = f.cam_pos.xyz - rel;
+    float dist = length(to_cam);
+    float fog = 1.0 - exp(-dist * f.sun_dir.w);
+    return lerp(c, sky(f, -to_cam / max(dist, 1e-3)), fog);
+}
+
+// Foliage and grass: wrapped diffuse, sun transmission when looking towards the sun, sky ambient. ao darkens the
+// ambient fully and the sun partly (stand-in for self-shadowing until shadow maps exist).
+float3 shade_foliage(FrameConstants f, float3 albedo, float3 n, float3 to_cam, float ao, float transmission)
+{
+    float3 l = f.sun_dir.xyz;
+    float ndl = dot(n, l);
+    float diffuse = saturate(ndl * 0.6 + 0.4);
+    float through = saturate(-ndl) * 0.35 * transmission;              // thin leaves: light through the back side
+    float back = pow(saturate(dot(-to_cam, l)), 6.0) * transmission;   // looking towards the sun
+    float sun_vis = lerp(0.3, 1.0, ao);
+    return albedo * (SUN_COLOR * (diffuse + through + back) * sun_vis + SKY_AMBIENT * (0.75 + 0.25 * n.y) * ao);
+}
+
+float hash(float2 p)
+{
+    p = frac(p * float2(0.1031, 0.1030));
+    p += dot(p, p.yx + 33.33);
+    return frac((p.x + p.y) * p.x);
+}
+
+uint hash_u32(uint x)
+{
+    x ^= x >> 16; x *= 0x7feb352du;
+    x ^= x >> 15; x *= 0x846ca68bu;
+    x ^= x >> 16;
+    return x;
+}
+
+float hash_f(uint x)
+{
+    return float(hash_u32(x) >> 8) * (1.0 / 16777216.0);
+}
+
+float value_noise(float2 p)
+{
+    float2 i = floor(p), u = frac(p);
+    u = u * u * (3.0 - 2.0 * u);
+    return lerp(lerp(hash(i), hash(i + float2(1, 0)), u.x), lerp(hash(i + float2(0, 1)), hash(i + float2(1, 1)), u.x), u.y);
+}
+
+static const float3 DEBUG_TINT[6] = { float3(1, 0.3, 0.3), float3(1, 0.7, 0.2), float3(0.9, 1, 0.3), float3(0.3, 1, 0.4),
+                                      float3(0.3, 0.8, 1), float3(0.7, 0.4, 1) };

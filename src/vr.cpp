@@ -9,8 +9,11 @@
 #include <SDL3/SDL_main.h>
 #include <SDL3/SDL_vulkan.h>
 
+#include <thread>
+
 #include "vk_functions.cpp"
 #include "vk.cpp"
 #include "terrain.cpp"
+#include "vegetation.cpp"
 #include "viewer.cpp"
 #include "platform_sdl.cpp"

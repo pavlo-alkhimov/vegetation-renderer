@@ -10,10 +10,13 @@ static const char* USAGE =
     "  --hidpi                   render at native pixel density (Retina / scaled displays; default: 1 pixel per point)\n"
     "  --validation              enable the Vulkan validation layer\n"
     "  --debug N                 start in view mode N (0 shaded, 1 LOD, 2 contours, 3 normals); --wire: wireframe\n"
+    "  --notrees, --nograss      start with trees / grass off (A/B timing)\n"
+    "  --treedist M              tree draw distance in m (default 3000); --grass M: grass radius (default 60)\n"
     "\n"
     "controls: click = capture mouse, Esc = release (again = quit), WASD move, Q/E down/up (Space = up),\n"
     "  Shift x8, Ctrl x1/8, wheel = speed, G walk/fly, 1-4 shaded/LOD/contours/normals, L wireframe,\n"
-    "  [ ] finer/coarser terrain LOD, V vsync, F12 or K screenshot, P print camera\n";
+    "  [ ] finer/coarser terrain LOD, T trees, B grass, - = tree distance, V vsync, F12 or K screenshot,\n"
+    "  P print camera\n";
 
 static ViewerCommand map_key(SDL_Scancode sc)
 {
@@ -30,6 +33,10 @@ static ViewerCommand map_key(SDL_Scancode sc)
     case SDL_SCANCODE_F12: return CMD_SCREENSHOT;
     case SDL_SCANCODE_K: return CMD_SCREENSHOT;    // laptops: F12 needs fn (macOS)
     case SDL_SCANCODE_P: return CMD_PRINT_CAMERA;
+    case SDL_SCANCODE_T: return CMD_TOGGLE_TREES;
+    case SDL_SCANCODE_B: return CMD_TOGGLE_GRASS;
+    case SDL_SCANCODE_MINUS: return CMD_TREE_DIST_LESS;
+    case SDL_SCANCODE_EQUALS: return CMD_TREE_DIST_MORE;
     default: return CMD_NONE;
     }
 }
@@ -39,8 +46,9 @@ int main(int argc, char** argv)
     const char* terrain_path = "data/cooked/terrain.vrh";
     u32 width = 1920, height = 1080, max_frames = 0;
     const char* shot_path = NULL;
-    bool validation = false, vsync = true, have_cam = false, wire = false, hidpi = false;
+    bool validation = false, vsync = true, have_cam = false, wire = false, hidpi = false, trees = true, grass = true;
     u32 debug_mode = 0;
+    f32 tree_dist = 3000.0f, grass_radius = 60.0f;
     f64 cam_args[5] = {};
 #ifdef VR_DEBUG
     validation = true;
@@ -55,6 +63,10 @@ int main(int argc, char** argv)
         else if (!strcmp(argv[i], "--validation")) validation = true;
         else if (!strcmp(argv[i], "--debug") && i + 1 < argc) debug_mode = (u32)atoi(argv[++i]);
         else if (!strcmp(argv[i], "--wire")) wire = true;
+        else if (!strcmp(argv[i], "--notrees")) trees = false;
+        else if (!strcmp(argv[i], "--nograss")) grass = false;
+        else if (!strcmp(argv[i], "--treedist") && i + 1 < argc) tree_dist = (f32)atof(argv[++i]);
+        else if (!strcmp(argv[i], "--grass") && i + 1 < argc) grass_radius = (f32)atof(argv[++i]);
         else if (argv[i][0] == '-') { fputs(USAGE, stderr); return 1; }
         else terrain_path = argv[i];
     }
@@ -95,6 +107,12 @@ int main(int argc, char** argv)
     snprintf(shader_path, sizeof(shader_path), "%sshaders/terrain.spv", SDL_GetBasePath());
     terrain_upload(&v.terrain, &v.vk);
     terrain_create_pipelines(&v.terrain, &v.vk, shader_path);
+    snprintf(shader_path, sizeof(shader_path), "%sshaders/", SDL_GetBasePath());
+    veg_init(&v.veg, &v.terrain, &v.vk, shader_path);
+    v.show_trees = trees;
+    v.show_grass = grass;
+    v.tree_dist = tree_dist;
+    v.grass_radius = grass_radius;
 
     // Camera: --cam, else 60 m above the centre of the terrain looking north.
     const TerrainFileHeader* th = &v.terrain.hdr;
@@ -120,7 +138,7 @@ int main(int argc, char** argv)
     bool captured = false, running = true;
     u64 freq = SDL_GetPerformanceFrequency(), last = SDL_GetPerformanceCounter(), title_time = last;
     u32 frames = 0, title_frames = 0;
-    f64 sum_cpu_ms = 0, sum_gpu_ms = 0, title_cpu_ms = 0;
+    f64 sum_cpu_ms = 0, sum_gpu_ms = 0, title_cpu_ms = 0, sum_pass_ms[3] = {};
     while (running) {
         ViewerInput in = {};
         SDL_Event e;
@@ -173,14 +191,20 @@ int main(int argc, char** argv)
         if (!viewer_render(&v)) v.swapchain_dirty = true;
 
         frames++;
-        if (frames > 1) { sum_cpu_ms += frame_ms; sum_gpu_ms += v.gpu_ms; }
+        if (frames > 1) {
+            sum_cpu_ms += frame_ms;
+            sum_gpu_ms += v.gpu_ms;
+            for (u32 i = 0; i < 3; i++) sum_pass_ms[i] += v.gpu_pass_ms[i];
+        }
         title_frames++;
         title_cpu_ms += frame_ms;
         if ((f64)(now - title_time) / freq > 0.25) {
             const Camera* c = &v.cam;
-            char title[256];
-            snprintf(title, sizeof(title), "vr %ux%u | %.2f ms (gpu %.2f) | %u patches %.2f Mtri | E %.0f N %.0f alt %.1f (+%.1f) | %.1f m/s %s%s",
-                     v.vk.extent.width, v.vk.extent.height, title_cpu_ms / title_frames, v.gpu_ms, v.node_count, v.node_count * TERRAIN_PATCH_QUADS * TERRAIN_PATCH_QUADS * 2 / 1e6,
+            char title[384];
+            snprintf(title, sizeof(title), "vr %ux%u | %.2f ms, gpu %.2f (terrain %.2f trees %.2f grass %.2f) | %u trees in %u chunks, dist %.0f m | "
+                     "E %.0f N %.0f alt %.1f (+%.1f) | %.1f m/s %s%s",
+                     v.vk.extent.width, v.vk.extent.height, title_cpu_ms / title_frames, v.gpu_ms, v.gpu_pass_ms[0], v.gpu_pass_ms[1], v.gpu_pass_ms[2],
+                     v.veg.tree_candidates, v.veg.chunk_count, v.tree_dist,
                      th->origin_e + c->pos[0], th->origin_n + c->pos[2], c->pos[1], c->pos[1] - terrain_height(&v.terrain, c->pos[0], c->pos[2]),
                      c->speed, c->walk ? "walk" : "fly", captured ? "" : " | click to look");
             SDL_SetWindowTitle(window, title);
@@ -193,7 +217,9 @@ int main(int argc, char** argv)
     vkDeviceWaitIdle(v.vk.device);
     if (max_frames) viewer_print_camera(&v);
     if (frames > 1)
-        printf("%u frames at %ux%u: avg %.2f ms frame, %.2f ms gpu, %u patches\n", frames, v.vk.extent.width, v.vk.extent.height, sum_cpu_ms / (frames - 1), sum_gpu_ms / (frames - 1), v.node_count);
+        printf("%u frames at %ux%u: avg %.2f ms frame, %.2f ms gpu (terrain %.2f, trees %.2f, grass %.2f), %u patches, %u tree candidates\n",
+               frames, v.vk.extent.width, v.vk.extent.height, sum_cpu_ms / (frames - 1), sum_gpu_ms / (frames - 1),
+               sum_pass_ms[0] / (frames - 1), sum_pass_ms[1] / (frames - 1), sum_pass_ms[2] / (frames - 1), v.node_count, v.veg.tree_candidates);
     // Process exit releases the rest (no per-object teardown; docs/02 lifetime rules).
     SDL_DestroyWindow(window);
     SDL_Quit();

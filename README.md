@@ -2,7 +2,7 @@
 
 Research real-time renderer for dense **temperate vegetation of Central and Eastern Europe** — meadows, steppe grass, crop fields, beech/oak/hornbeam/birch forests, spruce/fir/pine stands — targeting the best achievable image quality at **1920×1080, ≥ 30 FPS** on current consumer GPUs.
 
-**Status:** design draft v0.2 (2026-10-09, architecture review applied). The documents fix the data flow between subsystems and the mapping to hardware; per sub-problem one technique is chosen and the alternatives are recorded. First code: a reference terrain viewer (milestone M0a in [08](docs/08-validation-roadmap.md)) — see below.
+**Status:** design draft v0.2 (2026-10-09, architecture review applied). The documents fix the data flow between subsystems and the mapping to hardware; per sub-problem one technique is chosen and the alternatives are recorded. First code: a terrain viewer with a vegetation baseline — trees and grass via task/mesh shaders (milestones M0a/M0b in [08](docs/08-validation-roadmap.md)) — see below.
 
 ## Scope
 
@@ -43,9 +43,9 @@ Research real-time renderer for dense **temperate vegetation of Central and East
 | 19 | Terrain | Quadtree heightfield patches (CDLOD morphing) as procedural clusters in the same cull/raster/resolve pipeline; adaptive runtime virtual texture; one shared height function for rendering, grass and gameplay | cooked cluster DAG per cell; Nanite-style landscape | [12](docs/12-terrain.md) |
 | 20 | Coordinates | Render origin snapped to the camera's 256 m cell; all GPU world-space data relative to it, so persistent caches survive camera motion | camera-relative every frame | [02](docs/02-architecture.md) |
 
-## Terrain viewer (first code)
+## Viewer: terrain + vegetation baseline (first code)
 
-Fly or walk over real 1 m LiDAR terrain (Bavarian DGM1, [13](docs/13-reference-maps.md)). CDLOD heightfield patches (8×8 quads, morphing, [12](docs/12-terrain.md)) selected on the CPU and drawn through the vertex pipeline: an interim path until the GPU-driven visibility buffer of M1. Placeholder shading: procedural meadow/forest patches, slope soil/rock, sun + sky + aerial fog.
+Fly or walk over real 1 m LiDAR terrain (Bavarian DGM1, [13](docs/13-reference-maps.md)). CDLOD heightfield patches (8×8 quads, morphing, [12](docs/12-terrain.md)) selected on the CPU and drawn through the vertex pipeline: an interim path until the GPU-driven visibility buffer of M1. Placeholder shading: meadow/forest from a procedural vegetation mask, slope soil/rock, sun + sky + aerial fog. Vegetation baseline ([06 §5.13](docs/06-vegetation.md)): 3.3 M procedural trees of 5 species with 4 LODs as meshlets (task shader culls and picks the LOD, mesh shader outputs meshlets) and grass blades generated every frame; ~4.5 ms GPU at 1080p on the RTX 4060. Trees and grass need `VK_EXT_mesh_shader`; without it the viewer shows terrain only.
 
 Dependencies (Linux): clang, Vulkan headers + loader (`libvulkan-dev`; the loader is opened at runtime through SDL), SDL3 (`libsdl3-dev` on Debian 13 / Ubuntu 25.04+, `SDL3-devel` on Fedora, `sdl3` on Arch; on Ubuntu 24.04 build it from source and set `PKG_CONFIG_PATH`), `slangc` (LunarG Vulkan SDK ≥ 1.3.296 or a Slang release; set `SLANGC` if it is not on `PATH`).
 
@@ -63,7 +63,8 @@ build/vr                                             # or: build/vr <file.vrh> [
 | Q / E (Space) | down / up |
 | Shift / Ctrl, wheel | ×8 / ×⅛, change base speed |
 | G | walk (eye 1.75 m above ground) / fly |
-| 1–4, L | shaded, LOD levels, 10 m contours, normals; wireframe |
+| 1–4, L | shaded, LOD levels (terrain and trees), 10 m contours, normals; wireframe (terrain) |
+| T, B, - / = | trees on/off, grass on/off, tree draw distance ÷/× 1.25 (default 3 km) |
 | [ / ] | finer / coarser terrain (target triangle size in pixels) |
 | V, F12 / K, P | vsync toggle, screenshot (`shot_NNNN.ppm`), print camera as `--cam` arguments |
 
@@ -79,7 +80,7 @@ build/vr                                             # --hidpi for native Retina
 
 On the Mac the window is sized in points and rendered at 1 pixel per point unless `--hidpi` is given; the title bar shows the actual render resolution. If both KosmicKrisp and MoltenVK are installed, the conformant driver is preferred; `VK_DRIVER_FILES=<icd.json>` forces one. Missing Vulkan features are reported by name at startup. F12 needs fn on a MacBook keyboard; `K` also takes a screenshot. Not yet run on a Mac.
 
-The window title shows CPU/GPU ms, patch and triangle counts, UTM position and height above ground. `build/vr --frames N [--shot f.ppm]` runs N frames and prints average timings (deterministic camera via `--cam`). The cooker accepts any single-band GeoTIFF tiles sharing one CRS and pixel size (uncompressed/LZW/Deflate, predictors 1–3, strips or tiles); missing tiles and nodata are filled by pull-push interpolation and reported; `--step 2` halves the resolution for smaller GPUs. `build.bat` mirrors `build.sh` for Windows but is untested.
+The window title shows CPU/GPU ms (total and per pass: terrain, trees, grass), tree candidates and chunks, UTM position and height above ground. `build/vr --frames N [--shot f.ppm]` runs N frames and prints average timings (deterministic camera via `--cam`); `--notrees`, `--nograss`, `--treedist M`, `--grass M` for A/B measurements. The cooker accepts any single-band GeoTIFF tiles sharing one CRS and pixel size (uncompressed/LZW/Deflate, predictors 1–3, strips or tiles); missing tiles and nodata are filled by pull-push interpolation and reported; `--step 2` halves the resolution for smaller GPUs. `build.bat` (Windows: clang + Visual Studio, `VULKAN_SDK`, `SDL3_DIR`) mirrors `build.sh`.
 
 ## Throughput note
 

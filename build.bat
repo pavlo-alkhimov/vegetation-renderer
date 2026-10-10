@@ -12,7 +12,15 @@ if "%MODE%"=="debug" (set OPT=-g -O0 -DVR_DEBUG) else (set OPT=-g -O2)
 if "%VULKAN_SDK%"=="" (echo VULKAN_SDK not set & exit /b 1)
 if "%SDL3_DIR%"=="" (echo SDL3_DIR not set ^(SDL3-devel-*-VC.zip unpacked^) & exit /b 1)
 if not exist build\shaders mkdir build\shaders
-"%VULKAN_SDK%\Bin\slangc.exe" shaders\terrain.slang -target spirv -o build\shaders\terrain.spv || exit /b 1
+set SLANGC="%VULKAN_SDK%\Bin\slangc.exe"
+%SLANGC% shaders\terrain.slang -target spirv -o build\shaders\terrain.spv || exit /b 1
+rem Task shaders in their own modules (driver issue with task + mesh in one module, see vk.cpp PipelineDesc).
+for %%v in (trees grass) do (
+    %SLANGC% shaders\vegetation.slang -target spirv -fvk-use-entrypoint-name -entry as_%%v -stage amplification ^
+        -o build\shaders\veg_%%v_task.spv || exit /b 1
+    %SLANGC% shaders\vegetation.slang -target spirv -fvk-use-entrypoint-name -entry ms_%%v -stage mesh ^
+        -entry fs_%%v -stage fragment -o build\shaders\veg_%%v.spv || exit /b 1
+)
 clang++ %COMMON% %OPT% -I"%VULKAN_SDK%\Include" -I"%SDL3_DIR%\include" src\vr.cpp -o build\vr.exe ^
     -L"%SDL3_DIR%\lib\x64" -lSDL3 -Xlinker /subsystem:console || exit /b 1
 copy /y "%SDL3_DIR%\lib\x64\SDL3.dll" build\ >nul
