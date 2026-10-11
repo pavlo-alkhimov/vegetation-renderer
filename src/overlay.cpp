@@ -227,6 +227,7 @@ static void overlay_line(OverlayData* d, u32 line, const char* key, const char* 
 typedef struct {
     u32 cols, slot, line, col;
     u8 cells[OVERLAY_TEXT_CHARS];
+    u8 attrs[OVERLAY_TEXT_CHARS];   // per cell: 0 or 1 + DEBUG_TINT index (text on that colour)
 } KeyBar;
 
 static void keybar_begin(KeyBar* b, u32 width, u32 height)
@@ -237,23 +238,40 @@ static void keybar_begin(KeyBar* b, u32 width, u32 height)
     b->slot = b->cols / MAX(b->cols / 22u, 1u);                     // ~22 characters per slot, spread evenly
 }
 
-static void keybar_add(KeyBar* b, const char* key, const char* fmt, ...)
+static void keybar_add_v(KeyBar* b, u8 attr, const char* key, const char* fmt, va_list args)
 {
     char text[256];
-    va_list args;
-    va_start(args, fmt);
     vsnprintf(text, sizeof(text), fmt, args);
-    va_end(args);
     u32 n = (u32)(strlen(key) + 1 + strlen(text));
     u32 span = (n + 2 + b->slot - 1) / b->slot * b->slot;          // whole slots, at least 2 spaces after the text
     if (b->col > 0 && b->col + MIN(span, b->cols) > b->cols) { b->line++; b->col = 0; }
     u32 start = b->col;
     for (const char* k = key; *k; k++)
         if (b->col < b->cols && (b->line + 1) * b->cols <= OVERLAY_TEXT_CHARS) b->cells[b->line * b->cols + b->col++] = (u8)*k | 0x80;
-    b->col++;
+    if (*key) b->col++;
     for (const char* t = text; *t; t++)
-        if (b->col < b->cols && (b->line + 1) * b->cols <= OVERLAY_TEXT_CHARS) b->cells[b->line * b->cols + b->col++] = (u8)*t;
+        if (b->col < b->cols && (b->line + 1) * b->cols <= OVERLAY_TEXT_CHARS) {
+            b->attrs[b->line * b->cols + b->col] = attr;
+            b->cells[b->line * b->cols + b->col++] = (u8)*t;
+        }
     b->col = MIN(start + span, b->cols);
+}
+
+static void keybar_add(KeyBar* b, const char* key, const char* fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    keybar_add_v(b, 0, key, fmt, args);
+    va_end(args);
+}
+
+// Entry whose text stands on a debug colour (tint = DEBUG_TINT index): legends of colour-coded views.
+static void keybar_add_colored(KeyBar* b, u32 tint, const char* key, const char* fmt, ...)
+{
+    va_list args;
+    va_start(args, fmt);
+    keybar_add_v(b, (u8)(tint + 1), key, fmt, args);
+    va_end(args);
 }
 
 static u32 keybar_lines(const KeyBar* b) { return b->col > 0 ? b->line + 1 : b->line; }
@@ -265,5 +283,6 @@ static f32 keybar_end(const Overlay* o, const KeyBar* b, OverlayData* d, u32 wid
     f32 h = overlay_box_height(height, lines);
     overlay_box(o, d, width, height, 6, (f32)height - h - 6, b->cols, lines);
     memcpy(d->chars, b->cells, (size_t)lines * b->cols);
+    memcpy(d->attrs, b->attrs, (size_t)lines * b->cols);
     return h + 12;
 }

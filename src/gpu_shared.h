@@ -246,6 +246,7 @@ struct OverlayData {
     v4 grid;                        // x = text columns, y = text lines (x * y <= OVERLAY_TEXT_CHARS)
     f32 fps[OVERLAY_GRAPH_COLS];    // oldest to newest; 0 = no data
     u32 chars[OVERLAY_TEXT_CHARS / 4];  // 1 byte per cell, row-major with grid.x columns, bit 7 = highlight
+    u32 attrs[OVERLAY_TEXT_CHARS / 4];  // 1 byte per cell: 0 = none, n = background DEBUG_TINT[n - 1] (level legends)
     u32 font[OVERLAY_GLYPHS * 2];
 };
 

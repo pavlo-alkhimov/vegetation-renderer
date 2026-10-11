@@ -79,7 +79,10 @@ float4 fs_overlay(float4 pos : SV_Position) : SV_Target
     if (all(cell >= 0.0) && cell.x < grid.x && cell.y < grid.y) {
         uint i = uint(cell.y) * uint(grid.x) + uint(cell.x);
         uint ch = (pc.overlay->chars[i >> 2] >> ((i & 3u) * 8u)) & 0xffu;
-        bool highlight = (ch & 0x80u) != 0;
+        uint attr = (pc.overlay->attrs[i >> 2] >> ((i & 3u) * 8u)) & 0xffu;
+        bool highlight = (ch & 0x80u) != 0 || attr != 0;
+        float2 lc = p - t.xy - cell * t.zw;
+        if (attr != 0 && lc.y < 8.0 * s) c = float4(DEBUG_TINT[min(attr - 1u, 5u)], 1.0);   // legend: level colour behind black text
         ch &= 0x7fu;
         if (ch >= 97u && ch <= 122u) ch -= 32u;           // lowercase -> uppercase
         int2 texel = int2(floor((p - t.xy - cell * t.zw) / params.x));

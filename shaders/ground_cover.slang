@@ -540,7 +540,7 @@ SceneOut fs_gc_imp(GcImpVsOut i)
     float3 nl = normalize(s.xyz * 2.0 - 1.0);
     float3 n = float3(nl.x * cy - nl.z * sy, nl.y, nl.x * sy + nl.z * cy);
     float3 albedo = c.rgb / c.a;
-    if (f.debug_mode == DEBUG_LOD) albedo = DEBUG_TINT[3] * 0.4;
+    if (f.debug_mode == DEBUG_LOD) albedo = DEBUG_TINT[4] * 0.4;     // impostors: blue, as in the wireframe
     if (f.debug_mode == DEBUG_NORMALS) return scene_out(f, n * 0.5 + 0.5, i.pos, i.prev);
     float3 to_cam = normalize(f.cam_pos.xyz - i.rel);
     float3 col = shade_foliage(f, albedo, n, to_cam, 1.0, 0.7, sun_shadow(f, i.rel, n, i.pos.xy));

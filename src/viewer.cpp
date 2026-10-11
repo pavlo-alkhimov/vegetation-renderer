@@ -307,6 +307,19 @@ static u32 viewer_overlay(Viewer* v, OverlayData* boxes)
         keybar_add(&bar, "P", "PRINT CAMERA");
         keybar_add(&bar, "F2", "PLANT GALLERY");
     }
+    // Legend of the ground-cover levels (ranges x the distance factor) wherever they are colour-coded: world view 2 or N,
+    // gallery wireframe views. Colours as DEBUG_TINT in the shaders.
+    bool legend = g->active ? (g->mode == 3 || g->mode == 4) : (v->cover_wire || v->debug_mode == DEBUG_LOD);
+    if (legend) {
+        f32 d = v->cover_dist;
+        keybar_add(&bar, "LEVELS", "GROUND COVER (X%.2f):", d);
+        keybar_add_colored(&bar, 0, "", "MESH LOD0 0-%.1f M", GC_NEAR_DISTANCE * d);
+        keybar_add_colored(&bar, 3, "", "STRIPES %.1f-%.0f M (TALL %.0f)", GC_NEAR_DISTANCE * d, GC_MID_DISTANCE * d, 40.0f * d);
+        keybar_add_colored(&bar, 4, "", "IMPOSTORS %.1f-%.0f M", GC_MID_DISTANCE * 0.7f * d, GC_IMP_DISTANCE * d);
+        keybar_add_colored(&bar, 1, "", "LOD1 40%% CARDS (GALLERY)");
+        keybar_add_colored(&bar, 2, "", "LOD2 12%% CARDS (SHADOWS)");
+        keybar_add(&bar, "", "TERRAIN TOP VIEW EVERYWHERE, ALONE BEYOND %.0f M", GC_IMP_DISTANCE * d);
+    }
     f32 bar_px = keybar_end(o, &bar, &boxes[n++], w, h);
     if (o->visible) {
         OverlayData* d = &boxes[n++];
