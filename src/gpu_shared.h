@@ -212,6 +212,8 @@ struct FrameConstants {
     v4 gc_bake;             // ground-cover bake (load time only): xyz = habitat weights, w = tile size (0 = normal frame)
                             // w < 0: one instance of variant gc_bake_pass at the origin (view bakes, gallery)
     v4 viewport;            // xy = origin, zw = size (px) of the viewport being drawn (world: the whole screen)
+    v4 gallery_blend;       // gallery: fraction of pixels kept per representation (x mesh, y stripe, z impostor);
+                            // (1, 1, 1) except in the BLEND layout
     u32 height_tex;         // bindless index
     u32 debug_mode;         // DEBUG_*
     u32 mask_tex;           // bindless index
@@ -227,7 +229,8 @@ struct FrameConstants {
     i32 gc_imp_cell_z;
     u32 gc_imp_cells;       // mid-field grid side in cells (0 = mid field off)
     u32 gallery;            // 1: gallery cell (single element at the origin, forced representation)
-    u32 gallery_rep;        // ground cover: 0-2 mesh LOD, 3 stripe, 4 impostor; trees: LOD 0-3
+    u32 gallery_rep;        // ground cover: 0-2 mesh LOD, 3 stripe, 4 impostor, 5 blend (mesh + stripe + impostor);
+                            // trees: LOD 0-3
 };
 
 // Overlay (top right): FPS, FPS graph, key list. One quad; text and graph are evaluated in the fragment shader.

@@ -14,7 +14,8 @@ static const char* USAGE =
     "  --notrees, --nocover      start with trees / ground cover off (A/B timing);\n"
     "                            --notaa: no temporal anti-aliasing; --noshadows: no sun shadows\n"
     "  --cover FILE              cooked ground cover (default data/cooked/ground_cover.vgc, see cook_ground_cover)\n"
-    "  --gallery MODE            start in the plant gallery, view MODE 1-8; --galleryrep R (0-4), --galleryrows N, --galleryrow N\n"
+    "  --gallery MODE            start in the plant gallery, view MODE 1-8; --galleryrep R (0-4), --galleryrows N, --galleryrow N,\n"
+    "                            --gallerylayout L (0 grid, 1 levels, 2 blend), --gallerydist M (blend distance)\n"
     "  --treedist M              tree draw distance in m (default 3000); --coverdist F: ground-cover distance factor (default 1)\n"
     "\n"
     "controls: click = capture mouse, Esc = release (again = quit), WASD move, Q/E down/up (Space = up),\n"
@@ -54,6 +55,7 @@ static ViewerCommand map_key(SDL_Scancode sc)
     case SDL_SCANCODE_LEFT: return CMD_GALLERY_LEFT;
     case SDL_SCANCODE_RIGHT: return CMD_GALLERY_RIGHT;
     case SDL_SCANCODE_R: return CMD_GALLERY_REP;
+    case SDL_SCANCODE_TAB: return CMD_GALLERY_LAYOUT;
     case SDL_SCANCODE_N: return CMD_TOGGLE_COVER_WIRE;
     case SDL_SCANCODE_J: return CMD_TOGGLE_TAA;
     case SDL_SCANCODE_O: return CMD_TOGGLE_SHADOWS;
@@ -79,7 +81,8 @@ int main(int argc, char** argv)
     bool validation = false, vsync = true, have_cam = false, wire = false, cover_wire = false, hidpi = false, trees = true, cover = true, taa = true, shadows = true;
     u32 debug_mode = 0;
     i32 stance = -1;
-    i32 gallery_mode = 0, gallery_rep = 0, gallery_rows = 3, gallery_row = 0;
+    i32 gallery_mode = 0, gallery_rep = 0, gallery_rows = 3, gallery_row = 0, gallery_layout = 0;
+    f32 gallery_dist = 3.0f;
     f32 tree_dist = 3000.0f, cover_dist = 1.0f;
     f64 cam_args[5] = {};
 #ifdef VR_DEBUG
@@ -100,6 +103,8 @@ int main(int argc, char** argv)
         else if (!strcmp(argv[i], "--galleryrep") && i + 1 < argc) { int r = atoi(argv[++i]); gallery_rep = CLAMP(r, 0, 4); }
         else if (!strcmp(argv[i], "--galleryrows") && i + 1 < argc) { int r = atoi(argv[++i]); gallery_rows = CLAMP(r, 1, 6); }
         else if (!strcmp(argv[i], "--galleryrow") && i + 1 < argc) gallery_row = atoi(argv[++i]);
+        else if (!strcmp(argv[i], "--gallerylayout") && i + 1 < argc) { int l = atoi(argv[++i]); gallery_layout = CLAMP(l, 0, 2); }
+        else if (!strcmp(argv[i], "--gallerydist") && i + 1 < argc) gallery_dist = (f32)atof(argv[++i]);
         else if (!strcmp(argv[i], "--notrees")) trees = false;
         else if (!strcmp(argv[i], "--nocover")) cover = false;
         else if (!strcmp(argv[i], "--notaa")) taa = false;
@@ -160,6 +165,8 @@ int main(int argc, char** argv)
     v.taa = taa;
     overlay_init(&v.overlay, &v.vk, shader_path);
     v.gallery.row = gallery_row;
+    v.gallery.layout = (u32)gallery_layout;
+    v.gallery.blend_dist = CLAMP(gallery_dist, 0.5f, 200.0f);
     if (gallery_mode) { v.gallery.mode = (u32)gallery_mode; gallery_toggle(&v); }
     v.show_trees = trees;
     v.show_cover = cover;

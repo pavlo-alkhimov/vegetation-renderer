@@ -17,7 +17,7 @@ typedef enum {
     CMD_TOGGLE_TAA, CMD_TOGGLE_SHADOWS,
     CMD_KEY_5, CMD_KEY_6, CMD_KEY_7, CMD_KEY_8,
     CMD_GALLERY, CMD_GALLERY_ROWS_LESS, CMD_GALLERY_ROWS_MORE, CMD_GALLERY_UP, CMD_GALLERY_DOWN, CMD_GALLERY_HOME,
-    CMD_GALLERY_END, CMD_GALLERY_PAUSE, CMD_GALLERY_LEFT, CMD_GALLERY_RIGHT, CMD_GALLERY_REP,
+    CMD_GALLERY_END, CMD_GALLERY_PAUSE, CMD_GALLERY_LEFT, CMD_GALLERY_RIGHT, CMD_GALLERY_REP, CMD_GALLERY_LAYOUT,
 } ViewerCommand;
 
 typedef struct {
@@ -129,6 +129,9 @@ static void gallery_update(Viewer* v, const ViewerInput* in, f32 dt)
         case CMD_GALLERY_LEFT: g->angle -= 0.2618f; break;
         case CMD_GALLERY_RIGHT: g->angle += 0.2618f; break;
         case CMD_GALLERY_REP: g->rep = (g->rep + 1) % 5; break;
+        case CMD_GALLERY_LAYOUT: g->layout = (g->layout + 1) % GL_COUNT; break;
+        case CMD_LOD_FINER: g->blend_dist = MAX(g->blend_dist / 1.1f, 0.5f); break;
+        case CMD_LOD_COARSER: g->blend_dist = MIN(g->blend_dist * 1.1f, 200.0f); break;
         case CMD_DEBUG_SHADED: g->mode = 1; break;
         case CMD_DEBUG_LOD: g->mode = 2; break;
         case CMD_DEBUG_CONTOUR: g->mode = 3; break;
@@ -272,7 +275,9 @@ static u32 viewer_overlay(Viewer* v, OverlayData* boxes)
         keybar_add(&bar, "UP/DOWN WHEEL", "SCROLL (ROW %d/%u)", g->row + 1, pages_rows);
         keybar_add(&bar, "HOME/END", "FIRST/LAST");
         keybar_add(&bar, "1-8", "VIEW %s", GALLERY_MODE_NAMES[g->mode]);
-        keybar_add(&bar, "R", "REPRESENTATION %s", GALLERY_REP_NAMES[g->rep]);
+        keybar_add(&bar, "TAB", "LAYOUT %s", GALLERY_LAYOUT_NAMES[g->layout]);
+        if (g->layout == GL_GRID) keybar_add(&bar, "R", "REPRESENTATION %s", GALLERY_REP_NAMES[g->rep]);
+        if (g->layout == GL_BLEND) keybar_add(&bar, "[/]", "DISTANCE %.2f M", g->blend_dist);
         keybar_add(&bar, "SPACE", "ROTATION %s", g->paused ? "PAUSED" : "ON");
         keybar_add(&bar, "LEFT/RIGHT", "TURN");
         keybar_add(&bar, "J", "TAA %s", on[v->taa]);
@@ -332,17 +337,21 @@ static u32 viewer_overlay(Viewer* v, OverlayData* boxes)
         overlay_line(d, 11, NULL, "FPS, TOP %.0f, LINES 30/60", d->params.y);
     }
     if (g->active) {
+        g->cover_dist = v->cover_dist;
+        g->world_px = h * 0.5f / tanf(CAMERA_FOV_Y * 0.5f);
         gallery_layout(g, w, h, bar_px);
         f32 s = overlay_texel(h);
         u32 cols = MIN((u32)((g->cell_px - 8 * s) / (6 * s)), 60u);
         for (u32 k = 0; k < g->cells && n < OVERLAY_MAX_BOXES; k++) {
             GalleryElement el;
-            gallery_element(g, &v->cover, &v->veg, (u32)g->row * g->cols + k, &el);
+            u32 e, rep;
+            if (!gallery_item(g, k, &e, &rep)) continue;
+            gallery_element(g, &v->cover, &v->veg, e, rep, &el);
             OverlayData* d = &boxes[n++];
             f32 x = (f32)(g->x0 + (k % g->cols) * g->cell_px) + 4, y = (f32)(g->y0 + (k / g->cols + 1) * g->cell_px) - overlay_box_height(h, 2) - 4;
             overlay_box(o, d, w, h, x, y, cols, 2);
             overlay_line(d, 0, NULL, "%s", el.name);
-            overlay_line(d, 1, NULL, "%s", el.rep);
+            overlay_line(d, 1, NULL, "%s", el.rep_text);
         }
     }
     return n;
@@ -560,7 +569,9 @@ static bool viewer_render(Viewer* v)
         u32 var = gallery_variant(gal->mode);
         for (u32 k = 0; k < gal->cells; k++) {
             GalleryElement el;
-            gallery_element(gal, &v->cover, vg, (u32)gal->row * gal->cols + k, &el);
+            u32 e, rep;
+            if (!gallery_item(gal, k, &e, &rep)) continue;
+            gallery_element(gal, &v->cover, vg, e, rep, &el);
             gallery_cell(gal, &el, k, fc, (u8*)f->upload.mapped, jx_px, jy_px, v->time);
             VkDeviceAddress slot = f->upload.address + UPLOAD_NODES_OFFSET + (VkDeviceSize)k * GALLERY_CELL_STRIDE;
             const FrameConstants* cf = (const FrameConstants*)((u8*)f->upload.mapped + UPLOAD_NODES_OFFSET + (size_t)k * GALLERY_CELL_STRIDE);
@@ -578,9 +589,13 @@ static bool viewer_render(Viewer* v)
                 vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, gal->stage);
                 vkCmdDraw(cmd, 6, 1, 0, 0);
             }
-            VkPipeline p = el.tree ? gal->trees[var] : gal->rep == 4 ? gal->imp[var] : gal->gc[var];
-            if (p) {
-                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, p);
+            // Ground cover: meshes / stripes through the gc pipeline, impostors through their own; BLEND (rep 5) draws both.
+            VkPipeline p0 = el.tree ? gal->trees[var] : rep == 4 ? VK_NULL_HANDLE : gal->gc[var];
+            VkPipeline p1 = !el.tree && (rep == 4 || rep == 5) ? gal->imp[var] : VK_NULL_HANDLE;
+            VkPipeline ps[2] = {p0, p1};
+            for (u32 q = 0; q < 2; q++) {
+                if (!ps[q]) continue;
+                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, ps[q]);
                 vkCmdDrawMeshTasksEXT(cmd, 1, 1, 1);
             }
         }

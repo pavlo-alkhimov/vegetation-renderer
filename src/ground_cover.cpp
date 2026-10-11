@@ -42,6 +42,7 @@ typedef struct {
     char names[GC_MAX_VARIANTS][GC_NAME];
     u32 tris[GC_MAX_VARIANTS][GC_LODS], meshlets[GC_MAX_VARIANTS][GC_LODS];
     f32 heights[GC_MAX_VARIANTS], radii[GC_MAX_VARIANTS], bounds[GC_MAX_VARIANTS];
+    f32 reach[GC_MAX_VARIANTS];     // the variant's species reach (m, x distance factor = end of its mid range)
     u32 imp_cells;                  // per frame: mid-field dispatch side
     // Per frame
     u32 cells;                      // dispatch grid side
@@ -507,6 +508,7 @@ static void gc_init(GroundCover* p, Vk* vk, const char* path, const char* shader
         vk_bind_texture(vk, ps->surface_tex, p->tex[s][1].view);
     }
 
+    for (u32 v = 0; v < h->variant_count && v < GC_MAX_VARIANTS; v++) p->reach[v] = species[variants[v].species].shape.z;
     if (grass_weight > 0) {
         p->grass_color = v3_scale(grass_sum, 1.0f / grass_weight);
         printf("ground cover: meadow grass albedo %.3f %.3f %.3f\n", p->grass_color.x, p->grass_color.y, p->grass_color.z);

@@ -103,11 +103,12 @@ void as_gc(uint tid : SV_GroupThreadID, uint3 gid : SV_GroupID)
         }
     }
     if (imp_bake && all(gid == 0) && tid == 0) {                      // view bake / gallery: one instance at the origin
-        uint rep = f.gallery != 0 ? f.gallery_rep : 0u;                  // mesh LOD 0-2, 3 stripe (4: impostor pipeline)
+        uint rep = f.gallery != 0 ? f.gallery_rep : 0u;                  // mesh LOD 0-2, 3 stripe, 5 both (4: impostor pipeline)
+        uint lod = rep < 3u ? rep : 0u;
         s_gc.pos[0] = float4(0, 0, 0, 1);
-        s_gc.info[0] = f.gc_bake_pass | min(rep, 2u) << 8 | 128u << 24;
-        if (rep == 3u) { s_gc.stripe_slot[0] = 0; s_gc.stripe_count = 1; }
-        else if (rep < 3u) meshlets = ps.variants[f.gc_bake_pass].meshlet_count[rep];
+        s_gc.info[0] = f.gc_bake_pass | lod << 8 | 128u << 24;
+        if (rep == 3u || rep == 5u) { s_gc.stripe_slot[0] = 0; s_gc.stripe_count = 1; }
+        if (rep < 3u || rep == 5u) meshlets = ps.variants[f.gc_bake_pass].meshlet_count[lod];
     }
     s_gc.count[tid] = meshlets;
     GroupMemoryBarrierWithGroupSync();
@@ -318,6 +319,7 @@ SceneOut fs_gc(GcVsOut i, bool front : SV_IsFrontFace)
     float3 albedo, nm, n;
     float ao;
     bool covered = gc_surface(i, front, albedo, nm, n, ao);
+    if (gallery_dropped(f, i.pos.xy, is_stripe(i) ? f.gallery_blend.y : f.gallery_blend.x, is_stripe(i) ? 2u : 1u)) discard;
     if (f.debug_mode == DEBUG_OVERDRAW) return overdraw_out();
     if (f.debug_mode == DEBUG_ALPHA) return scene_out(f, covered ? float3(1, 1, 1) : float3(0.05, 0.05, 0.05), i.pos, i.prev);
     if (!covered) discard;
@@ -398,7 +400,7 @@ void as_gc_imp(uint tid : SV_GroupThreadID, uint3 gid : SV_GroupID)
     if (tid == 0) s_imp.count = 0;
     GroupMemoryBarrierWithGroupSync();
     if (f.gc_bake.w < 0.0) {                                            // gallery: one impostor at the origin
-        if (f.gallery != 0 && f.gallery_rep == 4u && all(gid == 0) && tid == 0) {
+        if (f.gallery != 0 && (f.gallery_rep == 4u || f.gallery_rep == 5u) && all(gid == 0) && tid == 0) {
             s_imp.pos[0] = float4(0, 0, 0, 1);
             s_imp.widen[0] = 1.0;
             s_imp.info[0] = f.gc_bake_pass | 128u << 24;
@@ -529,6 +531,7 @@ SceneOut fs_gc_imp(GcImpVsOut i)
     float2 g = float2(GC_IMP_FRAME - 1.0, GC_IMP_FRAME - 1.0) / GC_IMP_ATLAS;
     SamplerState smp = g_samplers[SAMPLER_LINEAR_CLAMP];
     float4 c = g_textures[TEX_IMPOSTOR].SampleGrad(smp, auv, ddx(i.uv) * g, ddy(i.uv) * g);
+    if (gallery_dropped(f, i.pos.xy, f.gallery_blend.z, 3u)) discard;
     if (f.debug_mode == DEBUG_OVERDRAW) return overdraw_out();
     if (f.debug_mode == DEBUG_ALPHA) return scene_out(f, c.a >= 0.5 ? float3(1, 1, 1) : float3(0.05, 0.05, 0.05), i.pos, i.prev);
     if (c.a < 0.5) discard;

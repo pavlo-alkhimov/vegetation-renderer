@@ -83,6 +83,14 @@ SceneOut scene_out(FrameConstants f, float3 c, float4 pos, float4 prev)
     return o;
 }
 
+// Gallery BLEND layout: drop the fragment unless it is among the keep fraction of pixels for this representation (salt);
+// the pattern changes every frame, so TAA turns it into a cross-fade.
+bool gallery_dropped(FrameConstants f, float2 pixel, float keep, uint salt)
+{
+    if (f.gallery == 0 || keep >= 1.0) return false;
+    return hash(pixel + float2(float(salt) * 17.31, frac(f.cam_fwd.w * 7.13) * 91.7)) >= keep;
+}
+
 // DEBUG_OVERDRAW: a constant per rasterized fragment, accumulated by additive blending (alpha 0, premultiplied blend).
 SceneOut overdraw_out()
 {
