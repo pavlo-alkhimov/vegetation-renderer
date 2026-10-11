@@ -49,10 +49,12 @@ float4 fs_overlay(float4 pos : SV_Position) : SV_Target
         ch &= 0x7fu;
         if (ch >= 97u && ch <= 122u) ch -= 32u;           // lowercase -> uppercase
         int2 texel = int2(floor((p - t.xy - cell * t.zw) / params.x));
+        // Highlighted cells (keys): black glyphs on a yellow block; adjacent cells join into one block.
+        if (highlight && texel.y >= 0 && texel.y < 8) c = float4(1.0, 0.65, 0.15, 1.0);
         if (ch > 32u && all(texel >= 0) && texel.x < 5 && texel.y < 7) {
             uint bit = uint(texel.y * 5 + texel.x);
             if (((pc.overlay->font[(ch - 32u) * 2u + (bit >> 5)] >> (bit & 31u)) & 1u) != 0)
-                c = float4(highlight ? float3(1.0, 0.65, 0.15) : float3(0.85, 0.85, 0.85), 1.0);
+                c = float4(highlight ? float3(0.0, 0.0, 0.0) : float3(0.85, 0.85, 0.85), 1.0);
         }
     }
     return float4(c.rgb * c.a, c.a);

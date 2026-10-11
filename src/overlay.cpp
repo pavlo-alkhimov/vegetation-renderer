@@ -1,8 +1,8 @@
-// Overlay, top right: current FPS, FPS graph of the last 5 s, key list. The CPU fills an OverlayData block in the
-// per-frame upload buffer; one blended quad draws it (shaders/overlay.slang).
+// Overlay: performance panel (FPS, GPU time, FPS graph with a logarithmic time axis), key bar along the bottom, gallery
+// labels. The CPU fills OverlayData blocks in the per-frame upload buffer; one blended quad per box draws them
+// (shaders/overlay.slang).
 
 #define OVERLAY_OFFSET  ((CHUNKS_OFFSET + MAX_TREE_CHUNKS * sizeof(TreeChunk) + 255) & ~(size_t)255)
-#define OVERLAY_HISTORY 32768       // frame times; covers OVERLAY_SECONDS down to ~1.8 ms frames
 #define OVERLAY_SECONDS 60.0f       // history shown by the graph (logarithmic time axis)
 #define GRAPH_A 0.05f               // s: time scale of the first columns
 #define GRAPH_B 7.09f               // GRAPH_A * (exp(GRAPH_B) - 1) = OVERLAY_SECONDS
@@ -14,8 +14,9 @@ static f32 overlay_graph_col(f32 t) { return logf(t / GRAPH_A + 1.0f) * OVERLAY_
 static_assert(OVERLAY_OFFSET + OVERLAY_MAX_BOXES * sizeof(OverlayData) <= UPLOAD_BYTES, "upload buffer too small");
 
 typedef struct {
-    f32 dt[OVERLAY_HISTORY];        // ring of frame times (s); newest at head - 1
-    u32 head, count;
+    // The graph's own columns are the only stored history: column c (0 = newest) holds the frames (fractional) and the
+    // frame time that fall into its age range [overlay_graph_time(c), overlay_graph_time(c + 1)).
+    f32 col_frames[OVERLAY_GRAPH_COLS], col_time[OVERLAY_GRAPH_COLS];
     f32 fps;                        // shown value, averaged over the last 0.5 s
     f32 fps_timer;                  // s since the shown value was updated
     u32 font[OVERLAY_GLYPHS * 2];
@@ -99,20 +100,42 @@ static void overlay_init(Overlay* o, Vk* vk, const char* shader_dir)
 // Call once per frame with the real (unclamped) frame time.
 static void overlay_frame(Overlay* o, f32 dt)
 {
-    o->dt[o->head] = dt;
-    o->head = (o->head + 1) % OVERLAY_HISTORY;
-    o->count = MIN(o->count + 1, (u32)OVERLAY_HISTORY);
+    // Age every column's content by dt: its range shifts to [t(c) + dt, t(c + 1) + dt) and is spread, assuming even
+    // density, over the columns it now overlaps. Columns widen with age, so content merges (compresses) as it moves left;
+    // beyond OVERLAY_SECONDS it drops out. The new frame then fills [0, dt).
+    const u32 N = OVERLAY_GRAPH_COLS;
+    static f32 t[OVERLAY_GRAPH_COLS + 1];
+    if (t[N] == 0) for (u32 c = 0; c <= N; c++) t[c] = overlay_graph_time((f32)c);
+    if (dt <= 0) return;
+    f32 nf[OVERLAY_GRAPH_COLS] = {}, nt[OVERLAY_GRAPH_COLS] = {};
+    u32 k0 = 0;
+    for (u32 c = 0; c < N; c++) {
+        if (o->col_time[c] <= 0) continue;
+        f32 a = t[c] + dt, b = t[c + 1] + dt, w = t[c + 1] - t[c];
+        while (k0 < N && t[k0 + 1] <= a) k0++;
+        for (u32 k = k0; k < N && t[k] < b; k++) {
+            f32 share = (MIN(b, t[k + 1]) - MAX(a, t[k])) / w;
+            if (share <= 0) continue;
+            nf[k] += o->col_frames[c] * share;
+            nt[k] += o->col_time[c] * share;
+        }
+    }
+    for (u32 k = 0; k < N && t[k] < dt; k++) {
+        f32 part = MIN(dt, t[k + 1]) - t[k];
+        nf[k] += part / dt;
+        nt[k] += part;
+    }
+    memcpy(o->col_frames, nf, sizeof(nf));
+    memcpy(o->col_time, nt, sizeof(nt));
     // Shown FPS: frames / time over the last 0.5 s, refreshed 4x per second so the digits stay readable.
     o->fps_timer += dt;
     if (o->fps_timer >= 0.25f || o->fps == 0) {
         o->fps_timer = 0;
-        f32 t = 0;
-        u32 n = 0;
-        for (; n < o->count && t < 0.5f; n++) t += o->dt[(o->head + OVERLAY_HISTORY - 1 - n) % OVERLAY_HISTORY];
-        o->fps = t > 0 ? n / t : 0;
+        f32 fr = 0, tm = 0;
+        for (u32 k = 0; k < N && t[k] < 0.5f; k++) { fr += o->col_frames[k]; tm += o->col_time[k]; }
+        o->fps = tm > 0 ? fr / tm : 0;
     }
 }
-
 static f32 overlay_texel(u32 height) { return (f32)MAX(1u, (height + 360) / 720); }   // font texel: 2 px at 1080p
 
 // Pixel height of a box with `lines` text lines.
@@ -159,35 +182,23 @@ static void overlay_begin(const Overlay* o, OverlayData* d, u32 width, u32 heigh
     overlay_box(o, d, width, height, (f32)width - w - 10, 10, OVERLAY_PANEL_COLS, 12);
     d->graph = {d->text.x, d->text.y + 2 * ch + 2 * s, OVERLAY_PANEL_COLS * cw - s, 8 * ch - 5 * s};
 
-    // Graph with a logarithmic time axis: column c (0 = newest, at the right) starts GRAPH_A * (exp(GRAPH_B * c / N) - 1)
-    // seconds ago, so the right edge is real time and towards the left ever more history is compressed into a column
-    // (up to OVERLAY_SECONDS). Value = frames / time inside the column's window (at least 0.1 s: single frame times are
-    // useless under vsync, the loop blocks in bursts), frames counted fractionally by overlap; a hitch shows as a dip.
+    // Display: column c shows frames / time of its own content, widened towards older columns to at least 0.1 s (single
+    // frames are useless under vsync, the loop blocks in bursts); a hitch still shows as a dip.
     const u32 N = OVERLAY_GRAPH_COLS;
-    f32 frames[OVERLAY_GRAPH_COLS] = {}, covered[OVERLAY_GRAPH_COLS] = {}, t0[OVERLAY_GRAPH_COLS + 1];
-    for (u32 c = 0; c <= N; c++) t0[c] = overlay_graph_time((f32)c);
-    f32 back = 0;                                        // s before now at the frame's end
-    u32 c_first = 0;                                     // first column a frame can still overlap (frames get older)
-    for (u32 n = 0; n < o->count && back < OVERLAY_SECONDS; n++) {
-        f32 dt = o->dt[(o->head + OVERLAY_HISTORY - 1 - n) % OVERLAY_HISTORY];
-        if (dt <= 0) continue;
-        while (c_first < N && t0[c_first] + MAX(t0[c_first + 1] - t0[c_first], 0.1f) <= back) c_first++;
-        for (u32 c = c_first; c < N && t0[c] < back + dt; c++) {
-            f32 w0 = t0[c], w1 = t0[c] + MAX(t0[c + 1] - t0[c], 0.1f);
-            f32 overlap = MIN(back + dt, w1) - MAX(back, w0);
-            if (overlap <= 0) continue;
-            frames[c] += overlap / dt;
-            covered[c] += overlap;
-        }
-        back += dt;
-    }
     f32 fps_max = 0;
     for (u32 c = 0; c < N; c++) {
-        f32 width = MAX(t0[c + 1] - t0[c], 0.1f);
-        f32 fps = covered[c] > width * 0.5f ? frames[c] / covered[c] : 0;
+        f32 fr = 0, tm = 0, start = overlay_graph_time((f32)c);
+        for (u32 k = c; k < N; k++) {
+            fr += o->col_frames[k];
+            tm += o->col_time[k];
+            if (overlay_graph_time((f32)(k + 1)) - start >= 0.1f) break;
+        }
+        f32 width = MAX(overlay_graph_time((f32)(c + 1)) - start, 0.1f);
+        f32 fps = tm > width * 0.5f ? fr / tm : 0;
         d->fps[N - 1 - c] = fps;
         fps_max = MAX(fps_max, fps);
-    }    f32 scale = 75;                                      // 75, 150, 300, ...: the 60 FPS line stays inside
+    }
+    f32 scale = 75;                                      // 75, 150, 300, ...: the 60 FPS line stays inside
     while (scale < fps_max * 1.05f && scale < 7680) scale *= 2;
     d->params = {s, scale, 30, 60};
 }
@@ -211,9 +222,10 @@ static void overlay_line(OverlayData* d, u32 line, const char* key, const char* 
     for (const char* t = buf; *t && col < cols; t++) row[col++] = (u8)*t;
 }
 
-// Key bar at the bottom of the screen: "key text" entries flowing over as many lines as needed.
+// Key bar at the bottom of the screen: "key text" entries on a grid of equal slots (entries line up in columns; a long
+// one takes several slots), over as many lines as needed.
 typedef struct {
-    u32 cols, line, col;
+    u32 cols, slot, line, col;
     u8 cells[OVERLAY_TEXT_CHARS];
 } KeyBar;
 
@@ -222,6 +234,7 @@ static void keybar_begin(KeyBar* b, u32 width, u32 height)
     memset(b, 0, sizeof(*b));
     f32 s = overlay_texel(height);
     b->cols = MIN((u32)((width - 12 - 8 * s) / (6 * s)), 400u);
+    b->slot = b->cols / MAX(b->cols / 22u, 1u);                     // ~22 characters per slot, spread evenly
 }
 
 static void keybar_add(KeyBar* b, const char* key, const char* fmt, ...)
@@ -232,13 +245,15 @@ static void keybar_add(KeyBar* b, const char* key, const char* fmt, ...)
     vsnprintf(text, sizeof(text), fmt, args);
     va_end(args);
     u32 n = (u32)(strlen(key) + 1 + strlen(text));
-    if (b->col > 0 && b->col + 3 + n > b->cols) { b->line++; b->col = 0; }
-    else if (b->col > 0) b->col += 3;
+    u32 span = (n + 2 + b->slot - 1) / b->slot * b->slot;          // whole slots, at least 2 spaces after the text
+    if (b->col > 0 && b->col + MIN(span, b->cols) > b->cols) { b->line++; b->col = 0; }
+    u32 start = b->col;
     for (const char* k = key; *k; k++)
         if (b->col < b->cols && (b->line + 1) * b->cols <= OVERLAY_TEXT_CHARS) b->cells[b->line * b->cols + b->col++] = (u8)*k | 0x80;
     b->col++;
     for (const char* t = text; *t; t++)
         if (b->col < b->cols && (b->line + 1) * b->cols <= OVERLAY_TEXT_CHARS) b->cells[b->line * b->cols + b->col++] = (u8)*t;
+    b->col = MIN(start + span, b->cols);
 }
 
 static u32 keybar_lines(const KeyBar* b) { return b->col > 0 ? b->line + 1 : b->line; }
