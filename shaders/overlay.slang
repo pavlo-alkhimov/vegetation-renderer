@@ -1,4 +1,5 @@
-// Overlay quad (src/overlay.cpp): panel background, FPS graph, 5 x 7 bitmap text. Output is premultiplied alpha.
+// Overlay box (src/overlay.cpp): background, optional FPS graph, 5 x 7 bitmap text with its own column / line count.
+// One draw per box. Output is premultiplied alpha.
 #include "common.slang"
 
 static const float2 QUAD[6] = { float2(0, 0), float2(1, 0), float2(0, 1), float2(0, 1), float2(1, 0), float2(1, 1) };
@@ -40,8 +41,9 @@ float4 fs_overlay(float4 pos : SV_Position) : SV_Target
 
     float4 t = pc.overlay->text;
     float2 cell = floor((p - t.xy) / t.zw);
-    if (all(cell >= 0.0) && cell.x < OVERLAY_TEXT_COLS && cell.y < OVERLAY_TEXT_LINES) {
-        uint i = uint(cell.y) * OVERLAY_TEXT_COLS + uint(cell.x);
+    float2 grid = pc.overlay->grid.xy;
+    if (all(cell >= 0.0) && cell.x < grid.x && cell.y < grid.y) {
+        uint i = uint(cell.y) * uint(grid.x) + uint(cell.x);
         uint ch = (pc.overlay->chars[i >> 2] >> ((i & 3u) * 8u)) & 0xffu;
         bool highlight = (ch & 0x80u) != 0;
         ch &= 0x7fu;

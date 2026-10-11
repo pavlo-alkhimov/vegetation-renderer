@@ -14,6 +14,7 @@ static const char* USAGE =
     "  --notrees, --nocover      start with trees / ground cover off (A/B timing);\n"
     "                            --notaa: no temporal anti-aliasing; --noshadows: no sun shadows\n"
     "  --cover FILE              cooked ground cover (default data/cooked/ground_cover.vgc, see cook_ground_cover)\n"
+    "  --gallery MODE            start in the plant gallery, view MODE 1-8; --galleryrep R (0-4), --galleryrows N, --galleryrow N\n"
     "  --treedist M              tree draw distance in m (default 3000); --coverdist F: ground-cover distance factor (default 1)\n"
     "\n"
     "controls: click = capture mouse, Esc = release (again = quit), WASD move, Q/E down/up (Space = up),\n"
@@ -38,6 +39,21 @@ static ViewerCommand map_key(SDL_Scancode sc)
     case SDL_SCANCODE_P: return CMD_PRINT_CAMERA;
     case SDL_SCANCODE_T: return CMD_TOGGLE_TREES;
     case SDL_SCANCODE_B: return CMD_TOGGLE_COVER;
+    case SDL_SCANCODE_5: return CMD_KEY_5;
+    case SDL_SCANCODE_6: return CMD_KEY_6;
+    case SDL_SCANCODE_7: return CMD_KEY_7;
+    case SDL_SCANCODE_8: return CMD_KEY_8;
+    case SDL_SCANCODE_F2: return CMD_GALLERY;
+    case SDL_SCANCODE_PAGEUP: return CMD_GALLERY_ROWS_LESS;
+    case SDL_SCANCODE_PAGEDOWN: return CMD_GALLERY_ROWS_MORE;
+    case SDL_SCANCODE_UP: return CMD_GALLERY_UP;
+    case SDL_SCANCODE_DOWN: return CMD_GALLERY_DOWN;
+    case SDL_SCANCODE_HOME: return CMD_GALLERY_HOME;
+    case SDL_SCANCODE_END: return CMD_GALLERY_END;
+    case SDL_SCANCODE_SPACE: return CMD_GALLERY_PAUSE;
+    case SDL_SCANCODE_LEFT: return CMD_GALLERY_LEFT;
+    case SDL_SCANCODE_RIGHT: return CMD_GALLERY_RIGHT;
+    case SDL_SCANCODE_R: return CMD_GALLERY_REP;
     case SDL_SCANCODE_N: return CMD_TOGGLE_COVER_WIRE;
     case SDL_SCANCODE_J: return CMD_TOGGLE_TAA;
     case SDL_SCANCODE_O: return CMD_TOGGLE_SHADOWS;
@@ -63,6 +79,7 @@ int main(int argc, char** argv)
     bool validation = false, vsync = true, have_cam = false, wire = false, cover_wire = false, hidpi = false, trees = true, cover = true, taa = true, shadows = true;
     u32 debug_mode = 0;
     i32 stance = -1;
+    i32 gallery_mode = 0, gallery_rep = 0, gallery_rows = 3, gallery_row = 0;
     f32 tree_dist = 3000.0f, cover_dist = 1.0f;
     f64 cam_args[5] = {};
 #ifdef VR_DEBUG
@@ -79,6 +96,10 @@ int main(int argc, char** argv)
         else if (!strcmp(argv[i], "--debug") && i + 1 < argc) debug_mode = (u32)atoi(argv[++i]);
         else if (!strcmp(argv[i], "--wire")) wire = true;
         else if (!strcmp(argv[i], "--coverwire")) cover_wire = true;
+        else if (!strcmp(argv[i], "--gallery") && i + 1 < argc) { int m = atoi(argv[++i]); gallery_mode = CLAMP(m, 1, 8); }
+        else if (!strcmp(argv[i], "--galleryrep") && i + 1 < argc) { int r = atoi(argv[++i]); gallery_rep = CLAMP(r, 0, 4); }
+        else if (!strcmp(argv[i], "--galleryrows") && i + 1 < argc) { int r = atoi(argv[++i]); gallery_rows = CLAMP(r, 1, 6); }
+        else if (!strcmp(argv[i], "--galleryrow") && i + 1 < argc) gallery_row = atoi(argv[++i]);
         else if (!strcmp(argv[i], "--notrees")) trees = false;
         else if (!strcmp(argv[i], "--nocover")) cover = false;
         else if (!strcmp(argv[i], "--notaa")) taa = false;
@@ -132,19 +153,33 @@ int main(int argc, char** argv)
     gc_init(&v.cover, &v.vk, cover_path, shader_path);
     viewer_init_post(&v, shader_path);
     shadows_init(&v.shadows, &v.vk, shader_path);
+    gallery_init(&v.gallery, &v.vk, &v.cover, &v.veg, shader_path);
+    v.gallery.rows = (u32)gallery_rows;
+    v.gallery.rep = (u32)gallery_rep;
     v.show_shadows = shadows;
     v.taa = taa;
     overlay_init(&v.overlay, &v.vk, shader_path);
+    v.gallery.row = gallery_row;
+    if (gallery_mode) { v.gallery.mode = (u32)gallery_mode; gallery_toggle(&v); }
     v.show_trees = trees;
     v.show_cover = cover;
     v.cover_wire = cover_wire && v.cover.wire;
     v.cover_dist = cover_dist;
     v.tree_dist = tree_dist;
 
-    // Camera: --cam, else 60 m above the centre of the terrain looking north.
+    // Camera: --cam; else standing at the reference forest edge (meadow in front of a mixed stand, Grafenwoehr DGM1)
+    // if the terrain contains it; else 60 m above the centre of the terrain looking north.
     const TerrainFileHeader* th = &v.terrain.hdr;
     Camera* cam = &v.cam;
     cam->speed = 15.0f;
+    const f64 EDGE_E = 709030.0, EDGE_N = 5511060.0, EDGE_YAW = 300.0, EDGE_PITCH = -4.0;
+    bool edge = !have_cam && EDGE_E > th->origin_e && EDGE_E < th->origin_e + (th->width - 1) * th->spacing &&
+                EDGE_N > th->origin_n && EDGE_N < th->origin_n + (th->height - 1) * th->spacing;
+    if (edge) {
+        have_cam = true;
+        cam_args[0] = EDGE_E; cam_args[1] = EDGE_N; cam_args[3] = EDGE_YAW; cam_args[4] = EDGE_PITCH;
+        if (stance < 0) stance = STANCE_STAND;
+    }
     if (have_cam) {
         cam->pos[0] = cam_args[0] - th->origin_e;
         cam->pos[2] = cam_args[1] - th->origin_n;

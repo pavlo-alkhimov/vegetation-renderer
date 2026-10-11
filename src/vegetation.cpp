@@ -594,6 +594,26 @@ static void veg_place(Vegetation* vg, const Terrain* t)
 
 // Task shader in its own module, mesh + fragment shaders in another (see PipelineDesc.task_module). shadow: depth-only
 // pipeline with the fs_<name>_shadow fragment shader (alpha test); wire: line rendering with fs_<name>_wire.
+// Variant with explicit fragment shader, polygon mode, culling and overdraw counting (additive blend, no depth test);
+// used by the gallery.
+static VkPipeline veg_pipeline_ex(Vk* vk, const char* shader_dir, const char* name, const char* fs, VkPolygonMode polygon,
+                                  VkCullModeFlags cull, bool overdraw)
+{
+    char path[1024], ts[32], ms[32];
+    snprintf(path, sizeof(path), "%sveg_%s_task.spv", shader_dir, name);
+    VkShaderModule task = vk_load_shader(vk, path);
+    snprintf(path, sizeof(path), "%sveg_%s.spv", shader_dir, name);
+    VkShaderModule mesh = vk_load_shader(vk, path);
+    snprintf(ts, sizeof(ts), "as_%s", name);
+    snprintf(ms, sizeof(ms), "ms_%s", name);
+    PipelineDesc d = {mesh, NULL, fs, overdraw ? VK_COMPARE_OP_ALWAYS : VK_COMPARE_OP_GREATER, !overdraw, cull, polygon, ts, ms, task};
+    d.blend = overdraw;
+    VkPipeline p = vk_create_pipeline(vk, &d);
+    vkDestroyShaderModule(vk->device, task, NULL);
+    vkDestroyShaderModule(vk->device, mesh, NULL);
+    return p;
+}
+
 static VkPipeline veg_pipeline(Vk* vk, const char* shader_dir, const char* name, bool shadow = false, bool wire = false)
 {
     char path[1024], ts[32], ms[32], fs[32];

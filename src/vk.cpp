@@ -66,6 +66,8 @@ typedef struct {
 
     // Frame targets, recreated with the swapchain and bound at TEX_SCENE.. (gpu_shared.h).
     VkTarget depth, scene, motion, history[2];
+    VkTarget frozen;            // gallery background: copy of the last world frame (TEX_FROZEN)
+    bool frozen_valid;          // false after (re)creation
     bool history_valid;         // false after (re)creation: the next frame starts TAA from scratch
 
     VkFrame frames[FRAMES_IN_FLIGHT];
@@ -503,8 +505,8 @@ static void vk_destroy_swapchain_resources(Vk* vk)
         vkDestroyImageView(vk->device, vk->views[i], NULL);
         vkDestroySemaphore(vk->device, vk->rendered[i], NULL);
     }
-    VkTarget* targets[5] = {&vk->depth, &vk->scene, &vk->motion, &vk->history[0], &vk->history[1]};
-    for (u32 i = 0; i < 5; i++) {
+    VkTarget* targets[6] = {&vk->depth, &vk->scene, &vk->motion, &vk->history[0], &vk->history[1], &vk->frozen};
+    for (u32 i = 0; i < 6; i++) {
         vkDestroyImageView(vk->device, targets[i]->view, NULL);
         vkDestroyImage(vk->device, targets[i]->image, NULL);
         vkFreeMemory(vk->device, targets[i]->memory, NULL);
@@ -610,13 +612,15 @@ static bool vk_create_swapchain(Vk* vk, u32 width, u32 height)
     vk->scene = vk_target(vk, SCENE_FORMAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | sampled, VK_IMAGE_ASPECT_COLOR_BIT, extent);
     vk->motion = vk_target(vk, MOTION_FORMAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | sampled, VK_IMAGE_ASPECT_COLOR_BIT, extent);
     for (u32 i = 0; i < 2; i++)
-        vk->history[i] = vk_target(vk, SCENE_FORMAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | sampled, VK_IMAGE_ASPECT_COLOR_BIT, extent);
+        vk->history[i] = vk_target(vk, SCENE_FORMAT, VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | sampled,
+                                   VK_IMAGE_ASPECT_COLOR_BIT, extent);
+    vk->frozen = vk_target(vk, SCENE_FORMAT, VK_IMAGE_USAGE_TRANSFER_DST_BIT | sampled, VK_IMAGE_ASPECT_COLOR_BIT, extent);
     // Every frame target is sampled in SHADER_READ_ONLY_OPTIMAL; frames transition them from and back to it.
     VkCommandBuffer cmd = vk_begin_once(vk);
     vk_image_barrier(cmd, vk->depth.image, VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, VK_PIPELINE_STAGE_2_NONE, 0, VK_IMAGE_LAYOUT_UNDEFINED,
                      VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-    VkTarget* colour[4] = {&vk->scene, &vk->motion, &vk->history[0], &vk->history[1]};
-    for (u32 i = 0; i < 4; i++)
+    VkTarget* colour[5] = {&vk->scene, &vk->motion, &vk->history[0], &vk->history[1], &vk->frozen};
+    for (u32 i = 0; i < 5; i++)
         vk_image_barrier(cmd, colour[i]->image, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, VK_PIPELINE_STAGE_2_NONE, 0, VK_IMAGE_LAYOUT_UNDEFINED,
                          VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
     vk_end_once(vk);
@@ -625,6 +629,8 @@ static bool vk_create_swapchain(Vk* vk, u32 width, u32 height)
     vk_bind_texture(vk, TEX_DEPTH, vk->depth.view);
     vk_bind_texture(vk, TEX_HISTORY + 0, vk->history[0].view);
     vk_bind_texture(vk, TEX_HISTORY + 1, vk->history[1].view);
+    vk_bind_texture(vk, TEX_FROZEN, vk->frozen.view);
+    vk->frozen_valid = false;
     vk->history_valid = false;
     return true;
 }
@@ -641,6 +647,27 @@ static VkShaderModule vk_load_shader(Vk* vk, const char* path)
     VK_CHECK(vkCreateShaderModule(vk->device, &ci, NULL, &m));
     free(code);
     return m;
+}
+
+// Perspective view with reversed Z and an infinite far plane: clip = (x * px, -y * py, near, z) in camera space
+// (x right, y up, z forward); positions relative to the render origin. Jitter (NDC) shifts x/y by jitter * w.
+static void view_perspective(ViewConstants* vc, v3 cam, v3 right, v3 up, v3 fwd, f32 px, f32 py, f32 near, f32 jx, f32 jy)
+{
+    v4 rx = {right.x * px, right.y * px, right.z * px, -v3_dot(right, cam) * px};
+    v4 ry = {-up.x * py, -up.y * py, -up.z * py, v3_dot(up, cam) * py};
+    v4 rw = {fwd.x, fwd.y, fwd.z, -v3_dot(fwd, cam)};
+    vc->view_proj[0] = {rx.x + jx * rw.x, rx.y + jx * rw.y, rx.z + jx * rw.z, rx.w + jx * rw.w};
+    vc->view_proj[1] = {ry.x + jy * rw.x, ry.y + jy * rw.y, ry.z + jy * rw.z, ry.w + jy * rw.w};
+    vc->view_proj[2] = {0, 0, 0, near};
+    vc->view_proj[3] = rw;
+    v3 n[5] = {fwd, v3_add(right, v3_scale(fwd, 1.0f / px)), v3_sub(v3_scale(fwd, 1.0f / px), right),
+               v3_add(up, v3_scale(fwd, 1.0f / py)), v3_sub(v3_scale(fwd, 1.0f / py), up)};
+    for (u32 i = 0; i < 5; i++) {
+        v3 m = v3_norm(n[i]);
+        vc->planes[i] = {m.x, m.y, m.z, -v3_dot(m, cam) - (i == 0 ? near : 0.0f)};
+    }
+    vc->planes[5] = {0, 0, 0, 1};
+    vc->jitter = {jx, jy, 0, 0};
 }
 
 typedef struct {
@@ -706,6 +733,7 @@ static VkPipeline vk_create_pipeline(Vk* vk, const PipelineDesc* d)
         ba[0].srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
         ba[0].dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
         ba[0].alphaBlendOp = VK_BLEND_OP_ADD;
+        ba[1] = ba[0];          // identical for all attachments (no independentBlend); motion is kept: alpha 0 adds nothing
     }
     const VkFormat scene_formats[2] = {SCENE_FORMAT, MOTION_FORMAT};
     u32 color_count = d->depth_only ? 0 : scene ? 2 : d->color_count;

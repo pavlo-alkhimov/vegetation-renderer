@@ -29,12 +29,13 @@ mkdir -p build/shaders
 "$SLANGC" shaders/terrain.slang -target spirv -o build/shaders/terrain.spv
 "$SLANGC" shaders/overlay.slang -target spirv -o build/shaders/overlay.spv
 "$SLANGC" shaders/taa.slang -target spirv -o build/shaders/taa.spv
+"$SLANGC" shaders/gallery.slang -target spirv -o build/shaders/gallery.spv
 # Task shaders in their own modules (driver issue with task + mesh in one module, see vk.cpp PipelineDesc).
 for v in trees; do
     "$SLANGC" shaders/vegetation.slang -target spirv -fvk-use-entrypoint-name -entry "as_$v" -stage amplification \
         -o "build/shaders/veg_${v}_task.spv"
     "$SLANGC" shaders/vegetation.slang -target spirv -fvk-use-entrypoint-name -entry "ms_$v" -stage mesh \
-        -entry "fs_$v" -stage fragment -entry "fs_${v}_shadow" -stage fragment -o "build/shaders/veg_$v.spv"
+        -entry "fs_$v" -stage fragment -entry "fs_${v}_shadow" -stage fragment -entry "fs_${v}_wire" -stage fragment -o "build/shaders/veg_$v.spv"
 done
 "$SLANGC" shaders/ground_cover.slang -target spirv -fvk-use-entrypoint-name -entry as_gc -stage amplification \
     -o build/shaders/veg_gc_task.spv

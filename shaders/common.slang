@@ -77,8 +77,18 @@ SceneOut scene_out(FrameConstants f, float3 c, float4 pos, float4 prev)
 {
     SceneOut o;
     o.color = float4(c, 1.0);
-    float2 ndc = pos.xy * f.screen.zw * 2.0 - 1.0 - pc.view->jitter.xy;
-    o.motion = prev.w > 1e-6 ? (ndc - prev.xy / prev.w) * 0.5 : float2(0, 0);
+    // NDC of the viewport being drawn (gallery cells are sub-viewports); motion in uv of the whole screen.
+    float2 ndc = (pos.xy - f.viewport.xy) / f.viewport.zw * 2.0 - 1.0 - pc.view->jitter.xy;
+    o.motion = prev.w > 1e-6 ? (ndc - prev.xy / prev.w) * 0.5 * f.viewport.zw * f.screen.zw : float2(0, 0);
+    return o;
+}
+
+// DEBUG_OVERDRAW: a constant per rasterized fragment, accumulated by additive blending (alpha 0, premultiplied blend).
+SceneOut overdraw_out()
+{
+    SceneOut o;
+    o.color = float4(0.07, 0.035, 0.012, 0.0);
+    o.motion = float2(0, 0);
     return o;
 }
 

@@ -15,6 +15,9 @@ typedef enum {
     CMD_CAM_LYING, CMD_CAM_STANDING, CMD_CAM_FREE, CMD_STANCE_CROUCH,
     CMD_COVER_DIST_LESS, CMD_COVER_DIST_MORE,
     CMD_TOGGLE_TAA, CMD_TOGGLE_SHADOWS,
+    CMD_KEY_5, CMD_KEY_6, CMD_KEY_7, CMD_KEY_8,
+    CMD_GALLERY, CMD_GALLERY_ROWS_LESS, CMD_GALLERY_ROWS_MORE, CMD_GALLERY_UP, CMD_GALLERY_DOWN, CMD_GALLERY_HOME,
+    CMD_GALLERY_END, CMD_GALLERY_PAUSE, CMD_GALLERY_LEFT, CMD_GALLERY_RIGHT, CMD_GALLERY_REP,
 } ViewerCommand;
 
 typedef struct {
@@ -50,6 +53,7 @@ typedef struct {
     GroundCover cover;
     Shadows shadows;
     Overlay overlay;
+    Gallery gallery;
     Camera cam;
     u32 debug_mode;
     bool wireframe;
@@ -74,6 +78,7 @@ typedef struct {
     const char* screenshot_path;
     u32 screenshot_counter;
     bool swapchain_dirty;
+    bool last_frame_world;      // the last rendered frame showed the world (gallery background source)
 } Viewer;
 
 static void camera_basis(const Camera* c, v3* right, v3* up, v3* fwd)
@@ -90,12 +95,66 @@ static void viewer_print_camera(const Viewer* v)
            c->yaw * 180.0 / 3.14159265, c->pitch * 180.0 / 3.14159265);
 }
 
+static void gallery_toggle(Viewer* v)
+{
+    Gallery* g = &v->gallery;
+    if (!g->active && !g->enabled) return;
+    g->active = !g->active;
+    if (g->active) {
+        g->overlay_was_visible = v->overlay.visible;
+        v->overlay.visible = false;
+        v->vk.frozen_valid = false;
+        g->prev_angle = g->angle;
+    } else {
+        v->overlay.visible = g->overlay_was_visible;
+    }
+    v->vk.history_valid = false;
+}
+
+// Gallery mode: its own keys; no camera movement.
+static void gallery_update(Viewer* v, const ViewerInput* in, f32 dt)
+{
+    Gallery* g = &v->gallery;
+    if (!g->paused) g->angle = fmodf(g->angle + GALLERY_SPIN * dt, 6.2831853f);
+    for (u32 i = 0; i < in->command_count; i++) {
+        switch (in->commands[i]) {
+        case CMD_GALLERY: gallery_toggle(v); return;
+        case CMD_GALLERY_ROWS_LESS: g->rows = MAX(g->rows - 1, 1u); break;
+        case CMD_GALLERY_ROWS_MORE: g->rows = MIN(g->rows + 1, 6u); break;
+        case CMD_GALLERY_UP: g->row--; break;
+        case CMD_GALLERY_DOWN: g->row++; break;
+        case CMD_GALLERY_HOME: g->row = 0; break;
+        case CMD_GALLERY_END: g->row = 1 << 20; break;           // clamped by gallery_layout
+        case CMD_GALLERY_PAUSE: g->paused = !g->paused; break;
+        case CMD_GALLERY_LEFT: g->angle -= 0.2618f; break;
+        case CMD_GALLERY_RIGHT: g->angle += 0.2618f; break;
+        case CMD_GALLERY_REP: g->rep = (g->rep + 1) % 5; break;
+        case CMD_DEBUG_SHADED: g->mode = 1; break;
+        case CMD_DEBUG_LOD: g->mode = 2; break;
+        case CMD_DEBUG_CONTOUR: g->mode = 3; break;
+        case CMD_DEBUG_NORMALS: g->mode = 4; break;
+        case CMD_KEY_5: g->mode = 5; break;
+        case CMD_KEY_6: g->mode = 6; break;
+        case CMD_KEY_7: g->mode = 7; break;
+        case CMD_KEY_8: g->mode = 8; break;
+        case CMD_TOGGLE_OVERLAY: v->overlay.visible = !v->overlay.visible; break;
+        case CMD_TOGGLE_TAA: v->taa = !v->taa; v->vk.history_valid = false; break;
+        case CMD_TOGGLE_VSYNC: v->vk.vsync = !v->vk.vsync; v->swapchain_dirty = true; break;
+        case CMD_SCREENSHOT: v->screenshot_path = "shot"; break;
+        default: break;
+        }
+    }
+    g->row -= (i32)in->wheel;
+}
+
 static void viewer_update(Viewer* v, const ViewerInput* in, f32 dt)
 {
     Camera* c = &v->cam;
     v->time += dt;
+    if (v->gallery.active) { gallery_update(v, in, dt); return; }
     for (u32 i = 0; i < in->command_count; i++) {
         switch (in->commands[i]) {
+        case CMD_GALLERY: gallery_toggle(v); return;
         // Camera presets: lying, standing (and crouching) on the ground, free flight. Every change glides: the eye height
         // eases between stances, and from free flight the camera descends to the ground instead of jumping.
         case CMD_TOGGLE_WALK:
@@ -136,7 +195,7 @@ static void viewer_update(Viewer* v, const ViewerInput* in, f32 dt)
         case CMD_TOGGLE_OVERLAY: v->overlay.visible = !v->overlay.visible; break;
         case CMD_TOGGLE_TAA: v->taa = !v->taa; v->vk.history_valid = false; break;
         case CMD_TOGGLE_SHADOWS: v->show_shadows = !v->show_shadows; break;
-        case CMD_NONE: break;
+        default: break;
         }
     }
 
@@ -195,53 +254,86 @@ static void write_ppm(const char* path, const u8* bgra_or_rgba, u32 w, u32 h, bo
     printf("wrote %s\n", path);
 }
 
-// Overlay text: FPS, GPU time, graph legend, keys (movement and camera keys are listed only in the console usage).
-static void viewer_overlay(const Viewer* v, OverlayData* d)
+// Overlay boxes for this frame: [0] key bar along the bottom (always), then the performance panel (if visible), then the
+// gallery cell labels. Returns the number of boxes; the gallery layout is computed here (it needs the bar's height).
+static u32 viewer_overlay(Viewer* v, OverlayData* boxes)
 {
     static const char* VIEW_NAMES[] = {"SHADED", "LOD", "CONTOURS", "NORMALS"};
     const Overlay* o = &v->overlay;
-    overlay_begin(o, d, v->vk.extent.width, v->vk.extent.height);
-    overlay_line(d, 0, NULL, "%.1f FPS  %.2f MS", o->fps, o->fps > 0 ? 1000.0f / o->fps : 0.0f);
-    overlay_line(d, 1, NULL, "GPU %.2f MS", v->gpu_ms);
-    overlay_line(d, 10, NULL, "5 S, TOP %.0f, LINES 30/60", d->params.y);
-    u32 l = 12;
-    overlay_line(d, l++, "T", "TREES       %s", v->show_trees ? "ON" : "OFF");
-    overlay_line(d, l++, "B", "GROUND COVER %s", !v->cover.enabled ? "N/A" : v->show_cover ? "ON" : "OFF");
-    overlay_line(d, l++, "- =", "TREE DIST   %.0f M", v->tree_dist);
-    overlay_line(d, l++, ", .", "COVER DIST  X%.2f", v->cover_dist);
-    overlay_line(d, l++, "1-4", "VIEW        %s", VIEW_NAMES[v->debug_mode & 3]);
-    overlay_line(d, l++, "L", "WIREFRAME   %s", v->wireframe ? "ON" : "OFF");
-    overlay_line(d, l++, "N", "COVER WIRE  %s", v->cover_wire ? "ON" : "OFF");
-    overlay_line(d, l++, "[ ]", "TERRAIN LOD %.1f PX", v->target_px);
-    overlay_line(d, l++, "O", "SHADOWS     %s", !v->shadows.enabled ? "N/A" : v->show_shadows ? "ON" : "OFF");
-    overlay_line(d, l++, "J", "TAA         %s", v->taa ? "ON" : "OFF");
-    overlay_line(d, l++, "V", "VSYNC       %s", v->vk.vsync ? "ON" : "OFF");
-    overlay_line(d, l++, "K", "SCREENSHOT");
-    overlay_line(d, l++, "P", "PRINT CAMERA");
-    overlay_line(d, l++, "H", "HIDE OVERLAY");
-}
-
-// Perspective view with reversed Z and an infinite far plane: clip = (x * px, -y * py, near, z) in camera space
-// (x right, y up, z forward); positions relative to the render origin. Jitter (NDC) shifts x/y by jitter * w.
-static void view_perspective(ViewConstants* vc, v3 cam, v3 right, v3 up, v3 fwd, f32 px, f32 py, f32 near, f32 jx, f32 jy)
-{
-    v4 rx = {right.x * px, right.y * px, right.z * px, -v3_dot(right, cam) * px};
-    v4 ry = {-up.x * py, -up.y * py, -up.z * py, v3_dot(up, cam) * py};
-    v4 rw = {fwd.x, fwd.y, fwd.z, -v3_dot(fwd, cam)};
-    vc->view_proj[0] = {rx.x + jx * rw.x, rx.y + jx * rw.y, rx.z + jx * rw.z, rx.w + jx * rw.w};
-    vc->view_proj[1] = {ry.x + jy * rw.x, ry.y + jy * rw.y, ry.z + jy * rw.z, ry.w + jy * rw.w};
-    vc->view_proj[2] = {0, 0, 0, near};
-    vc->view_proj[3] = rw;
-    v3 n[5] = {fwd, v3_add(right, v3_scale(fwd, 1.0f / px)), v3_sub(v3_scale(fwd, 1.0f / px), right),
-               v3_add(up, v3_scale(fwd, 1.0f / py)), v3_sub(v3_scale(fwd, 1.0f / py), up)};
-    for (u32 i = 0; i < 5; i++) {
-        v3 m = v3_norm(n[i]);
-        vc->planes[i] = {m.x, m.y, m.z, -v3_dot(m, cam) - (i == 0 ? near : 0.0f)};
+    Gallery* g = &v->gallery;
+    u32 w = v->vk.extent.width, h = v->vk.extent.height, n = 0;
+    const char* on[2] = {"OFF", "ON"};
+    static KeyBar bar;
+    keybar_begin(&bar, w, h);
+    if (g->active) {
+        u32 total = gallery_count(g), cols = MAX(g->cols, 1u), pages_rows = (total + cols - 1) / cols;
+        keybar_add(&bar, "F2", "WORLD");
+        keybar_add(&bar, "PGUP/PGDN", "ROWS %u", g->rows);
+        keybar_add(&bar, "UP/DOWN WHEEL", "SCROLL (ROW %d/%u)", g->row + 1, pages_rows);
+        keybar_add(&bar, "HOME/END", "FIRST/LAST");
+        keybar_add(&bar, "1-8", "VIEW %s", GALLERY_MODE_NAMES[g->mode]);
+        keybar_add(&bar, "R", "REPRESENTATION %s", GALLERY_REP_NAMES[g->rep]);
+        keybar_add(&bar, "SPACE", "ROTATION %s", g->paused ? "PAUSED" : "ON");
+        keybar_add(&bar, "LEFT/RIGHT", "TURN");
+        keybar_add(&bar, "J", "TAA %s", on[v->taa]);
+        keybar_add(&bar, "V", "VSYNC %s", on[v->vk.vsync]);
+        keybar_add(&bar, "H", "PERFORMANCE %s", on[o->visible]);
+        keybar_add(&bar, "K/F12", "SCREENSHOT");
+        keybar_add(&bar, "ESC", "MOUSE / QUIT");
+        keybar_add(&bar, "VIEWS", "1 FINAL 2 TEXTURES 3 WIRE 4 WIRE+CULL 5 NORMALS 6 ALPHA 7 UV 8 OVERDRAW");
+    } else {
+        const Camera* c = &v->cam;
+        keybar_add(&bar, "CLICK/ESC", "MOUSE LOOK / RELEASE, QUIT");
+        keybar_add(&bar, "WASD", "MOVE");
+        keybar_add(&bar, "Q/E SPACE", "DOWN/UP");
+        keybar_add(&bar, "SHIFT/CTRL", "X8/X1/8");
+        keybar_add(&bar, "WHEEL", "SPEED %.1f M/S", c->speed);
+        keybar_add(&bar, "Z/X/F", "LIE/STAND/FREE (%s)", !c->walk ? "FREE" : c->stance == STANCE_PRONE ? "LYING" : c->stance == STANCE_CROUCH ? "CROUCHING" : "STANDING");
+        keybar_add(&bar, "C", "CROUCH");
+        keybar_add(&bar, "G", "WALK/FREE");
+        keybar_add(&bar, "T", "TREES %s", on[v->show_trees]);
+        keybar_add(&bar, "B", "GROUND COVER %s", !v->cover.enabled ? "N/A" : on[v->show_cover]);
+        keybar_add(&bar, "-/=", "TREE DIST %.0f M", v->tree_dist);
+        keybar_add(&bar, ",/.", "COVER DIST X%.2f", v->cover_dist);
+        keybar_add(&bar, "1-4", "VIEW %s", VIEW_NAMES[v->debug_mode & 3]);
+        keybar_add(&bar, "L", "TERRAIN WIRE %s", on[v->wireframe]);
+        keybar_add(&bar, "N", "COVER WIRE %s", on[v->cover_wire]);
+        keybar_add(&bar, "[/]", "TERRAIN LOD %.1f PX", v->target_px);
+        keybar_add(&bar, "O", "SHADOWS %s", !v->shadows.enabled ? "N/A" : on[v->show_shadows]);
+        keybar_add(&bar, "J", "TAA %s", on[v->taa]);
+        keybar_add(&bar, "V", "VSYNC %s", on[v->vk.vsync]);
+        keybar_add(&bar, "H", "PERFORMANCE %s", on[o->visible]);
+        keybar_add(&bar, "K/F12", "SCREENSHOT");
+        keybar_add(&bar, "P", "PRINT CAMERA");
+        keybar_add(&bar, "F2", "PLANT GALLERY");
     }
-    vc->planes[5] = {0, 0, 0, 1};
-    vc->jitter = {jx, jy, 0, 0};
+    f32 bar_px = keybar_end(o, &bar, &boxes[n++], w, h);
+    if (o->visible) {
+        OverlayData* d = &boxes[n++];
+        overlay_begin(o, d, w, h);
+        overlay_line(d, 0, NULL, "%.1f FPS  %.2f MS", o->fps, o->fps > 0 ? 1000.0f / o->fps : 0.0f);
+        overlay_line(d, 1, NULL, "GPU %.2f MS", v->gpu_ms);
+        char legend[OVERLAY_PANEL_COLS + 1];
+        overlay_graph_legend(legend, OVERLAY_PANEL_COLS);
+        overlay_line(d, 10, NULL, "%s", legend);
+        overlay_line(d, 11, NULL, "FPS, TOP %.0f, LINES 30/60", d->params.y);
+    }
+    if (g->active) {
+        gallery_layout(g, w, h, bar_px);
+        f32 s = overlay_texel(h);
+        u32 cols = MIN((u32)((g->cell_px - 8 * s) / (6 * s)), 60u);
+        for (u32 k = 0; k < g->cells && n < OVERLAY_MAX_BOXES; k++) {
+            GalleryElement el;
+            gallery_element(g, &v->cover, &v->veg, (u32)g->row * g->cols + k, &el);
+            OverlayData* d = &boxes[n++];
+            f32 x = (f32)(g->x0 + (k % g->cols) * g->cell_px) + 4, y = (f32)(g->y0 + (k / g->cols + 1) * g->cell_px) - overlay_box_height(h, 2) - 4;
+            overlay_box(o, d, w, h, x, y, cols, 2);
+            overlay_line(d, 0, NULL, "%s", el.name);
+            overlay_line(d, 1, NULL, "%s", el.rep);
+        }
+    }
+    return n;
 }
-
 // Full-screen passes after the scene: TAA resolve (writes the swapchain image and the next history).
 static void viewer_init_post(Viewer* v, const char* shader_dir)
 {
@@ -304,8 +396,12 @@ static bool viewer_render(Viewer* v)
     fc->mask_tex = TEX_MASK;
     fc->debug_mode = v->debug_mode;
     fc->screen = {(f32)vk->extent.width, (f32)vk->extent.height, 1.0f / vk->extent.width, 1.0f / vk->extent.height};
+    fc->viewport = {0, 0, (f32)vk->extent.width, (f32)vk->extent.height};
+    Gallery* gal = &v->gallery;
+    bool gallery = gal->active;
+    bool gallery_history = gallery && gal->mode != 3 && gal->mode != 4 && gal->mode != 6 && gal->mode != 8;   // TAA history only where it helps
     u32 history_read = (u32)(vk->frame_index & 1), history_write = history_read ^ 1u;
-    fc->taa = {v->prev_valid ? v->prev_time : v->time, v->taa && vk->history_valid ? 0.1f : 1.0f, 0, 0};
+    fc->taa = {v->prev_valid ? v->prev_time : v->time, v->taa && vk->history_valid && (!gallery || gallery_history) ? 0.1f : 1.0f, 0, 0};
     fc->history_tex = TEX_HISTORY + history_read;
     terrain_set_ranges(t, proj_y * vk->extent.height * 0.5f, v->target_px, fc);
 
@@ -316,14 +412,16 @@ static bool viewer_render(Viewer* v)
     ViewConstants* views = (ViewConstants*)((u8*)f->upload.mapped + UPLOAD_VIEWS_OFFSET);
     // TAA jitter: Halton (2, 3), 8 samples, in NDC. The previous view is unjittered and expressed relative to this
     // frame's render origin, so motion vectors stay valid across origin changes.
-    f32 jx = 0, jy = 0;
-    if (v->taa) {
+    f32 jx = 0, jy = 0, jx_px = 0, jy_px = 0;
+    if (v->taa && (!gallery || gallery_history)) {
         u32 k = v->taa_frame % 8 + 1;
         f32 hx = 0, hy = 0;
         for (f32 b = 0.5f, i = (f32)k; i > 0; i = floorf(i / 2), b *= 0.5f) hx += b * fmodf(i, 2);
         for (f32 b = 1.0f / 3, i = (f32)k; i > 0; i = floorf(i / 3), b /= 3) hy += b * fmodf(i, 3);
-        jx = (hx - 0.5f) * 2.0f / vk->extent.width;
-        jy = (hy - 0.5f) * 2.0f / vk->extent.height;
+        jx_px = hx - 0.5f;
+        jy_px = hy - 0.5f;
+        jx = jx_px * 2.0f / vk->extent.width;
+        jy = jy_px * 2.0f / vk->extent.height;
     }
     ViewConstants prev;
     if (v->prev_valid) {
@@ -344,13 +442,13 @@ static bool viewer_render(Viewer* v)
     sel.planes_n[4] = v3_sub(v3_scale(fwd, 1.0f / proj_y), up);
     sel.origin_terrain = terrain_origin;
     sel.out = (TerrainNode*)((u8*)f->upload.mapped + nodes_offset);
-    terrain_select_node(t, &sel, t->levels - 1, 0, 0);
+    if (!gallery) terrain_select_node(t, &sel, t->levels - 1, 0, 0);
     v->node_count = sel.count;
 
     // Vegetation.
     Vegetation* vg = &v->veg;
-    bool trees = vg->enabled && v->show_trees;
-    bool cover = v->cover.enabled && v->show_cover;
+    bool trees = vg->enabled && v->show_trees && !gallery;
+    bool cover = v->cover.enabled && v->show_cover && !gallery;
     fc->veg = {v->tree_dist, v->cover_dist, proj_y * vk->extent.height * 0.5f, 0};
     fc->tree_lod = {400.0f, 120.0f, 30.0f, 0};
     fc->wind = {0.8f, 0.5f, 0.6f, 0};
@@ -361,10 +459,10 @@ static bool viewer_render(Viewer* v)
     if (trees)
         veg_select_trees(vg, &sel, origin, c->pos, v->tree_dist, (TreeChunk*)((u8*)f->upload.mapped + CHUNKS_OFFSET));
     if (cover) gc_frame(&v->cover, c->pos, v->cover_dist, fc);
-    bool shadows = v->shadows.enabled && v->show_shadows;
+    bool shadows = v->shadows.enabled && v->show_shadows && !gallery;
     if (shadows)
         shadows_frame(&v->shadows, vg, views, fc, cam, fwd, proj_x, proj_y, CAMERA_NEAR, origin, c->pos, (TreeChunk*)((u8*)f->upload.mapped + CHUNKS_OFFSET), trees);
-    if (v->overlay.visible) viewer_overlay(v, (OverlayData*)((u8*)f->upload.mapped + OVERLAY_OFFSET));
+    u32 overlay_boxes = viewer_overlay(v, (OverlayData*)((u8*)f->upload.mapped + OVERLAY_OFFSET));
 
     VkCommandBuffer cmd = f->cmd;
     VK_CHECK(vkResetCommandPool(vk->device, f->pool, 0));
@@ -388,6 +486,29 @@ static bool viewer_render(Viewer* v)
     const VkPipelineStageFlags2 FS = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT, COLOR_OUT = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
     const VkAccessFlags2 READ = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT, WRITE = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
     const VkImageLayout SAMPLED = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, ATTACHMENT = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    if (gallery && !vk->frozen_valid) {
+        // Gallery background: the last world frame (its TAA output = history read this frame), else dark.
+        const VkPipelineStageFlags2 COPY = VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+        vk_image_barrier(cmd, vk->frozen.image, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, FS, 0, VK_IMAGE_LAYOUT_UNDEFINED, COPY,
+                         VK_ACCESS_2_TRANSFER_WRITE_BIT, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+        if (v->last_frame_world) {
+            VkImage src = vk->history[history_read].image;
+            vk_image_barrier(cmd, src, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, FS, 0, SAMPLED, COPY, VK_ACCESS_2_TRANSFER_READ_BIT,
+                             VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+            VkImageCopy region = {};
+            region.srcSubresource = region.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+            region.extent = {vk->extent.width, vk->extent.height, 1};
+            vkCmdCopyImage(cmd, src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, vk->frozen.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+            vk_image_barrier(cmd, src, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, COPY, 0, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, FS, READ, SAMPLED);
+        } else {
+            VkClearColorValue dark = {{0.08f, 0.08f, 0.09f, 1.0f}};
+            VkImageSubresourceRange range = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+            vkCmdClearColorImage(cmd, vk->frozen.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &dark, 1, &range);
+        }
+        vk_image_barrier(cmd, vk->frozen.image, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, COPY, VK_ACCESS_2_TRANSFER_WRITE_BIT,
+                         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, FS, READ, SAMPLED);
+        vk->frozen_valid = true;
+    }
     vk_image_barrier(cmd, vk->scene.image, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, FS, 0, SAMPLED, COLOR_OUT, WRITE, ATTACHMENT);
     vk_image_barrier(cmd, vk->motion.image, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, FS, 0, SAMPLED, COLOR_OUT, WRITE, ATTACHMENT);
     vk_image_barrier(cmd, vk->depth.image, VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, FS, 0, SAMPLED,
@@ -420,6 +541,40 @@ static bool viewer_render(Viewer* v)
     vkCmdSetViewport(cmd, 0, 1, &vp);
     vkCmdSetScissor(cmd, 0, 1, &sc);
     vkCmdPushConstants(cmd, vk->pipeline_layout, VK_SHADER_STAGE_ALL, 0, sizeof(pcs), &pcs);
+    if (gallery) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, gal->frozen);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+        u32 var = gallery_variant(gal->mode);
+        for (u32 k = 0; k < gal->cells; k++) {
+            GalleryElement el;
+            gallery_element(gal, &v->cover, vg, (u32)gal->row * gal->cols + k, &el);
+            gallery_cell(gal, &el, k, fc, (u8*)f->upload.mapped, jx_px, jy_px, v->time);
+            VkDeviceAddress slot = f->upload.address + UPLOAD_NODES_OFFSET + (VkDeviceSize)k * GALLERY_CELL_STRIDE;
+            const FrameConstants* cf = (const FrameConstants*)((u8*)f->upload.mapped + UPLOAD_NODES_OFFSET + (size_t)k * GALLERY_CELL_STRIDE);
+            VkViewport cvp = {cf->viewport.x, cf->viewport.y, cf->viewport.z, cf->viewport.w, 0, 1};
+            VkRect2D csc = {{(i32)cf->viewport.x, (i32)cf->viewport.y}, {(u32)cf->viewport.z, (u32)cf->viewport.w}};
+            vkCmdSetViewport(cmd, 0, 1, &cvp);
+            vkCmdSetScissor(cmd, 0, 1, &csc);
+            PushConstants cp = pcs;
+            cp.frame = slot;
+            cp.view = slot + 1024;
+            cp.chunks = slot + 1536;
+            cp.veg = gal->tree_scene.address;
+            vkCmdPushConstants(cmd, vk->pipeline_layout, VK_SHADER_STAGE_ALL, 0, sizeof(cp), &cp);
+            if (gal->mode != 8) {
+                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, gal->stage);
+                vkCmdDraw(cmd, 6, 1, 0, 0);
+            }
+            VkPipeline p = el.tree ? gal->trees[var] : gal->rep == 4 ? gal->imp[var] : gal->gc[var];
+            if (p) {
+                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, p);
+                vkCmdDrawMeshTasksEXT(cmd, 1, 1, 1);
+            }
+        }
+        vkCmdSetViewport(cmd, 0, 1, &vp);
+        vkCmdSetScissor(cmd, 0, 1, &sc);
+        vkCmdPushConstants(cmd, vk->pipeline_layout, VK_SHADER_STAGE_ALL, 0, sizeof(pcs), &pcs);
+    }
     if (sel.count) {
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, v->wireframe ? t->pipeline_wire : t->pipeline);
         vkCmdBindIndexBuffer(cmd, t->indices.buffer, 0, VK_INDEX_TYPE_UINT16);
@@ -439,8 +594,10 @@ static bool viewer_render(Viewer* v)
         vkCmdDrawMeshTasksEXT(cmd, v->cover.imp_cells, v->cover.imp_cells, 1);
     }
     if (vk->timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, f->queries, 4);
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, t->pipeline_sky);
-    vkCmdDraw(cmd, 3, 1, 0, 0);
+    if (!gallery) {
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, t->pipeline_sky);
+        vkCmdDraw(cmd, 3, 1, 0, 0);
+    }
     vkCmdEndRendering(cmd);
 
     // TAA resolve: scene + history -> swapchain image + new history (with TAA off it copies the scene).
@@ -460,7 +617,7 @@ static bool viewer_render(Viewer* v)
     vk_image_barrier(cmd, vk->history[history_write].image, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, COLOR_OUT, WRITE, ATTACHMENT, FS, READ, SAMPLED);
     if (vk->timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, f->queries, 5);
 
-    if (v->overlay.visible) {
+    if (overlay_boxes) {
         VkRenderingAttachmentInfo display = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
         display.imageView = vk->views[image];
         display.imageLayout = ATTACHMENT;
@@ -472,7 +629,12 @@ static bool viewer_render(Viewer* v)
                          WRITE | VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT, ATTACHMENT);
         vkCmdBeginRendering(cmd, &ri);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, v->overlay.pipeline);
-        vkCmdDraw(cmd, 6, 1, 0, 0);
+        for (u32 b = 0; b < overlay_boxes; b++) {
+            PushConstants op = pcs;
+            op.overlay = f->upload.address + OVERLAY_OFFSET + (VkDeviceSize)b * sizeof(OverlayData);
+            vkCmdPushConstants(cmd, vk->pipeline_layout, VK_SHADER_STAGE_ALL, 0, sizeof(op), &op);
+            vkCmdDraw(cmd, 6, 1, 0, 0);
+        }
         vkCmdEndRendering(cmd);
     }
     if (vk->timestamps) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, f->queries, GPU_TIMESTAMPS - 1);
@@ -526,6 +688,8 @@ static bool viewer_render(Viewer* v)
     v->prev_px = proj_x;
     v->prev_py = proj_y;
     v->prev_time = v->time;
+    v->last_frame_world = !gallery;
+    gal->prev_angle = gal->angle;
 
     if (shot) {
         VK_CHECK(vkWaitForFences(vk->device, 1, &f->fence, VK_TRUE, UINT64_MAX));

@@ -22,6 +22,10 @@ typedef struct { f32 x, y, z, w; } v4;
 #define DEBUG_LOD     1
 #define DEBUG_CONTOUR 2
 #define DEBUG_NORMALS 3
+#define DEBUG_UNLIT    4    // albedo only (gallery)
+#define DEBUG_ALPHA    5    // coverage: opaque white, alpha-tested away dark (gallery)
+#define DEBUG_UV       6    // texture coordinates as colour (gallery)
+#define DEBUG_OVERDRAW 7    // additive count of rasterized fragments (gallery, blending pipelines)
 
 struct TerrainNode {
     u32 gx, gz;             // grid sample of the patch's min corner (x east, z north)
@@ -41,6 +45,7 @@ struct TerrainNode {
 #define TEX_MOTION  65      // motion (uv of this frame - uv of the previous frame, RG16F),
 #define TEX_DEPTH   66      // depth (D32, reversed Z),
 #define TEX_HISTORY 67      // TAA history, 2 images (ping-pong): TEX_HISTORY + 0/1
+#define TEX_FROZEN  69      // gallery background: the last world frame
 
 // Samplers (bindless sampler array).
 #define SAMPLER_LINEAR_CLAMP 0
@@ -108,6 +113,7 @@ struct TreeChunk {                  // ≤ TREE_CHUNK consecutive instances of o
 // One task workgroup per cell, GC_CELL_SLOTS candidates.
 #define GC_LODS          3
 #define GC_MAX_SPECIES   16
+#define GC_MAX_VARIANTS  256
 #define GC_CELL_SLOTS    32
 #define GC_LAYERS        2
 // Ranges (all x the ground-cover distance factor, FrameConstants.veg.y): near = complete meshes up to GC_NEAR_DISTANCE
@@ -204,6 +210,8 @@ struct FrameConstants {
     v4 shadow_split;        // view depth (m) where shadow cascade 0..3 ends; views[1 + c] are the cascades
     v4 shadow_texel;        // world size (m) of a shadow-map texel per cascade
     v4 gc_bake;             // ground-cover bake (load time only): xyz = habitat weights, w = tile size (0 = normal frame)
+                            // w < 0: one instance of variant gc_bake_pass at the origin (view bakes, gallery)
+    v4 viewport;            // xy = origin, zw = size (px) of the viewport being drawn (world: the whole screen)
     u32 height_tex;         // bindless index
     u32 debug_mode;         // DEBUG_*
     u32 mask_tex;           // bindless index
@@ -218,12 +226,15 @@ struct FrameConstants {
     i32 gc_imp_cell_x;      // mid-field dispatch grid (0,0), terrain-local GC_IMP_CELL cell index
     i32 gc_imp_cell_z;
     u32 gc_imp_cells;       // mid-field grid side in cells (0 = mid field off)
+    u32 gallery;            // 1: gallery cell (single element at the origin, forced representation)
+    u32 gallery_rep;        // ground cover: 0-2 mesh LOD, 3 stripe, 4 impostor; trees: LOD 0-3
 };
 
 // Overlay (top right): FPS, FPS graph, key list. One quad; text and graph are evaluated in the fragment shader.
 #define OVERLAY_GRAPH_COLS 160
-#define OVERLAY_TEXT_COLS  28
-#define OVERLAY_TEXT_LINES 28
+#define OVERLAY_PANEL_COLS 28       // performance panel width in characters
+#define OVERLAY_TEXT_CHARS 2048     // text capacity of one box (columns x lines, set per box)
+#define OVERLAY_MAX_BOXES  80       // boxes per frame (performance panel, key bar, gallery labels)
 #define OVERLAY_GLYPHS     96       // ASCII 32..127, 5 x 7 bits: bit (row * 5 + col), row 0 = top, col 0 = left
 
 struct OverlayData {
@@ -232,8 +243,9 @@ struct OverlayData {
     v4 graph;                       // x, y, w, h (px)
     v4 text;                        // xy = first character cell (px), z = cell width, w = cell height
     v4 params;                      // x = font texel size (px), y = graph full-scale FPS, zw = reference lines (FPS)
+    v4 grid;                        // x = text columns, y = text lines (x * y <= OVERLAY_TEXT_CHARS)
     f32 fps[OVERLAY_GRAPH_COLS];    // oldest to newest; 0 = no data
-    u32 chars[OVERLAY_TEXT_LINES * OVERLAY_TEXT_COLS / 4];   // 1 byte per cell, bit 7 = highlight
+    u32 chars[OVERLAY_TEXT_CHARS / 4];  // 1 byte per cell, row-major with grid.x columns, bit 7 = highlight
     u32 font[OVERLAY_GLYPHS * 2];
 };
 

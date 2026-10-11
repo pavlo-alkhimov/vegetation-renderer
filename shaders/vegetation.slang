@@ -43,6 +43,7 @@ void as_trees(uint tid : SV_GroupThreadID, uint gid : SV_GroupID)
             float px = tt.bark_color.w * scale * f.veg.z / max(dist, 1.0);
             uint lod = px > f.tree_lod.x ? 0 : px > f.tree_lod.y ? 1 : px > f.tree_lod.z ? 2 : 3;
             lod = min(lod + uint(pc.view->jitter.z), 3u);                 // shadow views: one LOD coarser
+            if (f.gallery != 0) lod = min(f.gallery_rep, 3u);             // gallery: forced representation
             meshlets = tt.meshlet_count[lod];
             s_payload.a[tid] = ii;
             s_payload.b[tid] = type | lod << 8;
@@ -192,6 +193,12 @@ float tree_alpha(TreeVsOut i)
 }
 
 [shader("fragment")]
+SceneOut fs_trees_wire(TreeVsOut i)
+{
+    return scene_out(*pc.frame, DEBUG_TINT[(i.info >> 8) & 255], i.pos, i.prev);
+}
+
+[shader("fragment")]
 void fs_trees_shadow(TreeVsOut i)
 {
     if (tree_alpha(i) < 0.0) discard;
@@ -202,7 +209,11 @@ SceneOut fs_trees(TreeVsOut i, bool front : SV_IsFrontFace)
 {
     FrameConstants f = *pc.frame;
     uint mat = i.info & 255, lod = (i.info >> 8) & 255, seed = i.info >> 16;
-    if (tree_alpha(i) < 0.0) discard;
+    float alpha = tree_alpha(i);
+    if (f.debug_mode == DEBUG_OVERDRAW) return overdraw_out();
+    if (f.debug_mode == DEBUG_ALPHA) return scene_out(f, alpha < 0.0 ? float3(0.05, 0.05, 0.05) : float3(1, 1, 1), i.pos, i.prev);
+    if (alpha < 0.0) discard;
+    if (f.debug_mode == DEBUG_UV) return scene_out(f, float3(frac(i.uv), 0), i.pos, i.prev);
 
     float3 to_cam = normalize(f.cam_pos.xyz - i.rel);
     float3 n = normalize(i.n);
@@ -223,6 +234,7 @@ SceneOut fs_trees(TreeVsOut i, bool front : SV_IsFrontFace)
         albedo *= lerp(0.85, 1.15, hash_f(seed * 7919u + 13u));
     }
     if (f.debug_mode == DEBUG_LOD) albedo = DEBUG_TINT[lod] * 0.4;
+    if (f.debug_mode == DEBUG_UNLIT) return scene_out(f, albedo, i.pos, i.prev);
     float sh = sun_shadow(f, i.rel, n, i.pos.xy);
     float3 c = mat == MAT_BARK ? albedo * (SUN_COLOR * saturate(dot(n, f.sun_dir.xyz)) * lerp(0.3, 1.0, c_ao) * sh +
                                            SKY_AMBIENT * (0.6 + 0.4 * n.y) * c_ao)

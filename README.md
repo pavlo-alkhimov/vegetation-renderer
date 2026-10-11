@@ -55,7 +55,7 @@ tools/fetch-bavaria.sh bbox 701 5503 716 5518        # once: 256 DGM1 tiles, ~1 
 build/cook_terrain data/external/bavaria/dgm1        # -> data/cooked/terrain.vrh (16000², u16, 512 MB; ~15 s, ~3 GB RAM)
 tools/fetch-polyhaven.sh                             # once: 8 CC0 plant scans, ~45 MB (2k textures)
 build/cook_ground_cover data/external/polyhaven/*    # -> data/cooked/ground_cover.vgc (341 MB; ~2 s); without it no ground cover
-build/vr                                             # or: build/vr <file.vrh> [--cam E N ALT YAW PITCH] [--novsync] ...
+build/vr                                             # starts standing at the reference forest edge; or: build/vr <file.vrh> [--cam E N ALT YAW PITCH] ...
 ```
 
 | Input | Action |
@@ -71,7 +71,8 @@ build/vr                                             # or: build/vr <file.vrh> [
 | O, J | sun shadows on/off, TAA on/off |
 | [ / ] | finer / coarser terrain (target triangle size in pixels) |
 | V, F12 / K, P | vsync toggle, screenshot (`shot_NNNN.ppm`), print camera as `--cam` arguments |
-| H | overlay (top right): FPS, FPS graph of the last 5 s, GPU ms, key list |
+| H | performance panel (top right): FPS, GPU ms, FPS graph with a logarithmic time axis (real time at the right, 60 s of history towards the left). All keys of the current mode and their states are listed in the bar along the bottom |
+| F2 | plant gallery: every ground-cover variant and tree type on its own rotating stage (the world is not rendered; its last frame stays dimmed behind). PgUp/PgDn rows (1–6), Up/Down/wheel scroll, Home/End, 1–8 views (final, textures, wireframe, wireframe + back-face culling, normals, alpha, UV, overdraw), R representation (mesh LOD 0–2, stripe, impostor; trees LOD 0–3), Space pause, Left/Right turn. `--gallery MODE`, `--galleryrep R`, `--galleryrows N`, `--galleryrow N` |
 
 **macOS (Apple Silicon, e.g. MacBook Air M4):** same code and script, Vulkan via KosmicKrisp (LunarG's conformant Vulkan-on-Metal driver) or MoltenVK. Install the [LunarG Vulkan SDK for macOS](https://vulkan.lunarg.com/sdk/home#mac) with KosmicKrisp selected (it also provides `slangc` and the validation layer; check its release notes for the minimum macOS version), plus `brew install sdl3 pkg-config`. Then:
 

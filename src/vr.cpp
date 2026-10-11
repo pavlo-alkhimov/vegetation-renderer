@@ -20,5 +20,6 @@
 #include "ground_cover.cpp"
 #include "shadows.cpp"
 #include "overlay.cpp"
+#include "gallery.cpp"
 #include "viewer.cpp"
 #include "platform_sdl.cpp"

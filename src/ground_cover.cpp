@@ -38,6 +38,10 @@ typedef struct {
     VkTex stripe[2];                // mid-range stripe side-view atlas: colour (premultiplied), normal
     VkPipeline pipe_imp;
     VkPipeline wire, wire_imp;      // wireframe variants (if the device supports line fill), N key
+    // Per variant, for the gallery labels
+    char names[GC_MAX_VARIANTS][GC_NAME];
+    u32 tris[GC_MAX_VARIANTS][GC_LODS], meshlets[GC_MAX_VARIANTS][GC_LODS];
+    f32 heights[GC_MAX_VARIANTS], radii[GC_MAX_VARIANTS], bounds[GC_MAX_VARIANTS];
     u32 imp_cells;                  // per frame: mid-field dispatch side
     // Per frame
     u32 cells;                      // dispatch grid side
@@ -424,9 +428,11 @@ static void gc_init(GroundCover* p, Vk* vk, const char* path, const char* shader
         const GcFileVariant* fv = &fvar[v];
         GcVariant* pv = &variants[v];
         pv->species = fv->species;
+        if (v < GC_MAX_VARIANTS) snprintf(p->names[v], GC_NAME, "%s", fv->name);
         pv->height = fv->height;
         pv->radius = fv->radius;
         pv->bound = sqrtf(fv->radius * fv->radius + 0.25f * fv->height * fv->height) * 1.02f;
+        if (v < GC_MAX_VARIANTS) { p->heights[v] = fv->height; p->radii[v] = fv->radius; p->bounds[v] = pv->bound; }
         for (u32 lod = 0; lod < GC_LODS; lod++) {
             mb.vn = mb.tn = 0;
             const u32* idx = findex + fv->first_index[lod];
@@ -443,6 +449,7 @@ static void gc_init(GroundCover* p, Vk* vk, const char* path, const char* shader
             }
             for (u32 i = 0; i < fv->index_count[lod]; i++) remap[idx[i]] = -1;
             meshletize(&ma, &mb, &pv->meshlet_first[lod], &pv->meshlet_count[lod]);
+            if (v < GC_MAX_VARIANTS) { p->tris[v][lod] = mb.tn / 3; p->meshlets[v][lod] = pv->meshlet_count[lod]; }
             tris[lod] += mb.tn / 3;
         }
     }

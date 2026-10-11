@@ -20,6 +20,8 @@
     X(vkCmdBindIndexBuffer) \
     X(vkCmdBindPipeline) \
     X(vkCmdBlitImage) \
+    X(vkCmdCopyImage) \
+    X(vkCmdClearColorImage) \
     X(vkCmdCopyBuffer) \
     X(vkCmdCopyBufferToImage) \
     X(vkCmdCopyImageToBuffer) \

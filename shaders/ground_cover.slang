@@ -102,10 +102,12 @@ void as_gc(uint tid : SV_GroupThreadID, uint3 gid : SV_GroupID)
             }
         }
     }
-    if (imp_bake && all(gid == 0) && tid == 0) {                      // view bake: one instance at the origin
-        meshlets = ps.variants[f.gc_bake_pass].meshlet_count[0];
+    if (imp_bake && all(gid == 0) && tid == 0) {                      // view bake / gallery: one instance at the origin
+        uint rep = f.gallery != 0 ? f.gallery_rep : 0u;                  // mesh LOD 0-2, 3 stripe (4: impostor pipeline)
         s_gc.pos[0] = float4(0, 0, 0, 1);
-        s_gc.info[0] = f.gc_bake_pass | 128u << 24;
+        s_gc.info[0] = f.gc_bake_pass | min(rep, 2u) << 8 | 128u << 24;
+        if (rep == 3u) { s_gc.stripe_slot[0] = 0; s_gc.stripe_count = 1; }
+        else if (rep < 3u) meshlets = ps.variants[f.gc_bake_pass].meshlet_count[rep];
     }
     s_gc.count[tid] = meshlets;
     GroupMemoryBarrierWithGroupSync();
@@ -315,7 +317,12 @@ SceneOut fs_gc(GcVsOut i, bool front : SV_IsFrontFace)
     FrameConstants f = *pc.frame;
     float3 albedo, nm, n;
     float ao;
-    if (!gc_surface(i, front, albedo, nm, n, ao)) discard;
+    bool covered = gc_surface(i, front, albedo, nm, n, ao);
+    if (f.debug_mode == DEBUG_OVERDRAW) return overdraw_out();
+    if (f.debug_mode == DEBUG_ALPHA) return scene_out(f, covered ? float3(1, 1, 1) : float3(0.05, 0.05, 0.05), i.pos, i.prev);
+    if (!covered) discard;
+    if (f.debug_mode == DEBUG_UV) return scene_out(f, float3(frac(i.uv), 0), i.pos, i.prev);
+    if (f.debug_mode == DEBUG_UNLIT) return scene_out(f, albedo * ao, i.pos, i.prev);
     if (f.debug_mode == DEBUG_LOD) albedo = DEBUG_TINT[is_stripe(i) ? 3u : (i.info >> 8) & 255u] * 0.4;
     if (f.debug_mode == DEBUG_NORMALS) return scene_out(f, nm * 0.5 + 0.5, i.pos, i.prev);
     float3 to_cam = normalize(f.cam_pos.xyz - i.rel);
@@ -390,6 +397,17 @@ void as_gc_imp(uint tid : SV_GroupThreadID, uint3 gid : SV_GroupID)
     GcScene ps = *pc.gc;
     if (tid == 0) s_imp.count = 0;
     GroupMemoryBarrierWithGroupSync();
+    if (f.gc_bake.w < 0.0) {                                            // gallery: one impostor at the origin
+        if (f.gallery != 0 && f.gallery_rep == 4u && all(gid == 0) && tid == 0) {
+            s_imp.pos[0] = float4(0, 0, 0, 1);
+            s_imp.widen[0] = 1.0;
+            s_imp.info[0] = f.gc_bake_pass | 128u << 24;
+            s_imp.count = 1;
+        }
+        GroupMemoryBarrierWithGroupSync();
+        DispatchMesh(s_imp.count, 1, 1, s_imp);
+        return;
+    }
     const float ds = f.veg.y, cell = GC_IMP_CELL * ds;                   // the mid field scales with the distance factor
     int cx = f.gc_imp_cell_x + int(gid.x), cz = f.gc_imp_cell_z + int(gid.y);
     float2 cm = (float2(cx, cz) + 0.5) * cell;
@@ -511,7 +529,11 @@ SceneOut fs_gc_imp(GcImpVsOut i)
     float2 g = float2(GC_IMP_FRAME - 1.0, GC_IMP_FRAME - 1.0) / GC_IMP_ATLAS;
     SamplerState smp = g_samplers[SAMPLER_LINEAR_CLAMP];
     float4 c = g_textures[TEX_IMPOSTOR].SampleGrad(smp, auv, ddx(i.uv) * g, ddy(i.uv) * g);
+    if (f.debug_mode == DEBUG_OVERDRAW) return overdraw_out();
+    if (f.debug_mode == DEBUG_ALPHA) return scene_out(f, c.a >= 0.5 ? float3(1, 1, 1) : float3(0.05, 0.05, 0.05), i.pos, i.prev);
     if (c.a < 0.5) discard;
+    if (f.debug_mode == DEBUG_UV) return scene_out(f, float3(i.uv, 0), i.pos, i.prev);
+    if (f.debug_mode == DEBUG_UNLIT) return scene_out(f, c.rgb / c.a, i.pos, i.prev);
     float4 s = g_textures[TEX_IMPOSTOR + 1].SampleGrad(smp, auv, ddx(i.uv) * g, ddy(i.uv) * g);
     float yaw = float((i.info >> 16) & 255u) / 256.0 * 6.2831853;
     float cy = cos(yaw), sy = sin(yaw);
