@@ -14,7 +14,7 @@ static const char* USAGE =
     "  --notrees, --nocover      start with trees / ground cover off (A/B timing);\n"
     "                            --notaa: no temporal anti-aliasing; --noshadows: no sun shadows\n"
     "  --cover FILE              cooked ground cover (default data/cooked/ground_cover.vgc, see cook_ground_cover)\n"
-    "  --treedist M              tree draw distance in m (default 3000); --coverdist F: ground-cover distance factor (default 2)\n"
+    "  --treedist M              tree draw distance in m (default 3000); --coverdist F: ground-cover distance factor (default 1)\n"
     "\n"
     "controls: click = capture mouse, Esc = release (again = quit), WASD move, Q/E down/up (Space = up),\n"
     "  Shift x8, Ctrl x1/8, wheel = speed, camera presets Z lying, X standing, F free (G toggles), C crouch, 1-4 shaded/LOD/contours/normals, L wireframe,\n"
@@ -63,7 +63,7 @@ int main(int argc, char** argv)
     bool validation = false, vsync = true, have_cam = false, wire = false, cover_wire = false, hidpi = false, trees = true, cover = true, taa = true, shadows = true;
     u32 debug_mode = 0;
     i32 stance = -1;
-    f32 tree_dist = 3000.0f, cover_dist = 2.0f;
+    f32 tree_dist = 3000.0f, cover_dist = 1.0f;
     f64 cam_args[5] = {};
 #ifdef VR_DEBUG
     validation = true;
@@ -209,6 +209,7 @@ int main(int argc, char** argv)
         in.down = k[SDL_SCANCODE_Q];
         in.fast = k[SDL_SCANCODE_LSHIFT] || k[SDL_SCANCODE_RSHIFT];
         in.slow = k[SDL_SCANCODE_LCTRL] || k[SDL_SCANCODE_RCTRL];
+        if (max_frames) in = {};    // --frames runs are benchmarks: deterministic camera, no input
 
         u64 now = SDL_GetPerformanceCounter();
         f32 dt = MIN((f32)((f64)(now - last) / freq), 0.1f);

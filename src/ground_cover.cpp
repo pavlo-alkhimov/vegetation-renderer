@@ -5,10 +5,10 @@
 
 static_assert(sizeof(GcVariant) == 48 && sizeof(GcSpecies) == 48, "GPU struct size");
 
-// Placement and look per Poly Haven asset. Density in cover per m² for meadow / forest edge / forest floor (the
+// Placement and look per Poly Haven asset. Density in instances per m² for meadow / forest edge / forest floor (the
 // habitat weights come from the vegetation mask, shaders/ground_cover.slang). The assets are small (grass tufts
-// 0.04-0.4 m, young nettles 0.2 m), so the scale ranges bring them to meadow size. Species with a draw distance up to
-// GC_NEAR_DISTANCE are placed in the dense near layer.
+// 0.04-0.4 m, young nettles 0.2 m), so the scale ranges bring them to meadow size. distance = reach of the mid range
+// (stripes); species reaching up to GC_TALL_REACH are placed in the dense layer 0, the tall ones in layer 1.
 static const struct {
     const char* name;
     f32 meadow, edge, floor;
@@ -16,12 +16,12 @@ static const struct {
     f32 distance;           // m
     f32 wind;
 } GC_RULES[] = {
-    {"grass_medium_01",  60.0f, 30.0f, 4.0f, 1.2f, 2.2f, 15.0f, 0.9f},
-    {"grass_medium_02",  28.0f, 14.0f, 2.0f, 1.0f, 1.8f, 15.0f, 0.9f},
-    {"weed_plant_02",     2.0f,  2.0f, 1.0f, 1.0f, 1.5f, 15.0f, 0.4f},
-    {"celandine_01",      0.0f,  3.0f, 8.0f, 0.8f, 1.2f, 15.0f, 0.3f},
-    {"periwinkle_plant",  0.0f,  1.0f, 6.0f, 0.5f, 0.8f, 15.0f, 0.3f},
-    {"dandelion_01",      1.5f,  0.5f, 0.0f, 1.0f, 1.6f, 30.0f, 0.4f},
+    {"grass_medium_01",  60.0f, 30.0f, 4.0f, 1.2f, 2.2f, 25.0f, 0.9f},
+    {"grass_medium_02",  28.0f, 14.0f, 2.0f, 1.0f, 1.8f, 25.0f, 0.9f},
+    {"weed_plant_02",     2.0f,  2.0f, 1.0f, 1.0f, 1.5f, 25.0f, 0.4f},
+    {"celandine_01",      0.0f,  3.0f, 8.0f, 0.8f, 1.2f, 25.0f, 0.3f},
+    {"periwinkle_plant",  0.0f,  1.0f, 6.0f, 0.5f, 0.8f, 25.0f, 0.3f},
+    {"dandelion_01",      1.5f,  0.5f, 0.0f, 1.0f, 1.6f, 25.0f, 0.4f},
     {"nettle_plant",      0.0f,  1.5f, 0.3f, 3.0f, 5.0f, 40.0f, 0.5f},
     {"fern_02",           0.0f,  1.0f, 1.5f, 1.8f, 2.6f, 40.0f, 0.5f},
 };
@@ -34,7 +34,8 @@ typedef struct {
     VkBuf scene, variant_buf, species_buf, meshlet_buf, vertex_buf, triangle_buf;
     VkPipeline pipeline;
     VkTex bake[GC_HABITATS][2];     // baked top view per habitat: colour (premultiplied, a = coverage), surface
-    VkTex impostor[2];              // mid-field impostor atlas: colour (premultiplied), normal
+    VkTex impostor[2];              // far-range impostor atlas: colour (premultiplied), normal
+    VkTex stripe[2];                // mid-range stripe side-view atlas: colour (premultiplied), normal
     VkPipeline pipe_imp;
     VkPipeline wire, wire_imp;      // wireframe variants (if the device supports line fill), N key
     u32 imp_cells;                  // per frame: mid-field dispatch side
@@ -212,36 +213,25 @@ static void gc_bake(GroundCover* p, Vk* vk, const char* shader_dir)
     vkDestroyPipeline(vk->device, pipe, NULL);
 }
 
-// Mid-field impostors: per variant GC_IMP_FRAMES^2 orthographic views of the upper hemisphere (hemi-octahedral
-// directions, as hemioct_decode / imp_basis in ground_cover.slang), rendered with the near-field shaders into one
-// atlas: colour premultiplied by coverage + normal in the instance frame. Mips only down to 2 px per frame.
-static void gc_bake_impostors(GroundCover* p, Vk* vk, const char* shader_dir, u32 variant_count, const GcVariant* variants)
+// Views of every variant rendered with the near-field shaders into one atlas (impostors, stripe side views): per
+// variant `dir_count` orthographic views along `dirs` (instance frame, towards the viewer; basis as imp_basis in
+// ground_cover.slang), each framing the bounding sphere around (0, height / 2, 0), or with 	ight (horizontal side views of the
+// stripes) the plant's own width and height (gc_stripe_extent; no transparent margin to overdraw). Frames in reading order: frame
+// variant * dir_count + k at column fi % (width / frame), row fi / (width / frame). Colour premultiplied by
+// coverage, normal in the instance frame; mips down to 2 px per frame. out[2] bound at tex_slot, tex_slot + 1.
+static void gc_bake_views(GroundCover* p, Vk* vk, VkPipeline pipe, u32 variant_count, const GcVariant* variants, const v3* dirs,
+                          u32 dir_count, u32 frame_px, u32 width, u32 height, u32 mips, VkTex out[2], u32 tex_slot, bool tight)
 {
-    char path[1024];
-    snprintf(path, sizeof(path), "%sveg_gc_task.spv", shader_dir);
-    VkShaderModule task = vk_load_shader(vk, path);
-    snprintf(path, sizeof(path), "%sveg_gc.spv", shader_dir);
-    VkShaderModule mesh = vk_load_shader(vk, path);
-    PipelineDesc d = {mesh, NULL, "fs_gc_imp_bake", VK_COMPARE_OP_GREATER, true, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, "as_gc", "ms_gc", task};
     const VkFormat formats[2] = {VK_FORMAT_R8G8B8A8_SRGB, VK_FORMAT_R8G8B8A8_UNORM};
-    d.color_count = 2;
-    d.color_formats[0] = formats[0];
-    d.color_formats[1] = formats[1];
-    d.with_depth = true;
-    VkPipeline pipe = vk_create_pipeline(vk, &d);
-    vkDestroyShaderModule(vk->device, task, NULL);
-    vkDestroyShaderModule(vk->device, mesh, NULL);
-
-    const u32 size = GC_IMP_ATLAS, mips = 6;               // 64 px frames -> 2 px
-    VkTarget depth = vk_target(vk, DEPTH_FORMAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_IMAGE_ASPECT_DEPTH_BIT, {size, size});
+    VkTarget depth = vk_target(vk, DEPTH_FORMAT, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_IMAGE_ASPECT_DEPTH_BIT, {width, height});
     VkImageView attach[2];
     for (u32 k = 0; k < 2; k++) {
-        VkTex* t = &p->impostor[k];
+        VkTex* t = &out[k];
         t->mips = mips;
         VkImageCreateInfo ci = {VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO};
         ci.imageType = VK_IMAGE_TYPE_2D;
         ci.format = formats[k];
-        ci.extent = {size, size, 1};
+        ci.extent = {width, height, 1};
         ci.mipLevels = mips;
         ci.arrayLayers = 1;
         ci.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -271,50 +261,49 @@ static void gc_bake_impostors(GroundCover* p, Vk* vk, const char* shader_dir, u3
     fc->cover = {p->grass_color.x, p->grass_color.y, p->grass_color.z, GC_GREENNESS};
     fc->gc_bake = {0, 0, 0, -1};
     ViewConstants* views = (ViewConstants*)((u8*)vk->frames[0].upload.mapped + UPLOAD_NODES_OFFSET);
-    const u32 N = GC_IMP_FRAMES;
+    const u32 cols = width / frame_px;
 
     VkCommandBuffer cmd = vk_begin_once(vk);
     for (u32 k = 0; k < 2; k++)
-        vk_image_barrier(cmd, p->impostor[k].image, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, VK_PIPELINE_STAGE_2_NONE, 0, VK_IMAGE_LAYOUT_UNDEFINED,
+        vk_image_barrier(cmd, out[k].image, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, VK_PIPELINE_STAGE_2_NONE, 0, VK_IMAGE_LAYOUT_UNDEFINED,
                          VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     vk_image_barrier(cmd, depth.image, VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, VK_PIPELINE_STAGE_2_NONE, 0, VK_IMAGE_LAYOUT_UNDEFINED,
                      VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT, VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
                      VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL);
     vk_end_once(vk);
-    for (u32 var = 0; var < variant_count && var < GC_IMP_GRID * GC_IMP_GRID; var++) {
+    for (u32 var = 0; var < variant_count; var++) {
+        if ((var + 1) * dir_count > cols * (height / frame_px)) break;      // atlas full
         const GcVariant* pv = &variants[var];
         fc->gc_bake_pass = var;
-        f32 r = pv->bound;
+        f32 r = pv->bound, rx = r, ry = r;
+        if (tight) { rx = pv->radius * 1.04f + 0.005f; ry = pv->height * 0.52f + 0.005f; }
         v3 c = v3_make(0, pv->height * 0.5f, 0);
-        for (u32 j = 0; j < N; j++)
-            for (u32 i = 0; i < N; i++) {
-                f32 ex = (i + 0.5f) / N * 2 - 1, ey = (j + 0.5f) / N * 2 - 1;
-                f32 tx = (ex + ey) * 0.5f, tz = (ex - ey) * 0.5f;          // hemioct_decode
-                v3 dir = v3_norm(v3_make(tx, 1.0f - fabsf(tx) - fabsf(tz), tz));
-                v3 fwd = v3_scale(dir, -1);
-                v3 rr = v3_cross(v3_make(0, 1, 0), fwd);
-                v3 right = v3_dot(rr, rr) > 1e-6f ? v3_norm(rr) : v3_make(1, 0, 0);
-                v3 up = v3_cross(fwd, right);
-                ViewConstants* vc = &views[j * N + i];
-                memset(vc, 0, sizeof(*vc));
-                vc->view_proj[0] = {right.x / r, right.y / r, right.z / r, -v3_dot(right, c) / r};
-                vc->view_proj[1] = {-up.x / r, -up.y / r, -up.z / r, v3_dot(up, c) / r};
-                vc->view_proj[2] = {-fwd.x * 0.5f / r, -fwd.y * 0.5f / r, -fwd.z * 0.5f / r, 0.5f + v3_dot(fwd, c) * 0.5f / r};
-                vc->view_proj[3] = {0, 0, 0, 1};
-                memcpy(vc->prev_view_proj, vc->view_proj, sizeof(vc->view_proj));
-                for (u32 q = 0; q < 6; q++) vc->planes[q] = {0, 0, 0, 1};
-            }
+        for (u32 k = 0; k < dir_count; k++) {
+            v3 fwd = v3_scale(v3_norm(dirs[k]), -1);
+            v3 rr = v3_cross(v3_make(0, 1, 0), fwd);
+            v3 right = v3_dot(rr, rr) > 1e-6f ? v3_norm(rr) : v3_make(1, 0, 0);
+            v3 up = v3_cross(fwd, right);
+            ViewConstants* vc = &views[k];
+            memset(vc, 0, sizeof(*vc));
+            vc->view_proj[0] = {right.x / rx, right.y / rx, right.z / rx, -v3_dot(right, c) / rx};
+            vc->view_proj[1] = {-up.x / ry, -up.y / ry, -up.z / ry, v3_dot(up, c) / ry};
+            vc->view_proj[2] = {-fwd.x * 0.5f / r, -fwd.y * 0.5f / r, -fwd.z * 0.5f / r, 0.5f + v3_dot(fwd, c) * 0.5f / r};
+            vc->view_proj[3] = {0, 0, 0, 1};
+            memcpy(vc->prev_view_proj, vc->view_proj, sizeof(vc->view_proj));
+            for (u32 q = 0; q < 6; q++) vc->planes[q] = {0, 0, 0, 1};
+        }
         cmd = vk_begin_once(vk);
         vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, vk->pipeline_layout, 0, 1, &vk->set, 0, NULL);
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
-        for (u32 f = 0; f < N * N; f++) {
-            u32 x0 = ((var % GC_IMP_GRID) * N + f % N) * GC_IMP_FRAME, y0 = ((var / GC_IMP_GRID) * N + f / N) * GC_IMP_FRAME;
+        for (u32 k = 0; k < dir_count; k++) {
+            u32 fi = var * dir_count + k;
+            u32 x0 = (fi % cols) * frame_px, y0 = (fi / cols) * frame_px;
             VkRenderingAttachmentInfo color[2] = {{VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO}, {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO}};
-            for (u32 k = 0; k < 2; k++) {
-                color[k].imageView = attach[k];
-                color[k].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-                color[k].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-                color[k].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+            for (u32 q = 0; q < 2; q++) {
+                color[q].imageView = attach[q];
+                color[q].imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+                color[q].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+                color[q].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
             }
             color[1].clearValue.color = {{0.5f, 1.0f, 0.5f, 0.0f}};          // up-facing normal
             VkRenderingAttachmentInfo da = {VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO};
@@ -323,18 +312,18 @@ static void gc_bake_impostors(GroundCover* p, Vk* vk, const char* shader_dir, u3
             da.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
             da.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
             VkRenderingInfo ri = {VK_STRUCTURE_TYPE_RENDERING_INFO};
-            ri.renderArea = {{(i32)x0, (i32)y0}, {GC_IMP_FRAME, GC_IMP_FRAME}};
+            ri.renderArea = {{(i32)x0, (i32)y0}, {frame_px, frame_px}};
             ri.layerCount = 1;
             ri.colorAttachmentCount = 2;
             ri.pColorAttachments = color;
             ri.pDepthAttachment = &da;
             vkCmdBeginRendering(cmd, &ri);
-            VkViewport vp = {(f32)x0, (f32)y0, (f32)GC_IMP_FRAME, (f32)GC_IMP_FRAME, 0, 1};
+            VkViewport vp = {(f32)x0, (f32)y0, (f32)frame_px, (f32)frame_px, 0, 1};
             vkCmdSetViewport(cmd, 0, 1, &vp);
             vkCmdSetScissor(cmd, 0, 1, &ri.renderArea);
             PushConstants pcs = {};
             pcs.frame = vk->frames[0].upload.address;
-            pcs.view = vk->frames[0].upload.address + UPLOAD_NODES_OFFSET + f * sizeof(ViewConstants);
+            pcs.view = vk->frames[0].upload.address + UPLOAD_NODES_OFFSET + k * sizeof(ViewConstants);
             pcs.gc = p->scene.address;
             vkCmdPushConstants(cmd, vk->pipeline_layout, VK_SHADER_STAGE_ALL, 0, sizeof(pcs), &pcs);
             vkCmdDrawMeshTasksEXT(cmd, 1, 1, 1);
@@ -344,7 +333,7 @@ static void gc_bake_impostors(GroundCover* p, Vk* vk, const char* shader_dir, u3
     }
     cmd = vk_begin_once(vk);
     for (u32 k = 0; k < 2; k++) {
-        VkImage img = p->impostor[k].image;
+        VkImage img = out[k].image;
         vk_image_barrier(cmd, img, VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
                          VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
         vk_image_barrier(cmd, img, VK_IMAGE_ASPECT_COLOR_BIT, 1, mips - 1, VK_PIPELINE_STAGE_2_NONE, 0, VK_IMAGE_LAYOUT_UNDEFINED,
@@ -352,9 +341,9 @@ static void gc_bake_impostors(GroundCover* p, Vk* vk, const char* shader_dir, u3
         for (u32 m = 1; m < mips; m++) {
             VkImageBlit b = {};
             b.srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, m - 1, 0, 1};
-            b.srcOffsets[1] = {(i32)(size >> (m - 1)), (i32)(size >> (m - 1)), 1};
+            b.srcOffsets[1] = {(i32)(width >> (m - 1)), (i32)(height >> (m - 1)), 1};
             b.dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, m, 0, 1};
-            b.dstOffsets[1] = {(i32)(size >> m), (i32)(size >> m), 1};
+            b.dstOffsets[1] = {(i32)(width >> m), (i32)(height >> m), 1};
             vkCmdBlitImage(cmd, img, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, img, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &b, VK_FILTER_LINEAR);
             vk_image_barrier(cmd, img, VK_IMAGE_ASPECT_COLOR_BIT, m, 1, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_WRITE_BIT,
                              VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_2_BLIT_BIT, VK_ACCESS_2_TRANSFER_READ_BIT, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
@@ -365,14 +354,44 @@ static void gc_bake_impostors(GroundCover* p, Vk* vk, const char* shader_dir, u3
     vk_end_once(vk);
     for (u32 k = 0; k < 2; k++) {
         vkDestroyImageView(vk->device, attach[k], NULL);
-        vk_bind_texture(vk, TEX_IMPOSTOR + k, p->impostor[k].view);
+        vk_bind_texture(vk, tex_slot + k, out[k].view);
     }
     vkDestroyImageView(vk->device, depth.view, NULL);
     vkDestroyImage(vk->device, depth.image, NULL);
     vkFreeMemory(vk->device, depth.memory, NULL);
-    vkDestroyPipeline(vk->device, pipe, NULL);
 }
 
+// Far-range impostors (GC_IMP_FRAMES^2 hemi-octahedral directions, as hemioct_decode in ground_cover.slang) and mid-range
+// stripe side views (from +z and +x, matching the two strips of stripe_vertex).
+static void gc_bake_variant_views(GroundCover* p, Vk* vk, const char* shader_dir, u32 variant_count, const GcVariant* variants)
+{
+    char path[1024];
+    snprintf(path, sizeof(path), "%sveg_gc_task.spv", shader_dir);
+    VkShaderModule task = vk_load_shader(vk, path);
+    snprintf(path, sizeof(path), "%sveg_gc.spv", shader_dir);
+    VkShaderModule mesh = vk_load_shader(vk, path);
+    PipelineDesc d = {mesh, NULL, "fs_gc_imp_bake", VK_COMPARE_OP_GREATER, true, VK_CULL_MODE_NONE, VK_POLYGON_MODE_FILL, "as_gc", "ms_gc", task};
+    d.color_count = 2;
+    d.color_formats[0] = VK_FORMAT_R8G8B8A8_SRGB;
+    d.color_formats[1] = VK_FORMAT_R8G8B8A8_UNORM;
+    d.with_depth = true;
+    VkPipeline pipe = vk_create_pipeline(vk, &d);
+    vkDestroyShaderModule(vk->device, task, NULL);
+    vkDestroyShaderModule(vk->device, mesh, NULL);
+
+    const u32 N = GC_IMP_FRAMES;
+    v3 dirs[GC_IMP_FRAMES * GC_IMP_FRAMES];
+    for (u32 j = 0; j < N; j++)
+        for (u32 i = 0; i < N; i++) {
+            f32 ex = (i + 0.5f) / N * 2 - 1, ey = (j + 0.5f) / N * 2 - 1;
+            f32 tx = (ex + ey) * 0.5f, tz = (ex - ey) * 0.5f;              // hemioct_decode
+            dirs[j * N + i] = v3_norm(v3_make(tx, 1.0f - fabsf(tx) - fabsf(tz), tz));
+        }
+    gc_bake_views(p, vk, pipe, variant_count, variants, dirs, N * N, GC_IMP_FRAME, GC_IMP_ATLAS, GC_IMP_ATLAS, 6, p->impostor, TEX_IMPOSTOR, false);
+    const v3 side[2] = {v3_make(0, 0, 1), v3_make(1, 0, 0)};
+    gc_bake_views(p, vk, pipe, variant_count, variants, side, 2, GC_STRIPE_FRAME, GC_STRIPE_ATLAS_W, GC_STRIPE_ATLAS_H, 6, p->stripe, TEX_STRIPE, true);
+    vkDestroyPipeline(vk->device, pipe, NULL);
+}
 // path: cooked file; shader_dir with trailing separator. Leaves p->enabled false if the file or mesh shaders are
 // missing.
 static void gc_init(GroundCover* p, Vk* vk, const char* path, const char* shader_dir)
@@ -454,7 +473,7 @@ static void gc_init(GroundCover* p, Vk* vk, const char* path, const char* shader
         p->max_distance = MAX(p->max_distance, ps->shape.z);
         const u8* t = ftex + tex_bytes * 2 * s;
         // Meadow grasses (dense, short draw distance) follow the meadow height field and define the grass colour.
-        if (ps->shape.z <= GC_NEAR_DISTANCE && ps->habitat.x >= 5.0f) {
+        if (ps->shape.z <= GC_TALL_REACH && ps->habitat.x >= 5.0f) {
             ps->habitat.w += 2.0f;
             // Mean over the living blades (opaque, green) of mip 2; the scans also contain bleached blades.
             const u8* m = t + (size_t)h->tex_size * h->tex_size * 4 + (size_t)(h->tex_size / 2) * (h->tex_size / 2) * 4;
@@ -511,8 +530,8 @@ static void gc_init(GroundCover* p, Vk* vk, const char* path, const char* shader
     }
     u64 t1 = SDL_GetPerformanceCounter();
     gc_bake(p, vk, shader_dir);
-    gc_bake_impostors(p, vk, shader_dir, p->variant_count, variants);
-    printf("ground cover: baked top views (%u habitats, %u^2 per %.0f m tile) and %u impostors (%u^2 atlas), %.0f ms\n", GC_HABITATS,
+    gc_bake_variant_views(p, vk, shader_dir, p->variant_count, variants);
+    printf("ground cover: baked top views (%u habitats, %u^2 per %.0f m tile) and %u impostors (%u^2 atlas) + stripe side views, %.0f ms\n", GC_HABITATS,
            GC_BAKE_SIZE, GC_BAKE_TILE, MIN(p->variant_count, (u32)(GC_IMP_GRID * GC_IMP_GRID)), GC_IMP_ATLAS,
            (SDL_GetPerformanceCounter() - t1) * 1000.0 / SDL_GetPerformanceFrequency());
     free(variants);
@@ -525,7 +544,7 @@ static void gc_init(GroundCover* p, Vk* vk, const char* path, const char* shader
 // dispatch stays the same size (fewer, wider impostors per m² far out).
 static void gc_frame(GroundCover* p, const f64 cam_local[3], f32 scale, FrameConstants* fc)
 {
-    f32 radius[GC_LAYERS] = {(f32)GC_NEAR_DISTANCE * scale, 45.0f * scale};
+    f32 radius[GC_LAYERS] = {(f32)GC_MID_DISTANCE * scale, 45.0f * scale};
     p->cells = 0;
     for (u32 l = 0; l < GC_LAYERS; l++) {
         u32 n = 2 * (u32)ceilf(radius[l] / GC_LAYER_CELL[l]) + 2;

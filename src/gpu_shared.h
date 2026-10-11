@@ -36,6 +36,7 @@ struct TerrainNode {
 #define TEX_COVER   40      // baked ground-cover top view per habitat h (meadow, edge, floor): TEX_COVER + 2h colour
                             // (sRGB, premultiplied by coverage, a = coverage), + 2h + 1 surface (normal xz, height, -)
 #define TEX_IMPOSTOR 46     // ground-cover impostor atlas: colour (sRGB, premultiplied, a = coverage), + 1 normal
+#define TEX_STRIPE   48     // ground-cover stripe side-view atlas: colour (sRGB, premultiplied), + 1 normal (instance frame)
 #define TEX_SCENE   64      // frame targets (recreated with the swapchain): scene colour (tonemapped, RGBA16F),
 #define TEX_MOTION  65      // motion (uv of this frame - uv of the previous frame, RG16F),
 #define TEX_DEPTH   66      // depth (D32, reversed Z),
@@ -109,7 +110,17 @@ struct TreeChunk {                  // ≤ TREE_CHUNK consecutive instances of o
 #define GC_MAX_SPECIES   16
 #define GC_CELL_SLOTS    32
 #define GC_LAYERS        2
-#define GC_NEAR_DISTANCE 16.0    // m; species drawn up to here belong to layer 0
+// Ranges (all x the ground-cover distance factor, FrameConstants.veg.y): near = complete meshes up to GC_NEAR_DISTANCE
+// (interaction, real parallax), mid = two crossed curved stripes with baked side views up to each species' reach
+// (GcSpecies.shape.z, ~GC_MID_DISTANCE), far = impostors to GC_IMP_DISTANCE, then the terrain's baked top view.
+#define GC_NEAR_DISTANCE 3.0     // m: mesh -> stripe switch (dithered +-17 %)
+#define GC_MID_DISTANCE  25.0    // m: end of the dense layer (stripes at full density to ~60 % of it)
+#define GC_TALL_REACH    30.0    // m: species reaching further (nettle, fern) belong to layer 1
+#define GC_LOD_STRIPE    3       // GcVsOut lod value of stripe fragments
+// Stripe side views: 2 per variant (from +z and +x in the instance frame), GC_STRIPE_FRAME px, one atlas.
+#define GC_STRIPE_FRAME  128
+#define GC_STRIPE_ATLAS_W 2048
+#define GC_STRIPE_ATLAS_H 1024
 #define GC_HABITATS      3       // meadow, forest edge, forest floor
 #define GC_BAKE_TILE     6.0     // m, side of the baked top-view tile (a multiple of both layer cells)
 #define GC_BAKE_SIZE     2048    // texels
