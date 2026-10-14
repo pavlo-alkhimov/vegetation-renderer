@@ -61,7 +61,8 @@ conifer foliage and bare twig crowns, where the needles/twigs are sub-pixel but 
 resolved. Branches and trunks stay geometry (rigid parts → no aggregate needed until ~50–190 m).
 
 Costs of large splats: a Gaussian covering many pixels loses the inner detail (needle stripes) → synthesize it in
-the resolve from procedural noise and the normal distribution; partial coverage needs blending or stochastic tests.
+the resolve from procedural noise and the normal distribution; partial coverage is a stochastic test (see "Rendering
+path" below).
 
 ## 2. By view angle
 
@@ -103,14 +104,59 @@ the resolve from procedural noise and the normal distribution; partial coverage 
 | RT / GI | no — triangle proxies (as for all vegetation) |
 | Water reflections | same representation via SSR; RT hits proxies |
 
-## Rendering paths inside the bands
+## Rendering path: stochastic splats, blending only as reference
 
-| Splat footprint | Path |
+**Decision:** splats are rendered as opaque fragments with stochastic coverage at every footprint size, and TAA turns
+the per-frame binary coverage into partial coverage. Blending (weighted-sum OIT, sorted) is kept as an alternative and
+as the correctness reference, not as the runtime path.
+
+Per pixel inside a splat's 3σ quad:
+
+```
+α = o · exp(-½ dᵀ Σ'⁻¹ d)                    projected 2D Gaussian (EWA), as in sorted 3DGS
+keep  ⇔  α > ξ,   ξ = blue-noise(pixel, frame) ⊕ hash(splat id)
+kept  → opaque fragment: depth, payload (vis64 kind 5) or colour, exact motion vector
+```
+
+- **Unbiased:** E[coverage] = α, and with several overlapping splats the nearest kept fragment wins, which is a Monte
+  Carlo estimate of front-to-back compositing (StochasticSplats, ICCV 2025: no sort, no popping, > 4× faster than
+  sorted rasterization at comparable quality; samples per pixel trade cost against noise).
+- **Same mechanism as the rest of the vegetation:** hashed alpha for cards (Wyman & McGuire 2017) and stochastic
+  coverage for voxels and impostors ([06](06-vegetation.md)) already work this way. Splats become one more producer
+  of opaque `vis64` fragments; resolve, deferred lighting, VSM shadows (same test in the shadow pass → fractional
+  shadows after filtering), fog, SSR and depth-based effects need nothing splat-specific.
+- **Motion vectors stay exact:** a kept fragment belongs to one Gaussian, so its motion comes from the wind rig
+  (decision 11) without the approximation of blended motion.
+- **Decorrelation:** ξ must differ between splats covering the same pixel (hash of the splat id), otherwise their
+  coverage is correlated and the composite is wrong. Spatially stratified noise (blue noise, rotated per frame with
+  the TAA jitter) keeps even a single frame looking like fine dither instead of white noise.
+
+| Path | Role |
 |---|---|
-| ≤ ~2 px | stochastic coverage (`hash < α`) into `vis64` kind 5 → standard resolve and deferred lighting (same as voxels) |
-| > ~2 px | sort-free weighted-sum blending (ICLR 2025: no sorting, no popping), forward-shaded with VSM, sky, radiance cache and fog; composited before TAA |
+| Stochastic, 1 sample per pixel + TAA | runtime, all footprints inside the bands |
+| Stochastic, 2–4 samples per pixel | where history is invalid (disocclusion, camera cuts); photo mode |
+| Weighted-sum OIT (ICLR 2025), forward-shaded before TAA | fallback for large, uniformly low-α splats if their stochastic noise is unacceptable |
+| Sorted alpha blending | correctness reference: matches SuperSplat/SIBR pixel for pixel; offline comparisons |
 
-Sorted 3DGS blending is not needed. Foliage colours are similar, so order-independent blending errors stay small.
+### Field evidence: Broken Arrow (2025, Unity 6)
+
+Screenshots of the RTS (shared October 2026, not a published breakdown) show the technique and its failure mode at
+once. Outside smoke the tree crowns look soft, without card or polygon edges: coverage is stochastic per pixel and TAA
+averages it. Inside a moving smoke cloud the same crowns appear as an even, pixel-fine stipple whose density follows
+crown opacity (solid cores, sparse rims): the smoke changes every frame, TAA rejects the history there, and the raw
+single-frame coverage becomes visible. Reviews of the game report smearing and flicker on vegetation, consistent with
+history rejection elsewhere.
+
+### Failure modes and mitigations
+
+| Cause | Effect | Mitigation |
+|---|---|---|
+| History rejected: disocclusion, camera cut, fast motion | raw dither visible for a few frames | blue-noise ξ (looks like ordered dither, not noise); 2–4 samples per pixel where history is invalid |
+| Transparent particles (smoke, dust) over foliage | history of the opaque layer rejected under the particles (the Broken Arrow case) | TAA on the opaque layer only; particles composited after the resolve or excluded from history rejection; no "reactive mask" that resets the foliage history beneath |
+| Animated foliage | ghosting or rejection | exact motion vectors from the stateless wind rig |
+| Uniformly low α (thin far haze) | slow convergence, visible noise | fit fewer, more opaque Gaussians (minimum α constraint in fitting), or the OIT fallback for those splats |
+| Correlated ξ between splats | wrong (too high or too low) combined coverage | per-splat hash in ξ |
+| Overdraw | every candidate fragment pays the Gaussian test | 3σ quads clipped where α < 1/255; the test is a branch before the depth/payload write (SW raster) or a discard (HW) |
 
 ## Cost estimates (to be measured)
 
@@ -143,6 +189,8 @@ Sorted 3DGS blending is not needed. Foliage colours are similar, so order-indepe
 1. **Conifer foliage band** (10–200 m): geometric needles vs material Gaussians per spray (vs alpha-card baseline).
 2. **Winter twig band**: geometric twigs vs elongated twig-haze Gaussians on geometric branches.
 3. **Far field**: impostors vs voxels vs tree-level Gaussians.
+4. **Splat rendering path**: stochastic (1 and 4 samples per pixel) vs weighted-sum OIT vs sorted reference, static and
+   under camera motion, wind and smoke particles in front.
 
 Metrics for all: FLIP vs path-traced reference, temporal stability with wind, ms, MB. Shared infrastructure: fitting
 (Slang autodiff), splat rasterizer, resolve — the extra cost of testing Gaussians is small.
