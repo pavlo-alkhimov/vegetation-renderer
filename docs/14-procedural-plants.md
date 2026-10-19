@@ -16,8 +16,8 @@ algorithms; what they share is the organ library, the texture generators and the
 | Grasses, cereals | parametric blade/tiller/ear model (runtime blades stay per-frame) | blades, ears, panicles | blade colour ramps, no texture needed |
 | Moss, litter, lichen | terrain material layers ([12](12-terrain.md)) | — | procedural terrain layers |
 
-One offline tool (`gen_plants`, C, deterministic per seed) with four modules: growth/structure, organs, textures,
-LOD + output. No third-party tree generator is used at runtime or in the pipeline; existing tools serve as visual
+Implemented as operator families of the recipe system ([15](15-procedural-content.md)), deterministic per seed:
+growth/structure, organs, textures, LOD + output. No third-party tree generator is used at runtime or in the pipeline; existing tools serve as visual
 comparison only.
 
 ## 1. Survey
@@ -144,8 +144,8 @@ sprays, cones, flowers) placed as `PartInstance`s on bones, per-leaf buckets for
 side-car data. Until the M1 cooker and the assembly runtime exist, it writes the baseline runtime format directly
 (meshlets per LOD, parts flattened); see the plan [plans/procedural-plants.md](plans/procedural-plants.md).
 
-Species parameter files are text (`assets/species/<name>.species`, key = value), versioned in the repository; seeds
-make every variant reproducible bit for bit.
+Species are recipes of the procedural content system ([15](15-procedural-content.md)): `assets/recipes/<name>.recipe`,
+versioned in the repository, the generators above as operators; seeds make every variant reproducible bit for bit.
 
 ## 6. Validation
 

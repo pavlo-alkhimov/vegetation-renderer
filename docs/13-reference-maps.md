@@ -82,6 +82,10 @@ rounded down (e.g. `gdaltransform -s_srs EPSG:4326 -t_srs EPSG:25832` with lon l
 
 ## How it feeds the cooker
 
+Decision ([15](15-procedural-content.md), option b + c): procedural recipes are the default source of content; the data
+below enters only through optional import operators and as statistics (committed numbers) for recipe parameters and
+validation. The steps describe the import path.
+
 1. **Terrain:** DTM → 257² `u16` tiles per 256 m cell, base altitude per cell; Copernicus DEM for the far ring
    ([12](12-terrain.md)).
 2. **Trees:** LiDAR point clouds (vegetation classes) or DSM − DTM → canopy height model → individual tree detection

@@ -42,6 +42,7 @@ Research real-time renderer for dense **temperate vegetation of Central and East
 | 18 | Concealment | Statistical grass occlusion beyond the blade radius, identical for rendering and AI; settings never change information | per-setting grass distance (genre default) | [10](docs/10-milsim-survey.md) |
 | 19 | Terrain | Quadtree heightfield patches (CDLOD morphing) as procedural clusters in the same cull/raster/resolve pipeline; adaptive runtime virtual texture; one shared height function for rendering, grass and gameplay | cooked cluster DAG per cell; Nanite-style landscape | [12](docs/12-terrain.md) |
 | 20 | Coordinates | Render origin snapped to the camera's 256 m cell; all GPU world-space data relative to it, so persistent caches survive camera motion | camera-relative every frame | [02](docs/02-architecture.md) |
+| 21 | Content source | Recipes: graphs of generator operators with parameters and seeds (Werkkzeug-style), plants first; real data only as optional import and as statistics for parameters and validation | downloaded or scanned assets, real geodata as content | [15](docs/15-procedural-content.md) |
 
 ## Viewer: terrain + vegetation baseline (first code)
 
@@ -111,4 +112,5 @@ The window title shows CPU/GPU ms (total and per pass: shadows, terrain, trees, 
 | [12 Terrain](docs/12-terrain.md) | Terrain techniques in the surveyed titles (Enfusion, Far Cry 4/5, Call of Duty, Tsushima, UE5, Unity) and the chosen design |
 | [13 Reference maps](docs/13-reference-maps.md) | Usable large reference terrains: why Reforger/Arma maps are reference-only (licence), open Czech/Polish/Bavarian LiDAR + forest data, candidate regions |
 | [14 Procedural plants](docs/14-procedural-plants.md) | Generating all plants and their textures from code: algorithm per plant class (self-organising growth, whorl rules, L-systems, parametric grasses), bark and leaf texture generators, PROSPECT-D leaf colour, calibration; plan: [plans/procedural-plants.md](docs/plans/procedural-plants.md) |
+| [15 Procedural content](docs/15-procedural-content.md) | Recipes instead of data (Werkkzeug/.kkrieger approach): operator graphs with parameters and seeds, declared once in C, cached by content hash, previewed live; real data only as optional import and statistics; plan: [plans/procedural-content-core.md](docs/plans/procedural-content-core.md) |
 | [References](docs/references.md) | Talks, papers, specs, SDKs |

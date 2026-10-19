@@ -195,6 +195,15 @@ Links were checked in October 2026. Classic papers and talks are cited by title,
 - Inverse procedural materials: MATch (https://cdfg.csail.mit.edu/assets/files/match.pdf), DiffProxy
   (https://github.com/yiwei-hu/DiffProxy), VLMaterial (https://arxiv.org/abs/2501.18623)
 
+## Procedural content (demoscene tools)
+
+- farbrausch — tools and engines 2001–2011 (werkkzeug3, werkkzeug3_kkrieger, Werkkzeug4/altona_wz4, OpenKTG, GenThree,
+  RG2), BSD or public domain per project: https://github.com/farbrausch/fr_public
+- GitHub blog — Ten Years of farbrausch Productions on GitHub (2012):
+  https://github.blog/2012-04-15-ten-years-of-farbrausch-productions-on-github/
+- .kkrieger (96 KB first-person shooter, 2004): https://en.wikipedia.org/wiki/.kkrieger
+- Tooll3 (MIT, real-time procedural motion graphics, node graphs): https://github.com/alixcarolan/t3
+
 ## Geometry and visibility
 
 - C. Burns, W. Hunt — The Visibility Buffer: A Cache-Friendly Approach to Deferred Shading, JCGT 2013.
