@@ -274,7 +274,7 @@ step from §5 replaces one part and is judged against it.
 | Part | Baseline | Replaced by (step) |
 |---|---|---|
 | Placement source | RG8 mask at 4 m (forest density, grass density) from noise in absolute UTM coordinates; terrain colour reads the same mask | real land cover: forest mask + tree heights (DSM − DTM, ESA WorldCover), species from stand data ([13](13-reference-maps.md)) |
-| Tree assets | 5 species × 2 variants generated at load: trunk/branch tubes, broadleaf cards (procedural 6-leaf alpha), needle spray cards (procedural fishbone alpha) | species pipeline: assemblies, twig instancing, per-cluster bones (§5.1) |
+| Tree assets | 5 species × 2 variants generated at load: trunk/branch tubes, broadleaf cards (procedural 6-leaf alpha), needle spray cards (procedural fishbone alpha) | generated species ([14](14-procedural-plants.md)), then assemblies, twig instancing, per-cluster bones (§5.1) |
 | Tree LOD | 4 discrete LODs by projected height (> 400 / 120 / 30 px): full, main branches + bigger cards, trunk + crown blob cards, 3 crossed billboards with procedural silhouette; hard switches | cluster DAG (§5.3), impostors / voxels / Gaussians for the far field (§5.4) |
 | Tree culling | CPU: 256 m cells (frustum + distance) → chunks of 32 instances; task shader: per-instance sphere vs frustum, LOD choice; mesh shader: whole meshlets | two-phase HiZ occlusion culling, per-meshlet cone/sphere culling, visibility buffer (docs/05) |
 | Instances | 3.3 M on a jittered 5.5 m grid in the forest mask (16 B each), solitary trees in meadows; species from stand noise | per-cell streaming, real tree positions |

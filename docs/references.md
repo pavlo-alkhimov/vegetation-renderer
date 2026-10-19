@@ -155,6 +155,46 @@ Links were checked in October 2026. Classic papers and talks are cited by title,
 - TreeScanPL10K: https://www.nature.com/articles/s41597-026-07269-1 ; data: https://zenodo.org/records/19127709
 - Fab transition FAQ (Megascans licence): https://support.fab.com/s/article/Fab-Transition-FAQs?language=en_US
 
+## Procedural plants and textures
+
+- P. Prusinkiewicz, A. Lindenmayer, J. Hanan — Developmental Models of Herbaceous Plants for Computer Imagery Purposes,
+  SIGGRAPH 1988: https://algorithmicbotany.org/papers/developmental.sig1988.html
+- P. Prusinkiewicz, A. Lindenmayer — The Algorithmic Beauty of Plants, Springer 1990.
+- J. Weber, J. Penn — Creation and Rendering of Realistic Trees, SIGGRAPH 1995.
+- A. Runions, B. Lane, P. Prusinkiewicz — Modeling Trees with a Space Colonization Algorithm, 2007:
+  https://www.academia.edu/25999351/Modeling_trees_with_a_space_colonization_algorithm
+- W. Palubicki et al. — Self-organizing tree models for image synthesis, SIGGRAPH 2009:
+  https://www.algorithmicbotany.org/papers/selforg.sig2009.html
+- S. Pirk et al. — Plastic trees: interactive self-adapting botanical tree models, SIGGRAPH 2012:
+  https://history.siggraph.org/?p=110529
+- O. Stava et al. — Inverse Procedural Modelling of Trees, CGF 2014: https://cs.purdue.edu/homes/bbenes/papers/Stava14CGF.pdf
+- X. Zhou et al. — DeepTree: Modeling Trees with Situated Latents, TVCG 2023: https://arxiv.org/abs/2305.05153
+- J. Lee et al. — Tree-D Fusion: simulation-ready tree models from street-level images, ECCV:
+  https://cs.purdue.edu/homes/bbenes/papers/Lee24ECCV.pdf
+- J. Hoetzlein — A Procedural Model for Diverse Tree Species, PCG workshop 2022:
+  https://www.pcgworkshop.com/archive/hoetzlein2022aprocedural.pdf
+- LIGNUM Scots pine parameters (Silva Fennica): https://silvafennica.fi/issue/1413
+- Infinigen (procedural nature generator, BSD-3): https://infinigen.org/
+- The Grove 2.3 (growth-based tree tool): https://digitalproduction.com/2026/03/02/the-grove-2-3/
+- TreeQSM parameter selection (optqsm): https://github.com/apburt/optqsm; TreeQSM application on TLS data:
+  https://isprs-archives.copernicus.org/articles/XLIII-B3-2020/995/2020/
+- A. Runions et al. — Modeling and visualization of leaf venation patterns, SIGGRAPH 2005:
+  https://algorithmicbotany.org/papers/venation.sig2005.html
+- A. Runions — Computational Modeling of Leaf Development and Form (thesis, 2014):
+  https://www.algorithmicbotany.org/papers/runionsa.th2014.html
+- Peyrat et al. — Generating vast varieties of realistic leaves with parametric 2Gmap L-systems, 2008:
+  https://perso.liris.cnrs.fr/egalin/Articles/2008-geometric-leaf.pdf
+- J.-B. Féret et al. — PROSPECT-D: Towards modeling leaf optical properties through a complete lifecycle, RSE 2017:
+  https://agris.fao.org/search/en/records/65e016ff63b8185d9cb136dd; R implementation:
+  https://search.r-project.org/CRAN/refmans/ccrtm/html/prospectd.html
+- S. Lefebvre, F. Neyret — Synthesizing Bark, EGWR 2002: https://diglib.eg.org/handle/10.2312/EGWR.EGWR02.105-116
+- J. Kratt et al. — Woodification: user-controlled cambial growth modeling, CGF 2015:
+  https://cs.purdue.edu/homes/bbenes/papers/Kratt15CGF.pdf
+- Zhou et al. — node-based procedural bark (7 features, 5 species), Geomatics and Information Science of Wuhan
+  University 2025: https://ch.whu.edu.cn/en/article/doi/10.13203/j.whugis20250189
+- Inverse procedural materials: MATch (https://cdfg.csail.mit.edu/assets/files/match.pdf), DiffProxy
+  (https://github.com/yiwei-hu/DiffProxy), VLMaterial (https://arxiv.org/abs/2501.18623)
+
 ## Geometry and visibility
 
 - C. Burns, W. Hunt — The Visibility Buffer: A Cache-Friendly Approach to Deferred Shading, JCGT 2013.

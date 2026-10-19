@@ -110,4 +110,5 @@ The window title shows CPU/GPU ms (total and per pass: shadows, terrain, trees, 
 | [11 Architecture review](docs/11-architecture-review.md) | Adversarial review of 02–05 and its resolution: 16 findings applied, 1 withdrawn, 2 open decisions with defined closing criteria |
 | [12 Terrain](docs/12-terrain.md) | Terrain techniques in the surveyed titles (Enfusion, Far Cry 4/5, Call of Duty, Tsushima, UE5, Unity) and the chosen design |
 | [13 Reference maps](docs/13-reference-maps.md) | Usable large reference terrains: why Reforger/Arma maps are reference-only (licence), open Czech/Polish/Bavarian LiDAR + forest data, candidate regions |
+| [14 Procedural plants](docs/14-procedural-plants.md) | Generating all plants and their textures from code: algorithm per plant class (self-organising growth, whorl rules, L-systems, parametric grasses), bark and leaf texture generators, PROSPECT-D leaf colour, calibration; plan: [plans/procedural-plants.md](docs/plans/procedural-plants.md) |
 | [References](docs/references.md) | Talks, papers, specs, SDKs |
