@@ -79,6 +79,7 @@ table.params input.text { width: 230px; font-family: monospace; }
 .prow input.text { flex: 1; font-family: monospace; }
 .prow .perlod { white-space: nowrap; margin-left: 2px; }
 .prow .perlod input { margin: 0 2px 0 0; vertical-align: middle; }
+.pgrid.separate .pgroup + .pgroup { break-before: column; margin-top: 0; padding-top: 0; border-top: none; }
 .pgrid.magnetic .pgroup { break-inside: avoid; }   /* dropped by the editor when it would need more columns */
 .pgroup + .pgroup { margin-top: 9px; padding-top: 9px; border-top: 1px solid #44474e; }
 .stext span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 6px; min-width: 0; }

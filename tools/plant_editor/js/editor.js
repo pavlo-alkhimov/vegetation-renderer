@@ -468,11 +468,14 @@ function inspector_build(E)
         group.appendChild(tr);
     });
     el.appendChild(tbl);
-    // Groups stay together only while that costs no extra column: if the kept-together layout overflows the panel
-    // width, groups may split. Re-checked whenever the panel changes size.
+    // Layout preference, taking the first that fits the panel width without sideways scrolling: (1) every group starts
+    // its own column, (2) groups kept together ('magnetic'), (3) groups may split. Re-checked on every panel resize.
     const fit = function () {
-        tbl.classList.add('magnetic');
-        if (tbl.scrollWidth > tbl.clientWidth + 1) tbl.classList.remove('magnetic');
+        const over = () => tbl.scrollWidth > tbl.clientWidth + 1;
+        tbl.classList.add('magnetic', 'separate');
+        if (!over()) return;
+        tbl.classList.remove('separate');
+        if (over()) tbl.classList.remove('magnetic');
     };
     fit();
     if (E.fit_obs) E.fit_obs.disconnect();
