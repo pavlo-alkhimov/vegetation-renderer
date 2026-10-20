@@ -8,7 +8,7 @@
 //                Enter cycle enum · Esc back
 
 const CELL_W = 150, CELL_H = 76, CELL_PAD = 7;
-const TYPE_COLORS = { value: '#8a8f99', skeleton: '#8a6a45', organ: '#4f8a3a', placements: '#6f9a4a', mesh: '#3f6f9e', texture: '#7a4f9a', output: '#a98a2c' };
+const TYPE_COLORS = { group: '#5a6070', value: '#8a8f99', skeleton: '#8a6a45', organ: '#4f8a3a', placements: '#6f9a4a', mesh: '#3f6f9e', texture: '#7a4f9a', output: '#a98a2c' };
 
 function editor_init(A, canvas, inspector)
 {
@@ -63,8 +63,29 @@ function editor_select_changed(E)
 function editor_enter(E)
 {
     const n = node_at(E.A.g, E.cur[0], E.cur[1]);
+    if (n && n.op === 'Group') { group_open(E, n); return; }
     if (n) { E.row = -1; editor_set_mode(E, 'edit'); }
     else { E.mode = 'insert'; E.ins_sel = Math.max(0, E.ins_sel); }
+}
+
+// Opens a group: the table shows its members (normal nodes, normally editable); Esc returns.
+function group_open(E, grp)
+{
+    const g = E.A.g;
+    E.top_cur = E.cur.slice(); E.top_scroll = E.scroll.slice();
+    g.level = grp.id;
+    const first = node_find(g, grp.members[0]);
+    E.cur = first ? [first.col, first.row] : [0, 0]; E.scroll = [0, 0];
+    E.insp_node = -1; editor_select_changed(E);
+    editor_msg(E, 'inside ' + grp.name + ' (Esc: back)');
+}
+
+function group_close(E)
+{
+    const g = E.A.g, grp = node_find(g, g.level);
+    g.level = 0;
+    E.cur = grp ? [grp.col, grp.row] : (E.top_cur || [0, 0]); E.scroll = E.top_scroll || [0, 0];
+    E.insp_node = -1; editor_select_changed(E);
 }
 
 // Returns true if the key was handled.
@@ -82,6 +103,7 @@ function editor_key(E, e)
             if (op === 'Output' && graph_output(g)) editor_msg(E, 'there is already an Output node');
             else {
                 const m = node_add(g, op, E.cur[0], E.cur[1]);
+                if (g.level) { m.parent = g.level; node_find(g, g.level).members.push(m.id); }
                 // Random-using nodes get their seed wired to the channel's Seed node, if there is one (visible, editable).
                 if (OPS[op].chan) { const sn = g.nodes.find(q => q.op === 'Inputs'); if (sn) bind(g, REF(sn.id, OPS.Inputs.outs.indexOf(OPS[op].chan)), m.id, 'seed'); } A.changed(true); editor_msg(E, 'added ' + m.name); E.insp_node = -1; editor_select_changed(E); }
             E.mode = 'nav';
@@ -97,6 +119,7 @@ function editor_key(E, e)
         else if (k === 'Enter') {
             const src = node_find(g, E.wire_src);
             if (!n) editor_msg(E, 'no node here');
+            else if (n.op === 'Group') editor_msg(E, 'open the group (Enter) to connect to its members');
             else if (OPS[src.op].out === 'value' && pick_slot(g, E.wire_src, n.id) < 0) {
                 E.bind_list = bindable_params(n.op);
                 if (!E.bind_list.length) editor_msg(E, n.name + ' has no numeric parameters');
@@ -147,12 +170,30 @@ function editor_key(E, e)
         return true;
     }
     if (k === 'Enter') { editor_enter(E); return true; }
+    if (k === 'Escape' && g.level) { group_close(E); return true; }
+    if ((k === 'g' || k === 'G') && n) {
+        if (n.op === 'Group') {                              // ungroup
+            for (const id of n.members.slice()) group_release(g, node_find(g, id));
+            editor_msg(E, 'ungrouped ' + n.name);
+        } else if (g.level) {                                // take this member out of the open group
+            const grp = node_find(g, g.level);
+            group_release(g, n);
+            editor_msg(E, n.name + ' moved out of ' + grp.name);
+            if (!node_find(g, grp.id)) { g.level = 0; E.cur = [n.col, n.row]; }
+        } else {
+            const grp = group_make(g, n);
+            editor_msg(E, grp ? 'grouped ' + grp.members.length + ' ' + n.op + ' nodes into ' + grp.name : 'only one ' + n.op + ' node: nothing to group');
+        }
+        A.changed(true); E.insp_node = -1; editor_select_changed(E); return true;
+    }
     if ((k === 'Delete' || k === 'Backspace') && n) {
+        if (n.op === 'Group') for (const id of n.members.slice()) node_remove(g, id);
         node_remove(g, n.id);
         if (A.preview_id === n.id) A.preview_id = 0;
         editor_msg(E, 'removed ' + n.name); A.changed(true); editor_select_changed(E); return true;
     }
     if ((k === 'c' || k === 'C') && n) {
+        if (n.op === 'Group') { editor_msg(E, 'open the group (Enter) to connect its members'); return true; }
         if (OPS[n.op].out === 'output') { editor_msg(E, 'Output has no output'); return true; }
         if (OPS[n.op].outs) { E.port_node = n.id; E.port_sel = 0; E.mode = 'port'; return true; }
         E.wire_src = n.id; E.mode = 'wire'; editor_msg(E, 'connect ' + n.name + ': move to the target node, Enter'); return true;
@@ -163,6 +204,7 @@ function editor_key(E, e)
         const c = nearest_free_cell(g, n.col + 1, n.row);
         const m = node_add(g, n.op, c[0], c[1]);
         m.p = JSON.parse(JSON.stringify(n.p)); m.ins = n.ins.slice(); m.binds = Object.assign({}, n.binds);
+        if (g.level) { m.parent = g.level; node_find(g, g.level).members.push(m.id); }
         editor_msg(E, 'duplicated as ' + m.name); A.changed(true); return true;
     }
     return false;
@@ -198,39 +240,99 @@ function editor_draw(E)
     x.save();
     x.translate(-E.scroll[0], -E.scroll[1]);
     // Grid.
+    const level = g.level || 0, shown = g.nodes.filter(n => (n.parent || 0) === level);
     let mc = 0, mr = 0;
-    for (const n of g.nodes) { mc = Math.max(mc, n.col); mr = Math.max(mr, n.row); }
+    for (const n of shown) { mc = Math.max(mc, n.col); mr = Math.max(mr, n.row + node_span(n) - 1); }
     const cols = Math.max(mc + 3, Math.ceil((w + E.scroll[0]) / CELL_W)), rows = Math.max(mr + 3, Math.ceil((h + E.scroll[1]) / CELL_H));
     x.strokeStyle = '#2a2c30'; x.lineWidth = 1;
     for (let i = 0; i <= cols; i++) { x.beginPath(); x.moveTo(i * CELL_W + 0.5, 0); x.lineTo(i * CELL_W + 0.5, rows * CELL_H); x.stroke(); }
     for (let j = 0; j <= rows; j++) { x.beginPath(); x.moveTo(0, j * CELL_H + 0.5); x.lineTo(cols * CELL_W, j * CELL_H + 0.5); x.stroke(); }
+    // A node as drawn at this level: itself, or (top level) the group that contains it; null if not visible here.
+    const rep = function (n) {
+        if ((n.parent || 0) === level) return n;
+        if (level === 0) return node_find(g, n.parent);
+        return null;
+    };
+    // Port y of node n on its representative: a member's own line inside a group cell, else the usual port.
+    const line_y = function (r, n) { return r.row * CELL_H + CELL_PAD + 26 + r.members.indexOf(n.id) * 14; };
+    const src_y = function (r, s, ref) { return r === s ? out_y(s, ref) : line_y(r, s); };
+    const dst_y = function (r, n, y) { return r === n ? y : line_y(r, n); };
     // Wires.
     x.lineWidth = 2;
-    for (const n of g.nodes)
+    const seen = new Set();
+    for (const n of g.nodes) {
+        if (n.op === 'Group') continue;
+        const rn = rep(n);
+        if (!rn) continue;
         for (let i = 0; i < n.ins.length; i++) {
             const s = node_find(g, n.ins[i]);
             if (!s) continue;
-            const x0 = s.col * CELL_W + CELL_W - CELL_PAD, y0 = out_y(s, n.ins[i]);
-            const x1 = n.col * CELL_W + CELL_PAD, y1 = n.row * CELL_H + port_y(n.op, i);
+            const rs = rep(s);
+            if (!rs || rs === rn) continue;
+            const x0 = rs.col * CELL_W + CELL_W - CELL_PAD, y0 = src_y(rs, s, n.ins[i]);
+            const x1 = rn.col * CELL_W + CELL_PAD, y1 = dst_y(rn, n, n.row * CELL_H + port_y(n.op, i));
+            const key = x0 + ',' + y0 + ',' + x1 + ',' + y1;
+            if (seen.has(key)) continue;
+            seen.add(key);
             const dx = Math.max(30, Math.abs(x1 - x0) * 0.5);
             x.strokeStyle = TYPE_COLORS[OPS[s.op].out];
             x.beginPath(); x.moveTo(x0, y0); x.bezierCurveTo(x0 + dx, y0, x1 - dx, y1, x1, y1); x.stroke();
         }
-    // Bindings: thin dashed lines from value nodes to the top edge of the bound node.
+    }
+    // Bindings: thin dashed lines from value nodes to the top edge of the bound node (a member's line in a group).
     x.lineWidth = 1; x.setLineDash([3, 3]);
-    for (const n of g.nodes)
+    for (const n of g.nodes) {
+        if (n.op === 'Group') continue;
+        const rn = rep(n);
+        if (!rn) continue;
         for (const k of Object.keys(n.binds)) {
             const s = node_find(g, n.binds[k]);
             if (!s) continue;
-            const x0 = s.col * CELL_W + CELL_W - CELL_PAD, y0 = out_y(s, n.binds[k]);
-            const x1 = n.col * CELL_W + CELL_W / 2, y1 = n.row * CELL_H + CELL_PAD;
+            const rs = rep(s);
+            if (!rs || rs === rn) continue;
+            const x0 = rs.col * CELL_W + CELL_W - CELL_PAD, y0 = src_y(rs, s, n.binds[k]);
+            const x1 = rn === n ? rn.col * CELL_W + CELL_W / 2 : rn.col * CELL_W + CELL_PAD, y1 = rn === n ? rn.row * CELL_H + CELL_PAD : line_y(rn, n);
+            const key = 'b' + x0 + ',' + y0 + ',' + x1 + ',' + y1 + k;
+            if (seen.has(key)) continue;
+            seen.add(key);
             x.strokeStyle = k === 'seed' ? 'rgba(138,143,153,0.35)' : 'rgba(200,205,215,0.8)';
-            x.beginPath(); x.moveTo(x0, y0); x.bezierCurveTo(x0 + 40, y0, x1, y1 - 40, x1, y1); x.stroke();
+            x.beginPath(); x.moveTo(x0, y0);
+            if (rn === n) x.bezierCurveTo(x0 + 40, y0, x1, y1 - 40, x1, y1); else x.bezierCurveTo(x0 + 40, y0, x1 - 40, y1, x1, y1);
+            x.stroke();
         }
+    }
     x.setLineDash([]);
     // Nodes.
-    for (const n of g.nodes) {
+    for (const n of shown) {
         const op = OPS[n.op], bx = n.col * CELL_W + CELL_PAD, by = n.row * CELL_H + CELL_PAD, bw = CELL_W - 2 * CELL_PAD, bh = node_span(n) * CELL_H - 2 * CELL_PAD;
+        if (n.op === 'Group') {
+            // Collapsed group: header with the member type and count, then one line per member: name and its value
+            // (expressions) or status. Enter opens it.
+            const mem = n.members.map(id => node_find(g, id)).filter(m => m);
+            const mop = mem.length ? OPS[mem[0].op] : null;
+            x.fillStyle = '#2d3036'; x.fillRect(bx, by, bw, bh);
+            x.fillStyle = mop ? TYPE_COLORS[mop.out] : TYPE_COLORS.group; x.fillRect(bx, by, bw, 17);
+            x.strokeStyle = mem.some(m => m._err && m._err !== 'skipped') ? '#d0503c' : '#7a7f88'; x.lineWidth = 1;
+            x.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1); x.strokeRect(bx + 2.5, by + 2.5, bw - 5, bh - 5);
+            x.font = 'bold 11px sans-serif'; x.fillStyle = '#f2f2f2'; x.textBaseline = 'middle';
+            x.fillText((mem.length ? mem[0].op : 'group') + ' ×' + mem.length, bx + 6, by + 9);
+            x.font = '11px monospace';
+            mem.forEach(function (m, k) {
+                const y = by + 26 + k * 14;
+
+                let st, col;
+                if (m._err && m._err !== 'skipped') { st = 'error'; col = '#e0705c'; }
+                else if (typeof m._val === 'number') { st = '= ' + (Math.round(m._val * 1000) / 1000); col = '#ffd860'; }
+                else { st = m._ms === undefined ? '' : m._cached ? 'cached' : m._ms.toFixed(1) + 'ms'; col = '#7f8590'; }
+                x.fillStyle = col; x.textAlign = 'right'; x.fillText(st, bx + bw - 6, y); x.textAlign = 'left';
+                // Name, cut with '…' so it never runs into the value.
+                const room = bw - 18 - x.measureText(st).width;
+                let nm = m.name;
+                while (nm.length > 1 && x.measureText(nm).width > room) nm = nm.slice(0, -1);
+                x.fillStyle = '#c8ccd4'; x.fillText(nm === m.name ? nm : nm.slice(0, -1) + '…', bx + 8, y);
+            });
+            continue;
+        }
         x.fillStyle = '#2d3036'; x.fillRect(bx, by, bw, bh);
         x.fillStyle = TYPE_COLORS[op.out]; x.fillRect(bx, by, bw, 17);
         x.strokeStyle = n._err ? '#d0503c' : '#44474e'; x.lineWidth = 1; x.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
@@ -249,11 +351,16 @@ function editor_draw(E)
             }
             continue;
         }
-        x.fillText(n.op + (op.chan ? '  · ' + op.chan : ''), bx + 10, by + 30);
+        // Second line: the operator type (Expr: its expression).
+        const l2 = n.op === 'Expr' ? n.p.expr.v : n.op + (op.chan ? '  · ' + op.chan : '');
+        if (n.op === 'Expr') x.font = '10px monospace';
+        let s2 = l2;
+        while (s2.length > 1 && x.measureText(s2).width > bw - 14) s2 = s2.slice(0, -1);
+        x.fillText(s2 === l2 ? s2 : s2.slice(0, -1) + '…', bx + 10, by + 30);
         x.fillStyle = n._err ? '#e0705c' : n._cached ? '#7f8590' : '#9ad08a';
         const nb = Object.keys(n.binds).filter(k => k !== 'seed').length;
         const st = n._err ? (n._err === 'skipped' ? '' : 'error') : typeof n._val === 'number' ? '= ' + (Math.round(n._val * 1000) / 1000) :
-                   n._ms === undefined ? '' : (n._cached ? 'cached' : n._ms.toFixed(1) + ' ms') + (nb ? '  \u00b7 ' + nb + ' bound' : '');
+                   n._ms === undefined ? '' : (n._cached ? 'cached' : n._ms.toFixed(1) + ' ms') + (nb ? '  · ' + nb + ' bound' : '');
         x.fillText(st, bx + 10, by + bh - 10);
         if (op.out === 'texture' && n._tex) {
             if (!n._tex._thumb) n._tex._thumb = rgba_canvas(n._tex.albedo, n._tex.size);
@@ -311,6 +418,13 @@ function editor_draw(E)
         }
     }
     x.restore();
+    if (level) {
+        const grp = node_find(g, level);
+        const label = 'inside ' + (grp ? grp.name : '?') + '  \u00b7  Esc: back';
+        x.font = 'bold 12px sans-serif'; const tw = x.measureText(label).width;
+        x.fillStyle = 'rgba(61,132,230,0.9)'; x.fillRect(w - tw - 18, 4, tw + 12, 19);
+        x.fillStyle = '#fff'; x.fillText(label, w - tw - 12, 14);
+    }
     if (E.msg && performance.now() - E.msg_t < 4000) {
         x.font = '12px sans-serif'; x.fillStyle = 'rgba(20,20,22,0.85)';
         const tw = x.measureText(E.msg).width;
@@ -329,6 +443,11 @@ function inspector_build(E)
     el.style.visibility = n ? 'visible' : 'hidden';
     if (!n) return;
     const op = OPS[n.op];
+    if (n.op === 'Group') {
+        el.innerHTML = '<div class="insp-head"><b>' + n.name + '</b> <span class="op">Group</span><div class="desc">' + op.desc + '</div><div class="desc">members: ' +
+            n.members.map(id => node_find(A.g, id).name).join(', ') + '</div></div>';
+        return;
+    }
     const head = document.createElement('div');
     head.className = 'insp-head';
     head.innerHTML = '<input class="name" value="' + n.name + '" title="node name (part of the node seed)"> <span class="op">' + n.op + '</span>' +

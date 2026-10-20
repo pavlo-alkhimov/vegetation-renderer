@@ -77,7 +77,7 @@ function evaluate()
     A.out = ro && !ro.err ? ro.val : null;
     let pn = node_find(g, A.preview_id) || outn;
     let rp = pn ? eval_node(g, pn.id, ctx) : null;
-    for (const n of g.nodes) if (!ctx.memo.has(n.id)) eval_node(g, n.id, ctx);     // unconnected nodes still show status
+    for (const n of g.nodes) if (n.op !== 'Group' && !ctx.memo.has(n.id)) eval_node(g, n.id, ctx);     // unconnected nodes still show status
     // Full-screen preview of a mesh: the previewed node at all four LOD levels (node status of the current level kept).
     let lod_meshes = null;
     const ptype = pn ? OPS[pn.op].out : null;
@@ -329,7 +329,7 @@ function ui_init()
 // Key bar along the bottom (as in the terrain viewer): the keys of the current mode, then the viewport mouse.
 const KEYBAR = {
     nav: ['TABLE', ['\u2190\u2191\u2192\u2193', 'move cursor'], ['Ctrl+\u2190\u2192', 'move node'], ['Enter', 'edit / insert'], ['Del', 'remove node'],
-          ['C', 'connect / bind'], ['X', 'disconnect'], ['P', 'preview node'], ['Space', 'full-screen preview'], ['Ctrl+D', 'duplicate'], ['F', 'frame view']],
+          ['C', 'connect / bind'], ['X', 'disconnect'], ['P', 'preview node'], ['Space', 'full-screen preview'], ['Ctrl+D', 'duplicate'], ['G', 'group / ungroup'], ['Esc', 'leave group'], ['F', 'frame view']],
     edit: ['EDIT', ['\u2191\u2193', 'parameter'], ['\u2190\u2192', 'value'], ['Shift', 'step x10'], ['Alt+\u2190\u2192', 'variation'],
            ['U', 'unbind'], ['Enter', 'enum / colour'], ['Esc', 'back to table']],
     wire: ['CONNECT', ['\u2190\u2191\u2192\u2193', 'target node'], ['Enter', 'connect / bind'], ['Esc', 'cancel']],
@@ -362,6 +362,8 @@ function help_text()
             '       (or the node seed) to bind; U in edit mode unbinds. Expr: x y z (inputs), lod; + - * / ^ min max round clamp lerp ...\n' +
             'EDIT   Up/Down: parameter   Left/Right: value (Shift x10)   Alt+Left/Right: variation   Enter: next enum   Esc: back\n' +
             'LOD    [ / ]: LOD level down / up (an engine input: used by expressions via inputs.lod, not stored in the species)\n' +
+            'GROUPS G on a node: group all top-level nodes of its type into one cell (lines: name = value); Enter opens a group,\n' +
+            '       Esc leaves it; G on a group ungroups it, G on a member inside moves it out; Del on a group deletes it with its members\n' +
             'VIEW   left drag: orbit   right drag: pan   wheel: zoom\n\n' +
             'Species = graph + parameter values + variations (saved once: .species).  Instance = seeds (structure, foliage,\n' +
             'texture) - the only per-plant data a level needs.  Effective value = value + variation x random(seed) in [-1, 1).\n\nOPERATORS\n';

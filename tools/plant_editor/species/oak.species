@@ -1,24 +1,26 @@
 # oak - plant editor species (graph + parameters; seeds are separate)
 inputs = Inputs @0,0 c1=12 c2=13 c3=1
-trunk_segments = Expr @1,0 in=inputs.c1,inputs.lod,- expr="max(2, round(x*(1-0.17*y)))"
-trunk_sides = Expr @1,1 in=inputs.c2,inputs.lod,- expr="max(3, round(x*pow(0.65,y)))"
+trunk_segments = Expr @0,0 in=inputs.c1,inputs.lod,- expr="max(2, round(x*(1-0.17*y)))"
+trunk_sides = Expr @0,1 in=inputs.c2,inputs.lod,- expr="max(3, round(x*pow(0.65,y)))"
 trunk = Trunk @2,0 height=18~2 radius=0.45~0.05 taper=1.3~0.1 flare=0.6~0.15 lean=5~3 wobble=0.05~0.02 segments=@trunk_segments sides=@trunk_sides seed=@inputs.structure
-branches1 = Branches @3,0 in=trunk count=12~2 start=0.25~0.04 end=0.9 phyllotaxis=spiral angle=60~8 angle_jitter=20 az_jitter=40 length=0.62~0.06 length_top=0.5 radius=0.55 curvature=0.2~0.08 droop=0.15~0.05 wobble=0.15~0.03 segments=8 max_lod=3 seed=@inputs.structure
-branches2 = Branches @4,0 in=branches1 count=10~1.5 start=0.1 end=0.95 phyllotaxis=spiral angle=55~6 angle_jitter=20 az_jitter=40 length=0.45~0.05 length_top=0.55 radius=0.5 curvature=0.1 droop=0.2~0.05 wobble=0.15 segments=6 max_lod=2 seed=@inputs.structure
-branches3 = Branches @5,0 in=branches2 count=7~1 start=0.1 end=0.95 phyllotaxis=spiral angle=50~5 angle_jitter=20 az_jitter=40 length=0.4~0.04 length_top=0.6 radius=0.6 curvature=0.05 droop=0.1 wobble=0.15 segments=3 max_lod=1 seed=@inputs.structure
-tropism = Tropism @6,0 in=branches3 gravity=0.06~0.02 photo=0.03 order_scale=0.6 seed=@inputs.structure
-prune = Prune @7,0 in=tropism shape=ellipsoid crown_base=0.2~0.04 width=0.55~0.05 mode=shrink min_order=1 min_keep=0.2 seed=@inputs.structure
-wood_sides = Expr @1,2 in=inputs.lod,-,- expr="round(11*pow(0.6485, x))"
-wood_min_radius = Expr @1,3 in=inputs.lod,-,- expr="0.003*pow(1.54202, x)"
-wood = Wood @8,0 in=prune sides=@wood_sides min_radius=@wood_min_radius tile=0.5 seed=@inputs.structure
-merge = Merge @9,0 in=wood,leafmesh,-
-wireframe = Wireframe @10,0 in=merge enabled=off parts=all color=#ffd040
-output = Output @11,0 in=wireframe,barktexture,leaftexture
-leafshape_detail = Expr @1,4 in=inputs.lod,-,- expr="round(6*pow(0.7937, x))"
-leafshape = LeafShape @6,1 outline=lobed length=0.1~0.01 width=0.055~0.005 petiole=0.005 teeth=5 tooth_depth=0.5~0.05 fold=0.1 curl=0.1 detail=@leafshape_detail veins=6 seed=@inputs.foliage
-leaves_density = Expr @1,5 in=inputs.lod,-,- expr="11*pow(0.5, x)"
-leaves_scale = Expr @1,6 in=inputs.lod,-,- expr="1.9*pow(1.41421, x)"
-leaves = Leaves @7,1 in=prune,leafshape orders=2 density=@leaves_density start=0.3 arrangement=spiral angle=50~5 droop=0.1 roll=30 scale=@leaves_scale size_jitter=0.2 seed=@inputs.foliage
-leafmesh = LeafMesh @8,1 in=leaves,leafshape color_var=0.1 hue_var=0.05 seed=@inputs.foliage
-leaftexture = LeafTexture @8,2 in=leafshape size=256 color=#3a5e1d vein_color=#7c9a46 vein_width=0.035 vein_angle=50~3 vein_contrast=0.4 network=18 color_var=0.1 roughness=0.6 normal_strength=0.6 seed=@inputs.texture
-barktexture = BarkTexture @9,2 size=512 furrows=9~1 stretch=2.5 furrow_width=0.15~0.03 furrow_depth=0.5~0.05 plates=14~2 plate_depth=0.3 lenticels=1 lenticel_contrast=0 octaves=6 moss=0.25~0.05 roughness=0.9 normal_strength=1.6 color_dark=#2e2925 color_light=#73695d moss_color=#55652a lenticel_color=#1e1a17 seed=@inputs.texture
+branches1 = Branches @0,0 in=trunk count=12~2 start=0.25~0.04 end=0.9 phyllotaxis=spiral angle=60~8 angle_jitter=20 az_jitter=40 length=0.62~0.06 length_top=0.5 radius=0.55 curvature=0.2~0.08 droop=0.15~0.05 wobble=0.15~0.03 segments=8 max_lod=3 seed=@inputs.structure
+branches2 = Branches @1,0 in=branches1 count=10~1.5 start=0.1 end=0.95 phyllotaxis=spiral angle=55~6 angle_jitter=20 az_jitter=40 length=0.45~0.05 length_top=0.55 radius=0.5 curvature=0.1 droop=0.2~0.05 wobble=0.15 segments=6 max_lod=2 seed=@inputs.structure
+branches3 = Branches @2,0 in=branches2 count=7~1 start=0.1 end=0.95 phyllotaxis=spiral angle=50~5 angle_jitter=20 az_jitter=40 length=0.4~0.04 length_top=0.6 radius=0.6 curvature=0.05 droop=0.1 wobble=0.15 segments=3 max_lod=1 seed=@inputs.structure
+tropism = Tropism @4,0 in=branches3 gravity=0.06~0.02 photo=0.03 order_scale=0.6 seed=@inputs.structure
+prune = Prune @5,0 in=tropism shape=ellipsoid crown_base=0.2~0.04 width=0.55~0.05 mode=shrink min_order=1 min_keep=0.2 seed=@inputs.structure
+wood_sides = Expr @0,2 in=inputs.lod,-,- expr="round(11*pow(0.6485, x))"
+wood_min_radius = Expr @0,3 in=inputs.lod,-,- expr="0.003*pow(1.54202, x)"
+wood = Wood @6,0 in=prune sides=@wood_sides min_radius=@wood_min_radius tile=0.5 seed=@inputs.structure
+merge = Merge @7,0 in=wood,leafmesh,-
+wireframe = Wireframe @8,0 in=merge enabled=off parts=all color=#ffd040
+output = Output @9,0 in=wireframe,barktexture,leaftexture
+leafshape_detail = Expr @0,4 in=inputs.lod,-,- expr="round(6*pow(0.7937, x))"
+leafshape = LeafShape @4,1 outline=lobed length=0.1~0.01 width=0.055~0.005 petiole=0.005 teeth=5 tooth_depth=0.5~0.05 fold=0.1 curl=0.1 detail=@leafshape_detail veins=6 seed=@inputs.foliage
+leaves_density = Expr @0,5 in=inputs.lod,-,- expr="11*pow(0.5, x)"
+leaves_scale = Expr @0,6 in=inputs.lod,-,- expr="1.9*pow(1.41421, x)"
+leaves = Leaves @5,1 in=prune,leafshape orders=2 density=@leaves_density start=0.3 arrangement=spiral angle=50~5 droop=0.1 roll=30 scale=@leaves_scale size_jitter=0.2 seed=@inputs.foliage
+leafmesh = LeafMesh @6,1 in=leaves,leafshape color_var=0.1 hue_var=0.05 seed=@inputs.foliage
+leaftexture = LeafTexture @6,2 in=leafshape size=256 color=#3a5e1d vein_color=#7c9a46 vein_width=0.035 vein_angle=50~3 vein_contrast=0.4 network=18 color_var=0.1 roughness=0.6 normal_strength=0.6 seed=@inputs.texture
+barktexture = BarkTexture @7,2 size=512 furrows=9~1 stretch=2.5 furrow_width=0.15~0.03 furrow_depth=0.5~0.05 plates=14~2 plate_depth=0.3 lenticels=1 lenticel_contrast=0 octaves=6 moss=0.25~0.05 roughness=0.9 normal_strength=1.6 color_dark=#2e2925 color_light=#73695d moss_color=#55652a lenticel_color=#1e1a17 seed=@inputs.texture
+expressions = Group @1,0 members=trunk_segments,trunk_sides,wood_sides,wood_min_radius,leafshape_detail,leaves_density,leaves_scale
+branches = Group @3,0 members=branches1,branches2,branches3

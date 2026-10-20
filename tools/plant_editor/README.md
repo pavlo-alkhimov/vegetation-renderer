@@ -93,6 +93,18 @@ The **Wireframe** node (between Merge and Output in every library species, `enab
 - **Bottom edge:** the key bar for the current mode.
 - **Help:** lists all keys and operators. Esc closes it; PgUp/PgDn, Home/End scroll it.
 
+## Groups
+
+Nodes of one type can be collapsed into one **group** cell. The header shows the type and count ("Expr ×7"), then one line per member: its name and value (`trunk_sides = 12`, value in yellow) or its status.
+- **Enter** on a group opens it: the table then shows only its members as normal nodes, normally editable. **Esc** goes back; a blue tag at the top right shows which group is open.
+- **G** on a node groups all top-level nodes of its type. G on a group ungroups it; G on a member inside an open group moves it out.
+- **Del** on a group deletes it with its members.
+- Wires and bindings to members are drawn to the member's line in the group cell.
+- To connect a member to a node outside, ungroup first; connections cannot be made from inside a group yet.
+- Expr nodes show their expression as the second line of the cell.
+- `.species`: `branches = Group @3,0 members=branches1,branches2,branches3`; the members' `@col,row` are positions inside the group.
+- The library species group their expressions (column 1) and their branch orders.
+
 ## Table editor
 
 Nodes sit in table cells; wires connect typed ports. Port colours: skeleton brown, organ green, placements light green, mesh blue, texture purple.

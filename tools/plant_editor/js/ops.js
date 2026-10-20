@@ -204,6 +204,12 @@ const OPS = {
         ],
         fn: function (P, ins) { return P.enabled ? mesh_wireframe(ins[0], P) : ins[0]; },
     },
+    Group: {
+        chan: null, ins: [], out: 'group', ver: 1, group: true,
+        desc: 'Group of nodes of one type, shown as one cell with a line per member (name and value or status). Enter opens it, Esc closes it, G ungroups.',
+        params: [],
+        fn: function () { return null; },
+    },
     Merge: {
         chan: null, ins: ['mesh', 'mesh', 'mesh'], optional: [false, true, true], out: 'mesh', ver: 1,
         desc: 'Concatenates meshes; every part keeps its material.',
@@ -218,7 +224,7 @@ const OPS = {
     },
 };
 
-const OP_NAMES = Object.keys(OPS);
+const OP_NAMES = Object.keys(OPS).filter(k => !OPS[k].group);     // insertable operators
 
 // Effective parameter values of a node for its seed.
 function resolve_params(node, seed, lod, binds)

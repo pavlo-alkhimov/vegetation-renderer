@@ -1,22 +1,24 @@
 # larch - plant editor species (graph + parameters; seeds are separate)
 inputs = Inputs @0,0 c1=14 c2=10 c3=1
-trunk_segments = Expr @1,0 in=inputs.c1,inputs.lod,- expr="max(2, round(x*(1-0.17*y)))"
-trunk_sides = Expr @1,1 in=inputs.c2,inputs.lod,- expr="max(3, round(x*pow(0.65,y)))"
+trunk_segments = Expr @0,0 in=inputs.c1,inputs.lod,- expr="max(2, round(x*(1-0.17*y)))"
+trunk_sides = Expr @0,1 in=inputs.c2,inputs.lod,- expr="max(3, round(x*pow(0.65,y)))"
 trunk = Trunk @2,0 height=26~2 radius=0.3~0.03 taper=1~0.1 flare=0.4 lean=2~1 wobble=0.02 segments=@trunk_segments sides=@trunk_sides seed=@inputs.structure
-branches1 = Branches @3,0 in=trunk count=60~6 start=0.15~0.03 end=0.99 phyllotaxis=spiral angle=80~6 angle_jitter=12 az_jitter=20 length=0.22~0.02 length_top=0.15 radius=0.34 curvature=0.3~0.1 droop=0.25~0.08 wobble=0.05 segments=6 max_lod=3 seed=@inputs.structure
-branches2 = Branches @4,0 in=branches1 count=11~2 start=0.1 end=0.95 phyllotaxis=distichous angle=55~5 angle_jitter=15 az_jitter=30 length=0.4~0.04 length_top=0.5 radius=0.45 curvature=0 droop=0.75~0.15 wobble=0.06 segments=4 max_lod=1 seed=@inputs.structure
-tropism = Tropism @6,0 in=branches2 gravity=0.1~0.03 photo=0.02 order_scale=0.8 seed=@inputs.structure
-prune = Prune @7,0 in=tropism shape=cone crown_base=0.15~0.03 width=0.2~0.02 mode=shrink min_order=1 min_keep=0.15 seed=@inputs.structure
-wood_sides = Expr @1,2 in=inputs.lod,-,- expr="round(8*pow(0.72112, x))"
-wood_min_radius = Expr @1,3 in=inputs.lod,-,- expr="0.004*pow(1.55362, x)"
-wood = Wood @8,0 in=prune sides=@wood_sides min_radius=@wood_min_radius tile=0.45 seed=@inputs.structure
-merge = Merge @9,0 in=wood,leafmesh,-
-wireframe = Wireframe @10,0 in=merge enabled=off parts=all color=#ffd040
-output = Output @11,0 in=wireframe,barktexture,leaftexture
-leafshape = LeafShape @6,1 outline=tuft length=0.045~0.005 width=0.009 petiole=0 teeth=12 tooth_depth=0 fold=0.75~0.1 curl=0 detail=4 veins=2 seed=@inputs.foliage
-leaves_density = Expr @1,4 in=inputs.lod,-,- expr="13*pow(0.5, x)"
-leaves_scale = Expr @1,5 in=inputs.lod,-,- expr="2.6*pow(1.41422, x)"
-leaves = Leaves @7,1 in=prune,leafshape orders=2 density=@leaves_density start=0.1 arrangement=spiral angle=65~5 droop=0 roll=0 scale=@leaves_scale size_jitter=0.15 seed=@inputs.foliage
-leafmesh = LeafMesh @8,1 in=leaves,leafshape color_var=0.08 hue_var=0.04 seed=@inputs.foliage
-leaftexture = LeafTexture @8,2 in=leafshape size=128 color=#6f9e3c vein_color=#7fab4a vein_width=0.03 vein_angle=45 vein_contrast=0.1 network=30 color_var=0.1 roughness=0.5 normal_strength=0.2 seed=@inputs.texture
-barktexture = BarkTexture @9,2 size=512 furrows=6~1 stretch=2 furrow_width=0.1 furrow_depth=0.3~0.05 plates=16~2 plate_depth=0.25 lenticels=1 lenticel_contrast=0 octaves=5 moss=0.1 roughness=0.85 normal_strength=1.2 color_dark=#3d2a22 color_light=#8e5c47 moss_color=#5b6b2c lenticel_color=#2a1c16 seed=@inputs.texture
+branches1 = Branches @0,0 in=trunk count=60~6 start=0.15~0.03 end=0.99 phyllotaxis=spiral angle=80~6 angle_jitter=12 az_jitter=20 length=0.22~0.02 length_top=0.15 radius=0.34 curvature=0.3~0.1 droop=0.25~0.08 wobble=0.05 segments=6 max_lod=3 seed=@inputs.structure
+branches2 = Branches @1,0 in=branches1 count=11~2 start=0.1 end=0.95 phyllotaxis=distichous angle=55~5 angle_jitter=15 az_jitter=30 length=0.4~0.04 length_top=0.5 radius=0.45 curvature=0 droop=0.75~0.15 wobble=0.06 segments=4 max_lod=1 seed=@inputs.structure
+tropism = Tropism @4,0 in=branches2 gravity=0.1~0.03 photo=0.02 order_scale=0.8 seed=@inputs.structure
+prune = Prune @5,0 in=tropism shape=cone crown_base=0.15~0.03 width=0.2~0.02 mode=shrink min_order=1 min_keep=0.15 seed=@inputs.structure
+wood_sides = Expr @0,2 in=inputs.lod,-,- expr="round(8*pow(0.72112, x))"
+wood_min_radius = Expr @0,3 in=inputs.lod,-,- expr="0.004*pow(1.55362, x)"
+wood = Wood @6,0 in=prune sides=@wood_sides min_radius=@wood_min_radius tile=0.45 seed=@inputs.structure
+merge = Merge @7,0 in=wood,leafmesh,-
+wireframe = Wireframe @8,0 in=merge enabled=off parts=all color=#ffd040
+output = Output @9,0 in=wireframe,barktexture,leaftexture
+leafshape = LeafShape @4,1 outline=tuft length=0.045~0.005 width=0.009 petiole=0 teeth=12 tooth_depth=0 fold=0.75~0.1 curl=0 detail=4 veins=2 seed=@inputs.foliage
+leaves_density = Expr @0,4 in=inputs.lod,-,- expr="13*pow(0.5, x)"
+leaves_scale = Expr @0,5 in=inputs.lod,-,- expr="2.6*pow(1.41422, x)"
+leaves = Leaves @5,1 in=prune,leafshape orders=2 density=@leaves_density start=0.1 arrangement=spiral angle=65~5 droop=0 roll=0 scale=@leaves_scale size_jitter=0.15 seed=@inputs.foliage
+leafmesh = LeafMesh @6,1 in=leaves,leafshape color_var=0.08 hue_var=0.04 seed=@inputs.foliage
+leaftexture = LeafTexture @6,2 in=leafshape size=128 color=#6f9e3c vein_color=#7fab4a vein_width=0.03 vein_angle=45 vein_contrast=0.1 network=30 color_var=0.1 roughness=0.5 normal_strength=0.2 seed=@inputs.texture
+barktexture = BarkTexture @7,2 size=512 furrows=6~1 stretch=2 furrow_width=0.1 furrow_depth=0.3~0.05 plates=16~2 plate_depth=0.25 lenticels=1 lenticel_contrast=0 octaves=5 moss=0.1 roughness=0.85 normal_strength=1.2 color_dark=#3d2a22 color_light=#8e5c47 moss_color=#5b6b2c lenticel_color=#2a1c16 seed=@inputs.texture
+expressions = Group @1,0 members=trunk_segments,trunk_sides,wood_sides,wood_min_radius,leaves_density,leaves_scale
+branches = Group @3,0 members=branches1,branches2

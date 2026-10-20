@@ -30,6 +30,7 @@ function species_write(g, title)
     for (const n of sorted) {
         const op = OPS[n.op];
         let s = n.name + ' = ' + n.op + ' @' + n.col + ',' + n.row;
+        if (n.op === 'Group') s += ' members=' + n.members.map(id => node_find(g, id).name).join(',');
         if (op.ins.length) s += ' in=' + n.ins.map(r => r ? ref_name(g, r) : '-').join(',');
         for (const d of op.params) {
             const p = n.p[d.name];
@@ -72,6 +73,7 @@ function species_read(text)
             if (eq < 0) { errors.push('line ' + (ln + 1) + ': bad token ' + tok); continue; }
             const key = tok.slice(0, eq), val = tok.slice(eq + 1);
             if (key === 'in') { pending.push({ node: n, refs: val.split(','), ln: ln + 1 }); continue; }
+            if (key === 'members' && opn === 'Group') { pending.push({ node: n, members: val.split(','), ln: ln + 1 }); continue; }
             if (val[0] === '@') { pending.push({ node: n, bind: key, ref: val.slice(1), ln: ln + 1 }); continue; }
             const d = op.params.find(x => x.name === key);
             if (!d) { errors.push('line ' + (ln + 1) + ': ' + opn + ' has no parameter ' + key); continue; }
@@ -95,6 +97,15 @@ function species_read(text)
         }
     }
     for (const p of pending) {
+        if (p.members) {
+            p.node.members = [];
+            for (const nm of p.members) {
+                const m = node_by_name(g, nm);
+                if (!m || m.op === 'Group') { errors.push('line ' + p.ln + ': unknown member ' + nm); continue; }
+                m.parent = p.node.id; p.node.members.push(m.id);
+            }
+            continue;
+        }
         if (p.bind) {
             const r = parse_ref(g, p.ref);
             if (!r) { errors.push('line ' + p.ln + ': unknown node or output @' + p.ref); continue; }
@@ -113,9 +124,9 @@ function species_read(text)
     // Two nodes in one cell: move the later one to the nearest free cell.
     const seen = new Set();
     for (const n of g.nodes) {
-        const k = n.col + ',' + n.row;
-        if (seen.has(k)) { const c = nearest_free_cell(g, n.col, n.row); n.col = c[0]; n.row = c[1]; }
-        seen.add(n.col + ',' + n.row);
+        const k = (n.parent || 0) + ':' + n.col + ',' + n.row;
+        if (seen.has(k)) { g.level = n.parent || 0; const c = nearest_free_cell(g, n.col, n.row); n.col = c[0]; n.row = c[1]; g.level = 0; }
+        seen.add((n.parent || 0) + ':' + n.col + ',' + n.row);
     }
     return { graph: g, errors: errors };
 }
@@ -150,7 +161,7 @@ function make_species(title, n)
     const seg0 = parseInt((n.trunk.match(/segments=(\d+)/) || [0, 12])[1], 10);
     const sides0 = Math.max(3, parseInt((n.wood.match(/sides=(\d+)/) || [0, 10])[1], 10) + 2);
     L.push('inputs = Inputs @0,0 c1=' + seg0 + ' c2=' + sides0 + ' c3=1');
-    L.push('trunk_segments = Expr @1,0 in=inputs.c1,inputs.lod,- expr="max(2, round(x*(1-0.17*y)))"');
+    L.push('trunk_segments = Expr @0,0 in=inputs.c1,inputs.lod,- expr="max(2, round(x*(1-0.17*y)))"');
     let expr_row = 2;
     // v0|v1|v2|v3 in a parameter string -> an Expr node of inputs.lod (geometric or linear fit through v0 and v3)
     // bound to the parameter; the species keeps one value per parameter.
@@ -161,26 +172,30 @@ function make_species(title, n)
             let e = geo ? fmt_num(v[0]) + '*pow(' + fmt_num(r) + ', x)' : fmt_num(v[0]) + (v[3] >= v[0] ? '+' : '-') + fmt_num(Math.abs(v[3] - v[0]) / 3) + '*x';
             if (d && d.type === 'i') e = 'round(' + e + ')';
             const nm = node + '_' + key;
-            L.push(nm + ' = Expr @1,' + (expr_row++) + ' in=inputs.lod,-,- expr="' + e + '"');
+            L.push(nm + ' = Expr @0,' + (expr_row++) + ' in=inputs.lod,-,- expr="' + e + '"');
             return key + '=@' + nm;
         });
     };
-    L.push('trunk_sides = Expr @1,1 in=inputs.c2,inputs.lod,- expr="max(3, round(x*pow(0.65,y)))"');
+    L.push('trunk_sides = Expr @0,1 in=inputs.c2,inputs.lod,- expr="max(3, round(x*pow(0.65,y)))"');
     const S = ' seed=@inputs.structure', Fo = ' seed=@inputs.foliage', T = ' seed=@inputs.texture';
     L.push('trunk = Trunk @2,0 ' + n.trunk.replace(/segments=\S+/, 'segments=@trunk_segments sides=@trunk_sides') + S);
     let prev = 'trunk';
-    n.branches.forEach(function (b, i) { L.push('branches' + (i + 1) + ' = Branches @' + (i + 3) + ',0 in=' + prev + ' ' + b + S); prev = 'branches' + (i + 1); });
-    L.push('tropism = Tropism @6,0 in=' + prev + ' ' + n.tropism + S);
-    L.push('prune = Prune @7,0 in=tropism ' + n.prune + S);
-    L.push('wood = Wood @8,0 in=prune ' + lod_exprs('wood', 'Wood', n.wood) + S);
-    L.push('merge = Merge @9,0 in=wood,leafmesh,-');
-    L.push('wireframe = Wireframe @10,0 in=merge enabled=off parts=all color=#ffd040');
-    L.push('output = Output @11,0 in=wireframe,barktexture,leaftexture');
-    L.push('leafshape = LeafShape @6,1 ' + lod_exprs('leafshape', 'LeafShape', n.leafshape) + Fo);
-    L.push('leaves = Leaves @7,1 in=prune,leafshape ' + lod_exprs('leaves', 'Leaves', n.leaves) + Fo);
-    L.push('leafmesh = LeafMesh @8,1 in=leaves,leafshape ' + n.leafmesh + Fo);
-    L.push('leaftexture = LeafTexture @8,2 in=leafshape ' + n.leaftexture + T);
-    L.push('barktexture = BarkTexture @9,2 ' + n.bark + T);
+    n.branches.forEach(function (b, i) { L.push('branches' + (i + 1) + ' = Branches @' + i + ',0 in=' + prev + ' ' + b + S); prev = 'branches' + (i + 1); });
+    L.push('tropism = Tropism @4,0 in=' + prev + ' ' + n.tropism + S);
+    L.push('prune = Prune @5,0 in=tropism ' + n.prune + S);
+    L.push('wood = Wood @6,0 in=prune ' + lod_exprs('wood', 'Wood', n.wood) + S);
+    L.push('merge = Merge @7,0 in=wood,leafmesh,-');
+    L.push('wireframe = Wireframe @8,0 in=merge enabled=off parts=all color=#ffd040');
+    L.push('output = Output @9,0 in=wireframe,barktexture,leaftexture');
+    L.push('leafshape = LeafShape @4,1 ' + lod_exprs('leafshape', 'LeafShape', n.leafshape) + Fo);
+    L.push('leaves = Leaves @5,1 in=prune,leafshape ' + lod_exprs('leaves', 'Leaves', n.leaves) + Fo);
+    L.push('leafmesh = LeafMesh @6,1 in=leaves,leafshape ' + n.leafmesh + Fo);
+    L.push('leaftexture = LeafTexture @6,2 in=leafshape ' + n.leaftexture + T);
+    L.push('barktexture = BarkTexture @7,2 ' + n.bark + T);
+    // Expressions and branch orders as groups (the members' @col,row are positions inside the group).
+    const names = function (op) { return L.filter(l => l.indexOf(' = ' + op + ' ') > 0).map(l => l.split(' ')[0]).join(','); };
+    L.push('expressions = Group @1,0 members=' + names('Expr'));
+    L.push('branches = Group @3,0 members=' + names('Branches'));
     return L.join('\n') + '\n';
 }
 

@@ -12,13 +12,15 @@ function ref_port(r) { return r >>> 16; }
 function ref_name(g, r) { const n = node_find(g, r); if (!n) return '-'; const o = OPS[n.op].outs; return o ? n.name + '.' + o[ref_port(r)] : n.name; }
 // The value a ref delivers from its node's result.
 function ref_value(g, r, val) { const n = node_find(g, r); return n && OPS[n.op].outs ? val[ref_port(r)] : val; }
-function node_span(n) { return OPS[n.op].span || 1; }
+function node_span(n) { return n.op === 'Group' ? Math.max(1, Math.ceil((28 + 14 * n.members.length) / 76)) : OPS[n.op].span || 1; }
 
 function graph_new() { return { nodes: [], next_id: 1 }; }
 
 function node_find(g, id) { id = id & 0xffff; for (const n of g.nodes) if (n.id === id) return n; return null; }
 function node_by_name(g, name) { for (const n of g.nodes) if (n.name === name) return n; return null; }
-function node_at(g, col, row) { for (const n of g.nodes) if (n.col === col && row >= n.row && row < n.row + node_span(n)) return n; return null; }
+// Nodes live on levels: the top level (0) or inside a Group node (n.parent = group id); g.level is the level shown in
+// the editor, and cell lookups only see that level.
+function node_at(g, col, row) { const lv = g.level || 0; for (const n of g.nodes) if ((n.parent || 0) === lv && n.col === col && row >= n.row && row < n.row + node_span(n)) return n; return null; }
 
 function unique_name(g, base)
 {
@@ -30,12 +32,15 @@ function node_add(g, op, col, row, name)
 {
     const n = { id: g.next_id++, name: name || unique_name(g, op), op: op, col: col, row: row,
                 p: node_defaults(op), ins: OPS[op].ins.map(() => 0), binds: {} };
+    if (op === 'Group') n.members = [];
     g.nodes.push(n);
     return n;
 }
 
 function node_remove(g, id)
 {
+    const gone = node_find(g, id);
+    if (gone && gone.parent) { const grp = node_find(g, gone.parent); if (grp) grp.members = grp.members.filter(m => m !== id); }
     g.nodes = g.nodes.filter(n => n.id !== id);
     for (const n of g.nodes) {
         n.ins = n.ins.map(x => ref_id(x) === id ? 0 : x);
@@ -152,6 +157,32 @@ function eval_node(g, id, ctx)
 function cache_trim(cache, used)
 {
     for (const k of Array.from(cache.keys())) if (!used.has(k)) cache.delete(k);
+}
+
+// Groups all top-level nodes with the same operator as n into a new Group node at n's cell. Members keep their
+// layout relative to each other inside the group. Returns the group or null.
+function group_make(g, n)
+{
+    const mem = g.nodes.filter(m => !m.parent && m.op === n.op);
+    if (mem.length < 2) return null;
+    const grp = node_add(g, 'Group', n.col, n.row, unique_name(g, n.op.toLowerCase() + (/s$/.test(n.op) ? '' : 's')));
+    grp.members = mem.map(m => m.id);
+    const c0 = Math.min.apply(null, mem.map(m => m.col)), r0 = Math.min.apply(null, mem.map(m => m.row));
+    for (const m of mem) { m.parent = grp.id; m.col -= c0; m.row -= r0; }
+    return grp;
+}
+
+// Moves member m out of its group to the top level near the group; removes the group when it becomes empty.
+function group_release(g, m)
+{
+    const grp = node_find(g, m.parent);
+    grp.members = grp.members.filter(id => id !== m.id);
+    m.parent = 0;
+    const lv = g.level; g.level = 0;
+    const c = nearest_free_cell(g, grp.col + 1, grp.row);
+    m.col = c[0]; m.row = c[1];
+    if (!grp.members.length) node_remove(g, grp.id);
+    g.level = lv;
 }
 
 function graph_output(g)
