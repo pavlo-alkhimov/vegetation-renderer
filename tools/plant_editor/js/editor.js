@@ -1,12 +1,14 @@
 // Table editor: nodes pinned to grid cells, wires between them, keyboard navigation; inspector for parameters.
 //
+// Value nodes (Lod, Seed, Const, Expr) connect to Expr inputs or bind to any numeric parameter / seed of a node:
+// C on the value node, arrows to the target, Enter, then pick the parameter from the list.
 // Keys (table):  arrows move the cursor · Ctrl+arrows move the node · Enter edit node / insert node in an empty cell
 //                Del remove · C connect (arrows to target, Enter) · X disconnect inputs · Space preview · Ctrl+D duplicate
 // Keys (edit):   Up/Down parameter · Left/Right value (Shift x10) · Alt/Ctrl+Left/Right variation · L per-LOD values
 //                Enter cycle enum · Esc back
 
 const CELL_W = 150, CELL_H = 76, CELL_PAD = 7;
-const TYPE_COLORS = { skeleton: '#8a6a45', organ: '#4f8a3a', placements: '#6f9a4a', mesh: '#3f6f9e', texture: '#7a4f9a', output: '#a98a2c' };
+const TYPE_COLORS = { value: '#8a8f99', skeleton: '#8a6a45', organ: '#4f8a3a', placements: '#6f9a4a', mesh: '#3f6f9e', texture: '#7a4f9a', output: '#a98a2c' };
 
 function editor_init(A, canvas, inspector)
 {
@@ -78,7 +80,10 @@ function editor_key(E, e)
         else if (k === 'Enter') {
             const op = OP_NAMES[E.ins_sel];
             if (op === 'Output' && graph_output(g)) editor_msg(E, 'there is already an Output node');
-            else { const m = node_add(g, op, E.cur[0], E.cur[1]); A.changed(true); editor_msg(E, 'added ' + m.name); E.insp_node = -1; editor_select_changed(E); }
+            else {
+                const m = node_add(g, op, E.cur[0], E.cur[1]);
+                // Random-using nodes get their seed wired to the channel's Seed node, if there is one (visible, editable).
+                if (OPS[op].chan) { const sn = g.nodes.find(q => q.op === 'Seed' && ['structure', 'foliage', 'texture'][q.p.channel.v] === OPS[op].chan); if (sn) bind(g, sn.id, m.id, 'seed'); } A.changed(true); editor_msg(E, 'added ' + m.name); E.insp_node = -1; editor_select_changed(E); }
             E.mode = 'nav';
         } else if (k.length === 1 && /[a-z]/i.test(k)) {
             const i = OP_NAMES.findIndex(o => o[0].toLowerCase() === k.toLowerCase());
@@ -90,8 +95,13 @@ function editor_key(E, e)
         if (arrows[k]) { E.cur = [Math.max(0, E.cur[0] + arrows[k][0]), Math.max(0, E.cur[1] + arrows[k][1])]; editor_scroll_to(E); }
         else if (k === 'Escape') E.mode = 'nav';
         else if (k === 'Enter') {
+            const src = node_find(g, E.wire_src);
             if (!n) editor_msg(E, 'no node here');
-            else {
+            else if (OPS[src.op].out === 'value' && pick_slot(g, E.wire_src, n.id) < 0) {
+                E.bind_list = bindable_params(n.op);
+                if (!E.bind_list.length) editor_msg(E, n.name + ' has no numeric parameters');
+                else { E.bind_dst = n.id; E.bind_sel = 0; E.mode = 'bind'; return true; }
+            } else {
                 const slot = pick_slot(g, E.wire_src, n.id);
                 if (slot < 0) editor_msg(E, n.name + ' has no input of type ' + OPS[node_find(g, E.wire_src).op].out);
                 else {
@@ -101,6 +111,17 @@ function editor_key(E, e)
             }
             E.mode = 'nav';
             editor_select_changed(E);
+        } else return false;
+        return true;
+    }
+    if (E.mode === 'bind') {
+        if (k === 'Escape') E.mode = 'nav';
+        else if (k === 'ArrowUp') E.bind_sel = (E.bind_sel + E.bind_list.length - 1) % E.bind_list.length;
+        else if (k === 'ArrowDown') E.bind_sel = (E.bind_sel + 1) % E.bind_list.length;
+        else if (k === 'Enter') {
+            const p = E.bind_list[E.bind_sel], err = bind(g, E.wire_src, E.bind_dst, p);
+            if (err) editor_msg(E, err); else { editor_msg(E, node_find(g, E.bind_dst).name + '.' + p + ' <- ' + node_find(g, E.wire_src).name); A.changed(true); }
+            E.mode = 'nav'; E.insp_node = -1; editor_select_changed(E);
         } else return false;
         return true;
     }
@@ -126,12 +147,12 @@ function editor_key(E, e)
         if (OPS[n.op].out === 'output') { editor_msg(E, 'Output has no output'); return true; }
         E.wire_src = n.id; E.mode = 'wire'; editor_msg(E, 'connect ' + n.name + ': move to the target node, Enter'); return true;
     }
-    if ((k === 'x' || k === 'X') && n) { n.ins = n.ins.map(() => 0); editor_msg(E, 'disconnected inputs of ' + n.name); A.changed(true); return true; }
+    if ((k === 'x' || k === 'X') && n) { n.ins = n.ins.map(() => 0); n.binds = {}; editor_msg(E, 'disconnected inputs of ' + n.name); A.changed(true); return true; }
     if (k === ' ' && n) { A.preview_id = A.preview_id === n.id ? 0 : n.id; A.refit = true; A.changed(false); return true; }
     if ((k === 'd' || k === 'D') && (e.ctrlKey || e.metaKey) && n) {
         const c = nearest_free_cell(g, n.col + 1, n.row);
         const m = node_add(g, n.op, c[0], c[1]);
-        m.p = JSON.parse(JSON.stringify(n.p)); m.ins = n.ins.slice();
+        m.p = JSON.parse(JSON.stringify(n.p)); m.ins = n.ins.slice(); m.binds = Object.assign({}, n.binds);
         editor_msg(E, 'duplicated as ' + m.name); A.changed(true); return true;
     }
     return false;
@@ -178,6 +199,18 @@ function editor_draw(E)
             x.strokeStyle = TYPE_COLORS[OPS[s.op].out];
             x.beginPath(); x.moveTo(x0, y0); x.bezierCurveTo(x0 + dx, y0, x1 - dx, y1, x1, y1); x.stroke();
         }
+    // Bindings: thin dashed lines from value nodes to the top edge of the bound node.
+    x.lineWidth = 1; x.setLineDash([3, 3]);
+    for (const n of g.nodes)
+        for (const k of Object.keys(n.binds)) {
+            const s = node_find(g, n.binds[k]);
+            if (!s) continue;
+            const x0 = s.col * CELL_W + CELL_W - CELL_PAD, y0 = s.row * CELL_H + CELL_H / 2;
+            const x1 = n.col * CELL_W + CELL_W / 2, y1 = n.row * CELL_H + CELL_PAD;
+            x.strokeStyle = k === 'seed' ? 'rgba(138,143,153,0.35)' : 'rgba(200,205,215,0.8)';
+            x.beginPath(); x.moveTo(x0, y0); x.bezierCurveTo(x0 + 40, y0, x1, y1 - 40, x1, y1); x.stroke();
+        }
+    x.setLineDash([]);
     // Nodes.
     for (const n of g.nodes) {
         const op = OPS[n.op], bx = n.col * CELL_W + CELL_PAD, by = n.row * CELL_H + CELL_PAD, bw = CELL_W - 2 * CELL_PAD, bh = CELL_H - 2 * CELL_PAD;
@@ -190,7 +223,9 @@ function editor_draw(E)
         x.font = '11px sans-serif'; x.fillStyle = '#b8bcc4';
         x.fillText(n.op + (op.chan ? '  · ' + op.chan : ''), bx + 10, by + 30);
         x.fillStyle = n._err ? '#e0705c' : n._cached ? '#7f8590' : '#9ad08a';
-        const st = n._err ? (n._err === 'skipped' ? '' : 'error') : n._ms === undefined ? '' : n._cached ? 'cached' : n._ms.toFixed(1) + ' ms';
+        const nb = Object.keys(n.binds).filter(k => k !== 'seed').length;
+        const st = n._err ? (n._err === 'skipped' ? '' : 'error') : n._val !== undefined ? '= ' + (Math.round(n._val * 1000) / 1000) :
+                   n._ms === undefined ? '' : (n._cached ? 'cached' : n._ms.toFixed(1) + ' ms') + (nb ? '  \u00b7 ' + nb + ' bound' : '');
         x.fillText(st, bx + 10, by + bh - 10);
         for (let i = 0; i < op.ins.length; i++) {
             x.fillStyle = n.ins[i] ? TYPE_COLORS[op.ins[i]] : '#1c1d20';
@@ -209,6 +244,16 @@ function editor_draw(E)
             x.setLineDash([5, 4]); x.strokeStyle = '#5fd0ff';
             x.beginPath(); x.moveTo(s.col * CELL_W + CELL_W - CELL_PAD, s.row * CELL_H + CELL_H / 2);
             x.lineTo(E.cur[0] * CELL_W + CELL_PAD, E.cur[1] * CELL_H + CELL_H / 2); x.stroke(); x.setLineDash([]);
+        }
+    }
+    if (E.mode === 'bind') {
+        const d = node_find(g, E.bind_dst), lx = d.col * CELL_W + 10, ly = d.row * CELL_H + 10, lh = 17;
+        x.fillStyle = '#25272c'; x.fillRect(lx, ly, 170, E.bind_list.length * lh + 26);
+        x.strokeStyle = '#5a5e66'; x.strokeRect(lx + 0.5, ly + 0.5, 170, E.bind_list.length * lh + 26);
+        x.font = '12px sans-serif'; x.fillStyle = '#9a9ea6'; x.fillText('bind to parameter:', lx + 8, ly + 12);
+        for (let i = 0; i < E.bind_list.length; i++) {
+            if (i === E.bind_sel) { x.fillStyle = '#3d5f88'; x.fillRect(lx + 2, ly + 22 + i * lh, 166, lh); }
+            x.fillStyle = d.binds[E.bind_list[i]] ? '#ffd860' : '#eee'; x.fillText(E.bind_list[i], lx + 12, ly + 31 + i * lh);
         }
     }
     if (E.mode === 'insert') {
@@ -248,9 +293,11 @@ function inspector_build(E)
     head.className = 'insp-head';
     head.innerHTML = '<input class="name" value="' + n.name + '" title="node name (part of the node seed)"> <span class="op">' + n.op + '</span>' +
         '<div class="desc">' + op.desc + '</div>' +
-        '<div class="desc">LOD input: <b>' + A.lod + '</b> (per-LOD rows show and edit this level) &nbsp; seed channel: <b>' + (op.chan || '-') + '</b>' + (op.chan ? ' &nbsp; node seed ' + hex32(node_seed(A.seeds, op.chan, n.name)) : '') + '</div>' +
+        '<div class="desc">LOD input: <b>' + A.lod + '</b> (per-LOD rows show and edit this level) &nbsp; seed channel: <b>' + (op.chan || '-') + '</b>' + (op.chan ? ' &nbsp; node seed ' + (n._seed !== undefined ? hex32(n._seed) : '-') : '') + '</div>' +
+        (n.binds.seed ? '<div class="desc">seed \u2190 <b>' + node_find(A.g, n.binds.seed).name + '</b> <button class="unbind" data-p="seed">\u00d7</button></div>' : '') +
         (n._err && n._err !== 'skipped' ? '<div class="err">' + n._err + '</div>' : '');
     el.appendChild(head);
+    head.querySelectorAll('.unbind').forEach(b => b.addEventListener('click', () => { delete n.binds[b.dataset.p]; A.changed(true); }));
     head.querySelector('.name').addEventListener('change', ev => {
         const v = ev.target.value.trim().replace(/[^\w]/g, '_');
         if (!v || (node_by_name(A.g, v) && node_by_name(A.g, v) !== n)) { ev.target.value = n.name; return; }
@@ -266,7 +313,18 @@ function inspector_build(E)
         const td_name = document.createElement('td'); td_name.textContent = d.name; td_name.title = d.desc;
         const td_val = document.createElement('td'), td_var = document.createElement('td'), td_now = document.createElement('td');
         td_now.className = 'now';
-        if (d.type === 'f' || d.type === 'i') {
+        if (n.binds[d.name]) {
+            td_val.innerHTML = '\u2190 <b>' + node_find(A.g, n.binds[d.name]).name + '</b> ';
+            const ub = document.createElement('button');
+            ub.textContent = '\u00d7'; ub.title = 'unbind (key U)';
+            ub.addEventListener('click', () => { delete n.binds[d.name]; A.changed(true); });
+            td_val.appendChild(ub);
+        } else if (d.type === 's') {
+            const ti = document.createElement('input');
+            ti.type = 'text'; ti.value = p.v; ti.className = 'text';
+            ti.addEventListener('change', () => { p.v = ti.value; A.changed(false); });
+            td_val.appendChild(ti);
+        } else if (d.type === 'f' || d.type === 'i') {
             const rng = document.createElement('input');
             rng.type = 'range'; rng.min = d.min; rng.max = d.max; rng.step = d.step; rng.value = pval(p, A.lod);
             const num = document.createElement('input');
@@ -322,6 +380,7 @@ function inspector_values(E)
         const d = op.params[parseInt(tr.dataset.row, 10)], v = n._P[d.name];
         const td = tr.querySelector('.now');
         if (d.type === 'e') td.textContent = d.name === 'size' ? v : d.labels[v];
+        else if (d.type === 's') td.textContent = n._val !== undefined ? '= ' + (Math.round(n._val * 1000) / 1000) : '';
         else if (d.type === 'c') td.textContent = '';
         else td.textContent = d.type === 'i' ? String(v) : (Math.round(v * 1000) / 1000).toString();
     });
@@ -355,6 +414,8 @@ function inspector_key(E, e)
         inspector_build(E);
         return true;
     }
+    if ((k === 'u' || k === 'U') && n.binds[d.name]) { delete n.binds[d.name]; A.changed(true); return true; }
+    if (n.binds[d.name]) return k === 'ArrowLeft' || k === 'ArrowRight';
     if ((k === 'l' || k === 'L') && (d.type === 'f' || d.type === 'i')) { plod_toggle(p); A.changed(false); inspector_build(E); return true; }
     if (k === 'Enter' && d.type === 'e') { p.v = (p.v + 1) % d.labels.length; A.changed(false); inspector_build(E); return true; }
     if (k === 'Enter' && d.type === 'c') { const ci = E.insp.querySelectorAll('tr[data-row]')[E.row].querySelector('input[type=color]'); if (ci) ci.click(); return true; }

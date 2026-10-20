@@ -141,9 +141,9 @@ function variants_step()
     if (!outn) { ctx2.clearRect(0, 0, cv.width, cv.height); return; }
     const ctx = eval_ctx(variant_seeds(k), A.vcache, A.lod);
     ctx.no_textures = true;
-    const n_saved = A.g.nodes.map(n => [n._err, n._ms, n._cached, n._P]);
+    const n_saved = A.g.nodes.map(n => [n._err, n._ms, n._cached, n._P, n._val, n._seed]);
     const r = eval_node(A.g, outn.id, ctx);
-    A.g.nodes.forEach((n, i) => { n._err = n_saved[i][0]; n._ms = n_saved[i][1]; n._cached = n_saved[i][2]; n._P = n_saved[i][3]; });
+    A.g.nodes.forEach((n, i) => { n._err = n_saved[i][0]; n._ms = n_saved[i][1]; n._cached = n_saved[i][2]; n._P = n_saved[i][3]; n._val = n_saved[i][4]; n._seed = n_saved[i][5]; });
     if (r.err || !r.val || !r.val.mesh) { ctx2.fillStyle = '#300'; ctx2.fillRect(0, 0, cv.width, cv.height); return; }
     const b = mesh_bounds(r.val.mesh);
     const img = view_thumbnail(A.V, r.val.mesh, cv.width, A.out ? A.out.bark : null, A.out ? A.out.leaf : null, b.h, b.r);
@@ -291,6 +291,8 @@ function help_text()
     let s = 'TABLE  arrows: move cursor   Ctrl+arrows: move node   Enter: edit node / insert node (empty cell)\n' +
             '       Del: remove   C: connect (arrows to target node, Enter)   X: disconnect inputs   Space: preview node\n' +
             '       Ctrl+D: duplicate   F: frame view   mouse: click selects, drag moves a node, double-click = Enter\n' +
+            'VALUES Lod / Seed / Const / Expr nodes: C on the value node, arrows to the target, Enter: an Expr input, or pick a parameter\n' +
+            '       (or the node seed) to bind; U in edit mode unbinds. Expr: x y z (inputs), lod; + - * / ^ min max round clamp lerp ...\n' +
             'EDIT   Up/Down: parameter   Left/Right: value (Shift x10)   Alt+Left/Right: variation   L: per-LOD values   Enter: next enum   Esc: back\n' +
             'VIEW   left drag: orbit   right drag: pan   wheel: zoom\n\n' +
             'Species = graph + parameter values + variations (saved once: .species).  Instance = seeds (structure, foliage,\n' +

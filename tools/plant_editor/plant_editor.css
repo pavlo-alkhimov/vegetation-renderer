@@ -41,3 +41,4 @@ table.params td.now { color: #9ad08a; font: 11px monospace; }
 .lodbtn.on { color: #1c1d20; background: #ffd860; }
 .lods { font: 10px monospace; color: #9a9ea6; margin-left: 4px; }
 .lods b { color: #ffd860; }
+table.params input.text { width: 230px; font-family: monospace; }

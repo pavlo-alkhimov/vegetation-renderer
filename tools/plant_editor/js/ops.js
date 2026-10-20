@@ -1,7 +1,9 @@
 // Operator table: the single declaration of every node type. The editor rows, the .species format, hashing,
 // variation by seed and the help text are all derived from it (JS counterpart of docs/15's X-macro table).
 //
-// Parameter: { name, type: 'f' | 'i' | 'e' | 'c', min, max, def, vari (default variation), step, labels, desc }.
+// Parameter: { name, type: 'f' | 'i' | 'e' | 'c' | 's' (text), min, max, def, vari (default variation), step, labels, desc }.
+// Numeric parameters and the node's seed can be bound to value nodes (node.binds[param] = source node id); a bound
+// parameter takes the source's value (clamped, rounded for integers), without variation.
 // Seed channel: which instance seed drives the node ('structure' | 'foliage' | 'texture' | null).
 // A float/int parameter's effective value = clamp(value + variation * u, min, max), u in [-1, 1) from the node's seed.
 // A float/int parameter may hold one explicit value per LOD level (p.lods = [v0, v1, v2, v3]); the network's LOD input
@@ -11,10 +13,39 @@ function F(name, min, max, def, vari, step, desc) { return { name: name, type: '
 function I(name, min, max, def, vari, desc) { return { name: name, type: 'i', min: min, max: max, def: def, vari: vari, step: 1, desc: desc }; }
 function E(name, labels, def, desc) { return { name: name, type: 'e', labels: labels.split('|'), def: def, vari: 0, desc: desc }; }
 function C(name, def, desc) { return { name: name, type: 'c', def: def, vari: 0, desc: desc }; }
+function S(name, def, desc) { return { name: name, type: 's', def: def, vari: 0, desc: desc }; }
 
 const SIZES = '128|256|512|1024|2048';
 
 const OPS = {
+    Lod: {
+        chan: null, ins: [], out: 'value', ver: 1, lod: true,
+        desc: 'Network input: the current LOD level (0 = full detail).',
+        params: [],
+        fn: function (P, ins, seed, ctx) { return ctx.lod; },
+    },
+    Seed: {
+        chan: null, ins: [], out: 'value', ver: 1, seeds: true,
+        desc: 'Network input: one of the instance seeds. Bind it to a node\'s seed to make the dependency explicit.',
+        params: [E('channel', 'structure|foliage|texture', 0, 'which instance seed')],
+        fn: function (P, ins, seed, ctx) { return ctx.seeds[['structure', 'foliage', 'texture'][P.channel]] >>> 0; },
+    },
+    Const: {
+        chan: null, ins: [], out: 'value', ver: 1,
+        desc: 'A constant (per-LOD values possible), to feed several parameters at once.',
+        params: [F('value', -10000, 10000, 1, 0, 0.1, 'value')],
+        fn: function (P) { return P.value; },
+    },
+    Expr: {
+        chan: null, ins: ['value', 'value', 'value'], optional: [true, true, true], out: 'value', ver: 1, lod: true,
+        desc: 'Arithmetic on values: variables x, y, z (inputs) and lod; + - * / ^, min max abs floor ceil round sqrt pow clamp lerp sin cos exp log.',
+        params: [S('expr', 'x', 'expression, e.g. k*x+b written out: 2*x+1')],
+        fn: function (P, ins, seed, ctx) {
+            const f = expr_compile(P.expr), v = f([ins[0] || 0, ins[1] || 0, ins[2] || 0, ctx.lod]);
+            if (!isFinite(v)) throw new Error('expression result is not a finite number');
+            return v;
+        },
+    },
     Trunk: {
         chan: 'structure', ins: [], out: 'skeleton', ver: 1,
         desc: 'Main stem: a polyline with radius, taper and root flare.',
@@ -25,7 +56,8 @@ const OPS = {
             F('flare', 0, 2, 0.5, 0.15, 0.05, 'root flare at the base'),
             F('lean', 0, 30, 3, 2, 0.5, 'lean from vertical (deg)'),
             F('wobble', 0, 0.3, 0.025, 0.01, 0.005, 'random bending per segment'),
-            I('segments', 2, 40, 12, 0, 'polyline segments'),
+            I('segments', 2, 40, 12, 0, 'vertical segments (polyline)'),
+            I('sides', 3, 32, 10, 0, 'radial segments (tube sides) of the trunk'),
         ],
         fn: function (P, ins, seed) { return make_trunk(P, seed); },
     },
@@ -112,7 +144,7 @@ const OPS = {
         chan: 'structure', ins: ['skeleton'], out: 'mesh', ver: 1,
         desc: 'Tubes along all branches, cylindrical uv with constant texel density (material: bark).',
         params: [
-            I('sides', 3, 24, 10, 0, 'tube sides at the trunk (fewer on thin branches)'),
+            I('sides', 3, 24, 10, 0, 'tube sides of the branches (scaled down on thin ones; the trunk uses Trunk.sides)'),
             F('min_radius', 0.0005, 0.05, 0.003, 0, 0.0005, 'skip branches thinner than this (m)'),
             F('tile', 0.05, 3, 0.6, 0, 0.05, 'bark texture tile size (m)'),
         ],
@@ -195,13 +227,14 @@ const OPS = {
 const OP_NAMES = Object.keys(OPS);
 
 // Effective parameter values of a node for its seed.
-function resolve_params(node, seed, lod)
+function resolve_params(node, seed, lod, binds)
 {
     const op = OPS[node.op], P = {};
     for (let i = 0; i < op.params.length; i++) {
         const d = op.params[i], s = node.p[d.name] || { v: d.def, vari: d.vari };
         let v = s.lods ? s.lods[lod || 0] : s.v;
-        if ((d.type === 'f' || d.type === 'i') && s.vari > 0) {
+        if (binds && binds[d.name] !== undefined) v = clamp(binds[d.name], d.min, d.max);
+        else if ((d.type === 'f' || d.type === 'i') && s.vari > 0) {
             const u = rng_s(rng_sub(seed, 1000 + i));
             v = clamp(v + s.vari * u, d.min, d.max);
         }

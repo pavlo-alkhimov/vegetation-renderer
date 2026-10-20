@@ -1,7 +1,8 @@
 // Node graph: nodes pinned to table cells, typed single-output nodes, wires as input references.
 // Evaluation is pull-based from a target node with a per-evaluation memo and a cross-evaluation content cache.
 //
-// Graph = { nodes: [Node] }; Node = { id, name, op, col, row, p: { param: { v, vari } }, ins: [node id or 0] }.
+// Graph = { nodes: [Node] }; Node = { id, name, op, col, row, p: { param: { v, vari, lods? } }, ins: [node id or 0],
+//   binds: { param or 'seed': value node id } }.
 
 function graph_new() { return { nodes: [], next_id: 1 }; }
 
@@ -18,7 +19,7 @@ function unique_name(g, base)
 function node_add(g, op, col, row, name)
 {
     const n = { id: g.next_id++, name: name || unique_name(g, op), op: op, col: col, row: row,
-                p: node_defaults(op), ins: OPS[op].ins.map(() => 0) };
+                p: node_defaults(op), ins: OPS[op].ins.map(() => 0), binds: {} };
     g.nodes.push(n);
     return n;
 }
@@ -26,7 +27,10 @@ function node_add(g, op, col, row, name)
 function node_remove(g, id)
 {
     g.nodes = g.nodes.filter(n => n.id !== id);
-    for (const n of g.nodes) n.ins = n.ins.map(x => x === id ? 0 : x);
+    for (const n of g.nodes) {
+        n.ins = n.ins.map(x => x === id ? 0 : x);
+        for (const k of Object.keys(n.binds)) if (n.binds[k] === id) delete n.binds[k];
+    }
 }
 
 // True if 'b' is upstream of (or equal to) 'a'.
@@ -36,6 +40,7 @@ function depends_on(g, a, b)
     const n = node_find(g, a);
     if (!n) return false;
     for (const i of n.ins) if (i && depends_on(g, i, b)) return true;
+    for (const k of Object.keys(n.binds)) if (depends_on(g, n.binds[k], b)) return true;
     return false;
 }
 
@@ -49,6 +54,26 @@ function connect(g, src_id, dst_id, slot)
     if (OPS[s.op].out !== want) return d.name + ' input ' + slot + ' needs ' + want + ', ' + s.name + ' gives ' + OPS[s.op].out;
     if (depends_on(g, src_id, dst_id)) return 'connection would create a cycle';
     d.ins[slot] = src_id;
+    return null;
+}
+
+// Parameters of dst that a value can drive: numeric parameters, plus 'seed' for nodes with a seed channel.
+function bindable_params(op)
+{
+    const out = OPS[op].params.filter(d => d.type === 'f' || d.type === 'i').map(d => d.name);
+    if (OPS[op].chan) out.push('seed');
+    return out;
+}
+
+// Binds a value node to a parameter (or the seed) of dst; returns an error string or null.
+function bind(g, src_id, dst_id, param)
+{
+    const s = node_find(g, src_id), d = node_find(g, dst_id);
+    if (!s || !d) return 'no node';
+    if (OPS[s.op].out !== 'value') return s.name + ' is not a value';
+    if (bindable_params(d.op).indexOf(param) < 0) return d.name + ' has no numeric parameter ' + param;
+    if (depends_on(g, src_id, dst_id)) return 'binding would create a cycle';
+    d.binds[param] = src_id;
     return null;
 }
 
@@ -85,11 +110,19 @@ function eval_node(g, id, ctx)
         if (r.err && !(op.optional && op.optional[i])) res.err = 'input ' + (i + 1) + ' (' + node_find(g, n.ins[i]).name + ') has no result';
         ins.push(r.err ? null : r.val); keys.push(r.err ? 0 : r.key);
     }
+    const bvals = {};
+    for (const k of Object.keys(n.binds)) {
+        const r = eval_node(g, n.binds[k], ctx);
+        if (r.err) { res.err = k + ' <- ' + node_find(g, n.binds[k]).name + ' has no result'; break; }
+        bvals[k] = r.val; keys.push(k + ':' + r.key);
+    }
     if (res.err) { n._err = res.err; n._ms = 0; n._cached = false; return res; }
     if (op.texture && ctx.no_textures) { res.val = null; res.err = 'skipped'; return res; }
-    const seed = node_seed(ctx.seeds, op.chan, n.name);
-    const P = resolve_params(n, seed, ctx.lod);
-    res.key = hash2(hash_str(n.op + '/' + op.ver + '/' + JSON.stringify(P) + '/' + keys.join(',') + (op.lod ? '/lod' + ctx.lod : '')), seed);
+    // Nodes that use random numbers (seed channel set) take their seed only from an explicit value input.
+    if (op.chan && bvals.seed === undefined) { res.err = 'seed not connected (bind a Seed or other value node to seed)'; n._err = res.err; n._ms = 0; n._cached = false; return res; }
+    const seed = op.chan ? hash2(bvals.seed >>> 0, hash_str(n.name)) : 0;
+    const P = resolve_params(n, seed, ctx.lod, bvals);
+    res.key = hash2(hash_str(n.op + '/' + op.ver + '/' + JSON.stringify(P) + '/' + keys.join(',') + (op.lod ? '/lod' + ctx.lod : '') + (op.seeds ? '/' + JSON.stringify(ctx.seeds) : '')), seed);
     if (ctx.cache.has(res.key)) {
         res.val = ctx.cache.get(res.key); res.cached = true;
     } else {
@@ -100,7 +133,7 @@ function eval_node(g, id, ctx)
         if (!res.err) ctx.cache.set(res.key, res.val);
     }
     ctx.used.add(res.key);
-    n._err = res.err; n._ms = res.ms; n._cached = res.cached; n._P = P;
+    n._err = res.err; n._ms = res.ms; n._cached = res.cached; n._P = P; n._seed = op.chan ? seed : undefined; n._val = op.out === 'value' ? res.val : undefined;
     return res;
 }
 

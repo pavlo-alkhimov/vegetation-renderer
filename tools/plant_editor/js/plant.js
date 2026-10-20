@@ -10,7 +10,7 @@ function skel_clone(sk)
     const out = { branches: new Array(sk.branches.length), height: sk.height };
     for (let i = 0; i < sk.branches.length; i++) {
         const b = sk.branches[i];
-        out.branches[i] = { pts: b.pts.map(p => p.slice()), rad: b.rad.slice(), order: b.order, parent: b.parent, t: b.t, dead: b.dead };
+        out.branches[i] = { pts: b.pts.map(p => p.slice()), rad: b.rad.slice(), order: b.order, parent: b.parent, t: b.t, dead: b.dead, sides: b.sides };
     }
     return out;
 }
@@ -90,7 +90,7 @@ function make_trunk(P, seed)
     rad[segs] = Math.max(rad[segs], 0.01);
     let height = 0;
     for (const q of pts) height = Math.max(height, q[1]);
-    return { branches: [{ pts: pts, rad: rad, order: 0, parent: -1, t: 0, dead: false }], height: height };
+    return { branches: [{ pts: pts, rad: rad, order: 0, parent: -1, t: 0, dead: false, sides: P.sides }], height: height };
 }
 
 const PHYLLO_SPIRAL = 0, PHYLLO_DISTICHOUS = 1, PHYLLO_WHORL = 2;
@@ -272,7 +272,8 @@ function mesh_wood(sk, P)
     const white = [1, 1, 1];
     for (const b of sk.branches) {
         if (b.dead || b.rad[0] < P.min_radius) continue;
-        const sides = clamp(Math.round(P.sides * Math.sqrt(b.rad[0] / R0)), 3, P.sides);
+        // The trunk carries its own radial segment count (Trunk.sides); branches scale Wood.sides by radius.
+        const sides = b.sides ? b.sides : clamp(Math.round(P.sides * Math.sqrt(b.rad[0] / R0)), 3, P.sides);
         const reps = Math.max(1, Math.round(2 * Math.PI * b.rad[0] / P.tile));
         const pts = b.pts.slice();
         // Sink the base into the parent so the joint has no visible gap.
