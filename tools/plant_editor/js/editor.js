@@ -347,37 +347,52 @@ function inspector_build(E)
         if (!v || (node_by_name(A.g, v) && node_by_name(A.g, v) !== n)) { ev.target.value = n.name; return; }
         n.name = v; A.changed(true);
     });
-    const tbl = document.createElement('table');
-    tbl.className = 'params';
-    tbl.innerHTML = '<tr><th>parameter</th><th>value (species)</th><th>variation</th><th>now</th></tr>';
+    // Parameter rows wrap into as many columns as the panel width allows. Numeric values are slider bars: a framed
+    // rectangle with the name and value, filled (blue) up to the value; drag inside it (Ctrl: fine), double-click to
+    // type a value.
+    const tbl = document.createElement('div');
+    tbl.className = 'pgrid';
     op.params.forEach(function (d, i) {
-        const p = n.p[d.name], tr = document.createElement('tr');
+        const p = n.p[d.name], tr = document.createElement('div');
+        tr.className = 'prow' + (E.mode === 'edit' && E.row === i ? ' sel' : '');
         tr.dataset.row = i;
-        if (E.mode === 'edit' && E.row === i) tr.className = 'sel';
-        const td_name = document.createElement('td'); td_name.textContent = d.name; td_name.title = d.desc;
-        const td_val = document.createElement('td'), td_var = document.createElement('td'), td_now = document.createElement('td');
-        td_now.className = 'now';
+        tr.title = d.desc;
+        const td_val = document.createElement('div'), td_now = document.createElement('span');
+        td_val.className = 'pval'; td_now.className = 'now';
+        const label = function () { const l = document.createElement('span'); l.className = 'pname'; l.textContent = d.name; td_val.appendChild(l); };
         if (n.binds[d.name]) {
-            td_val.innerHTML = '\u2190 <b>' + ref_name(A.g, n.binds[d.name]) + '</b> ';
+            label();
+            const s = document.createElement('span');
+            s.innerHTML = '← <b>' + ref_name(A.g, n.binds[d.name]) + '</b> ';
+            td_val.appendChild(s);
             const ub = document.createElement('button');
-            ub.textContent = '\u00d7'; ub.title = 'unbind (key U)';
+            ub.textContent = '×'; ub.title = 'unbind (key U)';
             ub.addEventListener('click', () => { delete n.binds[d.name]; A.changed(true); });
             td_val.appendChild(ub);
         } else if (d.type === 's') {
+            label();
             const ti = document.createElement('input');
             ti.type = 'text'; ti.value = p.v; ti.className = 'text';
             ti.addEventListener('change', () => { p.v = ti.value; A.changed(false); });
             td_val.appendChild(ti);
         } else if (d.type === 'f' || d.type === 'i') {
-            const rng = document.createElement('input');
-            rng.type = 'range'; rng.min = d.min; rng.max = d.max; rng.step = d.step; rng.value = pval(p, A.lod);
-            const num = document.createElement('input');
-            num.type = 'number'; num.min = d.min; num.max = d.max; num.step = d.step; num.value = pval(p, A.lod); num.className = 'num';
+            const bar = document.createElement('div'), fill = document.createElement('div'), txt = document.createElement('span');
+            bar.className = 'sbar'; fill.className = 'sfill'; txt.className = 'stext';
+            bar.appendChild(fill); bar.appendChild(txt);
+            const show = function () {
+                const v = pval(p, A.lod);
+                fill.style.width = (clamp((v - d.min) / (d.max - d.min), 0, 1) * 100) + '%';
+                txt.innerHTML = '<span>' + d.name + '</span><b>' + (Math.round(v * 1000) / 1000) + '</b>';
+            };
             // 'per LOD' checkbox: off = one value for all LOD levels; on = four values L0..L3 (the field of the current
-            // LOD input is outlined; slider and arrows edit that one).
+            // LOD input is outlined; the bar and arrows edit that one).
             const lodvals = document.createElement('div');
             lodvals.className = 'lodvals';
-            const set = function (v, lod) { v = clamp(parseFloat(v), d.min, d.max); if (isNaN(v)) return; pset(p, d.type === 'i' ? Math.round(v) : v, lod); rng.value = pval(p, A.lod); num.value = pval(p, A.lod); fill_lods(); A.changed(false); };
+            const set = function (v, lod) {
+                v = clamp(parseFloat(v), d.min, d.max); if (isNaN(v)) return;
+                if (d.type === 'i') v = Math.round(v); else v = Math.round(v / d.step) * d.step;
+                pset(p, Math.round(v * 1e6) / 1e6, lod); show(); fill_lods(); A.changed(false);
+            };
             const fill_lods = function () {
                 if (!p.lods) { lodvals.innerHTML = ''; return; }
                 if (!lodvals.children.length)
@@ -388,31 +403,57 @@ function inspector_build(E)
                     }
                 lodvals.querySelectorAll('input').forEach((li, l) => { if (document.activeElement !== li) li.value = p.lods[l]; });
             };
+            bar.addEventListener('mousedown', ev => {
+                if (ev.button !== 0) return;
+                ev.preventDefault(); E.row = i;
+                if (ev.detail >= 2) return;           // second click of a double-click: typing, not sliding
+                const r = bar.getBoundingClientRect(), v0 = pval(p, A.lod), x0 = ev.clientX;
+                bar._prev = v0;
+                const at = e2 => e2.ctrlKey ? v0 + (e2.clientX - x0) / r.width * (d.max - d.min) * 0.05
+                                           : d.min + clamp((e2.clientX - r.left) / r.width, 0, 1) * (d.max - d.min);
+                if (!ev.ctrlKey) set(at(ev), A.lod);
+                bar.classList.add('drag');
+                const move = e2 => set(at(e2), A.lod);
+                const up = () => { bar.classList.remove('drag'); window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+                window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+            });
+            bar.addEventListener('dblclick', () => {
+                if (bar._prev !== undefined) set(bar._prev, A.lod);    // undo the jump of the first click
+                const ni = document.createElement('input');
+                ni.type = 'number'; ni.step = d.step; ni.value = pval(p, A.lod); ni.className = 'sedit';
+                bar.appendChild(ni); ni.focus(); ni.select();
+                let closed = false;
+                const done = ok => { if (closed) return; closed = true; if (ok) set(ni.value, A.lod); ni.remove(); };
+                ni.addEventListener('keydown', e2 => { if (e2.key === 'Enter') done(true); else if (e2.key === 'Escape') done(false); e2.stopPropagation(); });
+                ni.addEventListener('blur', () => done(true));
+            });
+            show();
             const lb = document.createElement('label');
             lb.className = 'perlod'; lb.title = 'separate value for each LOD level (key L)';
-            lb.innerHTML = '<input type="checkbox"' + (p.lods ? ' checked' : '') + '> per LOD';
+            lb.innerHTML = '<input type="checkbox"' + (p.lods ? ' checked' : '') + '>per LOD';
             lb.querySelector('input').addEventListener('change', () => { plod_toggle(p); A.changed(false); inspector_build(E); });
-            rng.addEventListener('input', () => set(rng.value, A.lod));
-            num.addEventListener('change', () => set(num.value, A.lod));
-            td_val.appendChild(rng); td_val.appendChild(num); td_val.appendChild(lb); td_val.appendChild(lodvals);
-            fill_lods();
             const vr = document.createElement('input');
-            vr.type = 'number'; vr.min = 0; vr.step = d.step; vr.value = p.vari; vr.className = 'num';
+            vr.type = 'number'; vr.min = 0; vr.step = d.step; vr.value = p.vari; vr.className = 'vari'; vr.title = 'variation by seed (±)';
             vr.addEventListener('change', () => { p.vari = Math.max(0, parseFloat(vr.value) || 0); A.changed(false); });
-            td_var.appendChild(vr);
+            const pm = document.createElement('span'); pm.className = 'pm'; pm.textContent = '±';
+            td_val.appendChild(bar); td_val.appendChild(pm); td_val.appendChild(vr); td_val.appendChild(lb);
+            tr.appendChild(td_val); tr.appendChild(td_now); tr.appendChild(lodvals);
+            fill_lods();
         } else if (d.type === 'e') {
+            label();
             const s = document.createElement('select');
             d.labels.forEach((l, k) => { const o = document.createElement('option'); o.value = k; o.textContent = l; s.appendChild(o); });
             s.value = p.v;
             s.addEventListener('change', () => { p.v = parseInt(s.value, 10); A.changed(false); });
             td_val.appendChild(s);
         } else {
+            label();
             const ci = document.createElement('input');
             ci.type = 'color'; ci.value = p.v;
             ci.addEventListener('input', () => { p.v = ci.value; A.changed(false); });
             td_val.appendChild(ci);
         }
-        tr.appendChild(td_name); tr.appendChild(td_val); tr.appendChild(td_var); tr.appendChild(td_now);
+        if (!td_val.parentNode) { tr.appendChild(td_val); tr.appendChild(td_now); }
         tr.addEventListener('mousedown', () => { E.row = i; });
         tbl.appendChild(tr);
     });
@@ -442,7 +483,7 @@ function inspector_values(E)
     const n = node_find(E.A.g, E.insp_node);
     if (!n || !n._P) return;
     const op = OPS[n.op];
-    const rows = E.insp.querySelectorAll('tr[data-row]');
+    const rows = E.insp.querySelectorAll('[data-row]');
     rows.forEach(tr => {
         const d = op.params[parseInt(tr.dataset.row, 10)], v = n._P[d.name];
         const td = tr.querySelector('.now');
@@ -467,7 +508,7 @@ function inspector_key(E, e)
     if (k === 'Escape') { editor_set_mode(E, 'nav'); return true; }
     if (!op.params.length) return k === 'Enter';
     const d = op.params[E.row], p = n.p[d.name];
-    const sel = function () { E.insp.querySelectorAll('tr[data-row]').forEach(tr => tr.classList.toggle('sel', parseInt(tr.dataset.row, 10) === E.row)); };
+    const sel = function () { E.insp.querySelectorAll('[data-row]').forEach(tr => tr.classList.toggle('sel', parseInt(tr.dataset.row, 10) === E.row)); };
     if (k === 'ArrowUp') { E.row = (E.row + op.params.length - 1) % op.params.length; sel(); return true; }
     if (k === 'ArrowDown') { E.row = (E.row + 1) % op.params.length; sel(); return true; }
     if (k === 'ArrowLeft' || k === 'ArrowRight') {
@@ -485,6 +526,6 @@ function inspector_key(E, e)
     if (n.binds[d.name]) return k === 'ArrowLeft' || k === 'ArrowRight';
     if ((k === 'l' || k === 'L') && (d.type === 'f' || d.type === 'i')) { plod_toggle(p); A.changed(false); inspector_build(E); return true; }
     if (k === 'Enter' && d.type === 'e') { p.v = (p.v + 1) % d.labels.length; A.changed(false); inspector_build(E); return true; }
-    if (k === 'Enter' && d.type === 'c') { const ci = E.insp.querySelectorAll('tr[data-row]')[E.row].querySelector('input[type=color]'); if (ci) ci.click(); return true; }
+    if (k === 'Enter' && d.type === 'c') { const ci = E.insp.querySelectorAll('[data-row]')[E.row].querySelector('input[type=color]'); if (ci) ci.click(); return true; }
     return false;
 }

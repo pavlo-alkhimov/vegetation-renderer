@@ -56,3 +56,23 @@ table.params td.now { color: #9ad08a; font: 11px monospace; }
 .lodvals span { font-size: 10px; color: #7f8590; margin-left: 4px; }
 .instance { margin-top: 10px; padding-top: 6px; border-top: 1px solid #33363c; }
 table.params input.text { width: 230px; font-family: monospace; }
+
+/* Parameter rows: wrap into columns (column-first); numeric values as slider bars. */
+.pgrid { columns: 310px; column-gap: 18px; margin-top: 6px; }   /* column-first: down the first column, then the next */
+.prow { break-inside: avoid; margin-bottom: 3px; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 1px 3px; min-height: 22px; }
+.prow.sel { background: #3a3420; }
+.pval { display: flex; align-items: center; gap: 4px; flex: 1; min-width: 0; }
+.pname { width: 110px; flex: none; color: #c8ccd4; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sbar { position: relative; flex: 1; min-width: 120px; height: 18px; border: 1px solid #5a5e66; background: transparent; cursor: ew-resize; user-select: none; }
+.sbar:hover, .sbar.drag { border-color: #8fb4e8; }
+.sfill { position: absolute; left: 0; top: 0; bottom: 0; background: #2f5f9e; border-right: 2px solid #7fb0f0; box-sizing: border-box; }
+.stext { position: absolute; left: 5px; right: 5px; top: 0; bottom: 0; display: flex; justify-content: space-between; align-items: center; font-size: 12px; pointer-events: none; }
+.stext b { font: 11px monospace; color: #fff; }
+.sedit { position: absolute; inset: 0; width: 100%; box-sizing: border-box; }
+.pm { color: #7f8590; font-size: 11px; }
+.prow input.vari { width: 46px; }
+.prow .now { width: 52px; text-align: right; color: #9ad08a; font: 11px monospace; }
+.prow .lodvals { flex-basis: 100%; }
+.prow input.text { flex: 1; font-family: monospace; }
+.prow .perlod { white-space: nowrap; margin-left: 2px; }
+.prow .perlod input { margin: 0 2px 0 0; vertical-align: middle; }
