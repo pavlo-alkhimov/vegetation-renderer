@@ -2,13 +2,23 @@
 // Evaluation is pull-based from a target node with a per-evaluation memo and a cross-evaluation content cache.
 //
 // Graph = { nodes: [Node] }; Node = { id, name, op, col, row, p: { param: { v, vari, lods? } }, ins: [node id or 0],
-//   binds: { param or 'seed': value node id } }.
+//   binds: { param or 'seed': value ref } }.
+// A reference to a node output is ref = id + port * 65536 (port 0 for single-output nodes; multi-output nodes declare
+// op.outs, e.g. the Inputs node). node_find accepts refs.
+
+function REF(id, port) { return id + (port || 0) * 65536; }
+function ref_id(r) { return r & 0xffff; }
+function ref_port(r) { return r >>> 16; }
+function ref_name(g, r) { const n = node_find(g, r); if (!n) return '-'; const o = OPS[n.op].outs; return o ? n.name + '.' + o[ref_port(r)] : n.name; }
+// The value a ref delivers from its node's result.
+function ref_value(g, r, val) { const n = node_find(g, r); return n && OPS[n.op].outs ? val[ref_port(r)] : val; }
+function node_span(n) { return OPS[n.op].span || 1; }
 
 function graph_new() { return { nodes: [], next_id: 1 }; }
 
-function node_find(g, id) { for (const n of g.nodes) if (n.id === id) return n; return null; }
+function node_find(g, id) { id = id & 0xffff; for (const n of g.nodes) if (n.id === id) return n; return null; }
 function node_by_name(g, name) { for (const n of g.nodes) if (n.name === name) return n; return null; }
-function node_at(g, col, row) { for (const n of g.nodes) if (n.col === col && n.row === row) return n; return null; }
+function node_at(g, col, row) { for (const n of g.nodes) if (n.col === col && row >= n.row && row < n.row + node_span(n)) return n; return null; }
 
 function unique_name(g, base)
 {
@@ -28,15 +38,15 @@ function node_remove(g, id)
 {
     g.nodes = g.nodes.filter(n => n.id !== id);
     for (const n of g.nodes) {
-        n.ins = n.ins.map(x => x === id ? 0 : x);
-        for (const k of Object.keys(n.binds)) if (n.binds[k] === id) delete n.binds[k];
+        n.ins = n.ins.map(x => ref_id(x) === id ? 0 : x);
+        for (const k of Object.keys(n.binds)) if (ref_id(n.binds[k]) === id) delete n.binds[k];
     }
 }
 
 // True if 'b' is upstream of (or equal to) 'a'.
 function depends_on(g, a, b)
 {
-    if (a === b) return true;
+    if (ref_id(a) === ref_id(b)) return true;
     const n = node_find(g, a);
     if (!n) return false;
     for (const i of n.ins) if (i && depends_on(g, i, b)) return true;
@@ -106,20 +116,20 @@ function eval_node(g, id, ctx)
             ins.push(null); keys.push(0);
             continue;
         }
-        const r = eval_node(g, n.ins[i], ctx);
+        const r = eval_node(g, ref_id(n.ins[i]), ctx);
         if (r.err && !(op.optional && op.optional[i])) res.err = 'input ' + (i + 1) + ' (' + node_find(g, n.ins[i]).name + ') has no result';
-        ins.push(r.err ? null : r.val); keys.push(r.err ? 0 : r.key);
+        ins.push(r.err ? null : ref_value(g, n.ins[i], r.val)); keys.push(r.err ? 0 : r.key + '.' + ref_port(n.ins[i]));
     }
     const bvals = {};
     for (const k of Object.keys(n.binds)) {
-        const r = eval_node(g, n.binds[k], ctx);
+        const r = eval_node(g, ref_id(n.binds[k]), ctx);
         if (r.err) { res.err = k + ' <- ' + node_find(g, n.binds[k]).name + ' has no result'; break; }
-        bvals[k] = r.val; keys.push(k + ':' + r.key);
+        bvals[k] = ref_value(g, n.binds[k], r.val); keys.push(k + ':' + r.key + '.' + ref_port(n.binds[k]));
     }
     if (res.err) { n._err = res.err; n._ms = 0; n._cached = false; return res; }
     if (op.texture && ctx.no_textures) { res.val = null; res.err = 'skipped'; return res; }
     // Nodes that use random numbers (seed channel set) take their seed only from an explicit value input.
-    if (op.chan && bvals.seed === undefined) { res.err = 'seed not connected (bind a Seed or other value node to seed)'; n._err = res.err; n._ms = 0; n._cached = false; return res; }
+    if (op.chan && bvals.seed === undefined) { res.err = 'seed not connected (bind an Inputs seed or other value to seed)'; n._err = res.err; n._ms = 0; n._cached = false; return res; }
     const seed = op.chan ? hash2(bvals.seed >>> 0, hash_str(n.name)) : 0;
     const P = resolve_params(n, seed, ctx.lod, bvals);
     res.key = hash2(hash_str(n.op + '/' + op.ver + '/' + JSON.stringify(P) + '/' + keys.join(',') + (op.lod ? '/lod' + ctx.lod : '') + (op.seeds ? '/' + JSON.stringify(ctx.seeds) : '')), seed);

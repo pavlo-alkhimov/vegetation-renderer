@@ -13,6 +13,16 @@ function fmt_num(x)
     return s;
 }
 
+// 'name' or 'name.output' -> ref (0 if unknown).
+function parse_ref(g, s)
+{
+    const dot = s.indexOf('.'), n = node_by_name(g, dot < 0 ? s : s.slice(0, dot));
+    if (!n) return 0;
+    if (dot < 0) return n.id;
+    const port = (OPS[n.op].outs || []).indexOf(s.slice(dot + 1));
+    return port < 0 ? 0 : REF(n.id, port);
+}
+
 function species_write(g, title)
 {
     const lines = ['# ' + (title || 'species') + ' - plant editor species (graph + parameters; seeds are separate)'];
@@ -20,18 +30,18 @@ function species_write(g, title)
     for (const n of sorted) {
         const op = OPS[n.op];
         let s = n.name + ' = ' + n.op + ' @' + n.col + ',' + n.row;
-        if (op.ins.length) s += ' in=' + n.ins.map(id => { const m = node_find(g, id); return m ? m.name : '-'; }).join(',');
+        if (op.ins.length) s += ' in=' + n.ins.map(r => r ? ref_name(g, r) : '-').join(',');
         for (const d of op.params) {
             const p = n.p[d.name];
             let v;
-            if (n.binds[d.name]) { s += ' ' + d.name + '=@' + node_find(g, n.binds[d.name]).name; continue; }
+            if (n.binds[d.name]) { s += ' ' + d.name + '=@' + ref_name(g, n.binds[d.name]); continue; }
             if (d.type === 'e') v = d.labels[p.v];
             else if (d.type === 's') v = '"' + p.v.replace(/"/g, "'") + '"';
             else if (d.type === 'c') v = p.v;
             else v = (p.lods ? p.lods.map(fmt_num).join('|') : fmt_num(p.v)) + (p.vari > 0 ? '~' + fmt_num(p.vari) : '');
             s += ' ' + d.name + '=' + v;
         }
-        if (n.binds.seed) s += ' seed=@' + node_find(g, n.binds.seed).name;
+        if (n.binds.seed) s += ' seed=@' + ref_name(g, n.binds.seed);
         lines.push(s);
     }
     return lines.join('\n') + '\n';
@@ -88,17 +98,17 @@ function species_read(text)
     }
     for (const p of pending) {
         if (p.bind) {
-            const src = node_by_name(g, p.ref);
-            if (!src) { errors.push('line ' + p.ln + ': unknown node @' + p.ref); continue; }
-            const e = bind(g, src.id, p.node.id, p.bind);
+            const r = parse_ref(g, p.ref);
+            if (!r) { errors.push('line ' + p.ln + ': unknown node or output @' + p.ref); continue; }
+            const e = bind(g, r, p.node.id, p.bind);
             if (e) errors.push('line ' + p.ln + ': ' + e);
             continue;
         }
         for (let i = 0; i < p.refs.length && i < p.node.ins.length; i++) {
             if (p.refs[i] === '-' || p.refs[i] === '') continue;
-            const src = node_by_name(g, p.refs[i]);
-            if (!src) { errors.push('line ' + p.ln + ': unknown input ' + p.refs[i]); continue; }
-            const e = connect(g, src.id, p.node.id, i);
+            const r = parse_ref(g, p.refs[i]);
+            if (!r) { errors.push('line ' + p.ln + ': unknown input ' + p.refs[i]); continue; }
+            const e = connect(g, r, p.node.id, i);
             if (e) errors.push('line ' + p.ln + ': ' + e);
         }
     }
@@ -132,25 +142,19 @@ function seeds_read(text)
 // Built-in species library (Central European trees and a shrub). All use the same table layout:
 // row 0 structure (trunk, branch orders, tropism, prune, wood, merge, wireframe, output), row 1 foliage, row 2 textures.
 // Built-in species library (Central European trees and a shrub). Shared table layout:
-//   column 0: network inputs (lod, the three seeds, three constants); column 1: derived values (expressions);
+//   column 0: the Inputs node (lod, the three seeds, three constants); column 1: derived values (expressions);
 //   columns 2..: structure (row 0), foliage (row 1), textures (row 2).
-// Every node's seed is bound explicitly to its channel's Seed node; the trunk's vertical and radial segment counts
-// come from const1 / const2 through LOD expressions.
+// Every node's seed is bound explicitly to its channel's seed output; the trunk's vertical and radial segment counts
+// come from c1 / c2 through LOD expressions.
 function make_species(title, n)
 {
     const L = ['# ' + title + ' - plant editor species (graph + parameters; seeds are separate)'];
     const seg0 = parseInt((n.trunk.match(/segments=(\d+)/) || [0, 12])[1], 10);
     const sides0 = Math.max(3, parseInt((n.wood.match(/sides=(\d+)/) || [0, 10])[1], 10) + 2);
-    L.push('lod = Lod @0,0');
-    L.push('seed_structure = Seed @0,1 channel=structure');
-    L.push('seed_foliage = Seed @0,2 channel=foliage');
-    L.push('seed_texture = Seed @0,3 channel=texture');
-    L.push('const1 = Const @0,4 value=' + seg0);
-    L.push('const2 = Const @0,5 value=' + sides0);
-    L.push('const3 = Const @0,6 value=1');
-    L.push('trunk_segments = Expr @1,4 in=const1,lod,- expr="max(2, round(x*(1-0.17*y)))"');
-    L.push('trunk_sides = Expr @1,5 in=const2,lod,- expr="max(3, round(x*pow(0.65,y)))"');
-    const S = ' seed=@seed_structure', Fo = ' seed=@seed_foliage', T = ' seed=@seed_texture';
+    L.push('inputs = Inputs @0,0 c1=' + seg0 + ' c2=' + sides0 + ' c3=1');
+    L.push('trunk_segments = Expr @1,0 in=inputs.c1,inputs.lod,- expr="max(2, round(x*(1-0.17*y)))"');
+    L.push('trunk_sides = Expr @1,1 in=inputs.c2,inputs.lod,- expr="max(3, round(x*pow(0.65,y)))"');
+    const S = ' seed=@inputs.structure', Fo = ' seed=@inputs.foliage', T = ' seed=@inputs.texture';
     L.push('trunk = Trunk @2,0 ' + n.trunk.replace(/segments=\S+/, 'segments=@trunk_segments sides=@trunk_sides') + S);
     let prev = 'trunk';
     n.branches.forEach(function (b, i) { L.push('branches' + (i + 1) + ' = Branches @' + (i + 3) + ',0 in=' + prev + ' ' + b + S); prev = 'branches' + (i + 1); });

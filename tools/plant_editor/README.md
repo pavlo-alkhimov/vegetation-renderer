@@ -12,29 +12,22 @@ Open `index.html` directly from disk (Chrome, Edge, Firefox, Safari; WebGL2). No
 | Edited in | the inspector (left) | the seeds panel (right) |
 | Stored | once per species (later possibly hard-coded) | per plant in a level, nothing else |
 
-Every node that uses random numbers takes its seed from an **explicit input**: its `seed` must be bound to a value node, otherwise the node reports "seed not connected". The library species bind each node to the Seed node of its channel. Channels:
+Every node that uses random numbers takes its seed from an **explicit input**: its `seed` must be bound to a value node, otherwise the node reports "seed not connected". The library species bind each node to the seed output of its channel on the Inputs node. Channels:
 - `structure`: trunk, branches, tropism, prune, wood;
 - `foliage`: leaf shape, leaves, leaf mesh;
 - `texture`: the texture nodes.
 
-A newly inserted node is bound to its channel's Seed node automatically; the wire is visible and can be changed. The node's stream is `hash(seed input, node name)`, so renaming a node changes its result.
+A newly inserted node is bound to its channel's seed output automatically; the wire is visible and can be changed. The node's stream is `hash(seed input, node name)`, so renaming a node changes its result.
 
 ### Input column and value nodes
 
-Column 0 of every library species holds the network inputs:
-
-| Node | Value |
-|---|---|
-| `lod` | the current LOD level |
-| `seed_structure`, `seed_foliage`, `seed_texture` | the three instance seeds |
-| `const1`, `const2`, `const3` | constants: trunk vertical segments, trunk radial segments, and a spare (1) |
+Column 0 of every library species holds one **Inputs** node with all network inputs as separate outputs: `lod`, the seeds `structure`, `foliage`, `texture`, and the constants `c1`, `c2`, `c3` (trunk vertical segments, trunk radial segments, spare). Selecting it also shows the instance values (seeds, LOD level, kept seed list). C on it first asks which output to connect.
 
 Column 1 holds derived values: `trunk_segments = max(2, round(x*(1-0.17*y)))` and `trunk_sides = max(3, round(x*pow(0.65,y)))`, with x = the constant and y = lod.
 
 | Value node | Output |
 |---|---|
-| `Lod` | the LOD input |
-| `Seed` | one instance seed (`channel`) |
+| `Inputs` | `lod`, the three seeds and constants `c1`..`c3`, each a separate output (`.species`: `@inputs.c1`) |
 | `Const` | a number (per-LOD values possible) |
 | `Expr` | an expression of its inputs x, y, z and `lod`: `+ - * / ^`, `min max abs floor ceil round sqrt pow clamp lerp sin cos exp log`, `pi`; e.g. `2*x+1` |
 
@@ -42,7 +35,7 @@ Column 1 holds derived values: `trunk_segments = max(2, round(x*(1-0.17*y)))` an
 - A bound parameter shows `← source` in the inspector and takes the source's value, clamped and without variation.
 - **×** or **U** (edit mode) unbinds; **X** clears all inputs and bindings of a node.
 - Bindings are drawn as dashed lines; seed bindings are faint.
-- In `.species` files: `segments=@trunk_segments`, `seed=@seed_structure`, `expr="2*x+1"`.
+- In `.species` files: `segments=@trunk_segments`, `seed=@inputs.structure`, `expr="2*x+1"`.
 
 Trunk has two segment counts: `segments` (vertical, along the stem) and `sides` (radial, tube sides). Wood's `sides` applies to the branches.
 
@@ -90,13 +83,13 @@ The **Wireframe** node (between Merge and Output in every library species, `enab
 - In the viewport: drawn over the shaded mesh.
 - In the export: a separate line mesh `lodN/debug:wire` with material `debug:wire` and `extras.debug = true`, so the game viewer can switch it on while walking over the terrain. `parts` limits it to wood or leaves.
 
-The variant strip under the viewport shows the next 8 seed combinations; click one to use it. **lock** keeps a channel fixed there, and for "all ›" / "all ⟳". **+ keep in list** collects seed vectors; Save seeds writes them as a `.seeds` file (one `structure foliage texture` line per plant).
+**all ›** / **all ⟳** (in the Inputs node panel) step or randomise the unlocked seeds. **+ keep in list** collects seed vectors; Save seeds writes them as a `.seeds` file (one `structure foliage texture` line per plant).
 
 ## Screen layout
 
-- **Top half:** the node table. Texture nodes show their result in the right third of the cell.
-- **Bottom left:** the selected node (hidden when the cursor is on an empty cell). Selecting a Seed or Lod node also shows the instance inputs: the three seeds, the LOD level and the kept seed list.
-- **Bottom right:** the preview and the variant strip.
+- **Top two thirds:** the node table. Texture nodes show their result in the right third of the cell.
+- **Bottom left:** the selected node (hidden when the cursor is on an empty cell). Selecting the Inputs node also shows the instance values: the three seeds, the LOD level and the kept seed list.
+- **Bottom right:** the preview (1/8 of the width); **Space** shows it full screen.
 - **Bottom edge:** the key bar for the current mode.
 - **Help:** lists all keys and operators. Esc closes it; PgUp/PgDn, Home/End scroll it.
 
@@ -112,7 +105,8 @@ Nodes sit in table cells; wires connect typed ports. Port colours: skeleton brow
 | Del | remove the node |
 | C | connect: arrows to the target node, Enter (wrong types and cycles are refused) |
 | X | disconnect the node's inputs |
-| Space | preview this node: skeleton as lines, leaf shape, placements, mesh, texture maps; Space again returns to the output |
+| P | preview this node: skeleton as lines, leaf shape, placements, mesh, texture maps; P again returns to the output |
+| Space | full-screen preview on / off (Esc also leaves it) |
 | Ctrl + D | duplicate the node |
 | F | frame the view |
 

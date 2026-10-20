@@ -110,7 +110,7 @@ function evaluate()
         s += ' · ' + mesh_triangles(A.out.mesh).toLocaleString() + ' triangles · height ' + b.h.toFixed(1) + ' m · crown radius ' + b.r.toFixed(1) +
              ' m · mesh ' + hex32(mesh_hash(A.out.mesh)) + ' · textures ' + hex32(hash2(tex_hash(A.out.bark), tex_hash(A.out.leaf)));
     } else s += ' · output incomplete' + (ro && ro.err ? ': ' + ro.err : '');
-    if (pn && pn !== outn) s += ' · previewing ' + pn.name + ' (Space on it to return)';
+    if (pn && pn !== outn) s += ' · previewing ' + pn.name + ' (P on it to return)';
     $('status').textContent = s;
     inspector_values(A.E);
     seeds_ui_refresh();
@@ -136,7 +136,9 @@ function variants_step()
     }
     if (A.variants.k >= 8) return;
     const k = A.variants.k++, outn = graph_output(A.g);
-    const cv = $('variants').children[k];
+    const vs = $('variants');
+    if (!vs) return;
+    const cv = vs.children[k];
     const ctx2 = cv.getContext('2d');
     if (!outn) { ctx2.clearRect(0, 0, cv.width, cv.height); return; }
     const ctx = eval_ctx(variant_seeds(k), A.vcache, A.lod);
@@ -269,7 +271,7 @@ function ui_init()
     $('btn_frame').addEventListener('click', () => { A.refit = true; A.dirty = true; });
     $('btn_help').addEventListener('click', () => { $('help').classList.toggle('hidden'); $('btn_help').blur(); });
     const vs = $('variants');
-    for (let k = 0; k < 8; k++) {
+    if (vs) for (let k = 0; k < 8; k++) {
         const c = document.createElement('canvas');
         c.width = c.height = 112;
         c.addEventListener('click', () => { A.seeds = variant_seeds(k); A.changed(false); });
@@ -293,6 +295,8 @@ function ui_init()
             if (e.key === 'Escape') { ae.blur(); if (A.E.mode === 'edit') editor_set_mode(A.E, 'nav'); e.preventDefault(); }
             return;
         }
+        if (e.key === ' ' && (A.E.mode === 'nav' || A.E.mode === 'edit')) { document.body.classList.toggle('fullview'); e.preventDefault(); return; }
+        if (e.key === 'Escape' && document.body.classList.contains('fullview')) { document.body.classList.remove('fullview'); e.preventDefault(); return; }
         if ((e.key === 'f' || e.key === 'F') && A.E.mode === 'nav' && !e.ctrlKey && !e.metaKey) { A.refit = true; A.dirty = true; e.preventDefault(); return; }
         if (editor_key(A.E, e)) e.preventDefault();
     });
@@ -302,10 +306,11 @@ function ui_init()
 // Key bar along the bottom (as in the terrain viewer): the keys of the current mode, then the viewport mouse.
 const KEYBAR = {
     nav: ['TABLE', ['\u2190\u2191\u2192\u2193', 'move cursor'], ['Ctrl+\u2190\u2192', 'move node'], ['Enter', 'edit / insert'], ['Del', 'remove node'],
-          ['C', 'connect / bind'], ['X', 'disconnect'], ['Space', 'preview node'], ['Ctrl+D', 'duplicate'], ['F', 'frame view']],
+          ['C', 'connect / bind'], ['X', 'disconnect'], ['P', 'preview node'], ['Space', 'full-screen preview'], ['Ctrl+D', 'duplicate'], ['F', 'frame view']],
     edit: ['EDIT', ['\u2191\u2193', 'parameter'], ['\u2190\u2192', 'value'], ['Shift', 'step x10'], ['Alt+\u2190\u2192', 'variation'],
            ['L', 'per-LOD values'], ['U', 'unbind'], ['Enter', 'enum / colour'], ['Esc', 'back to table']],
     wire: ['CONNECT', ['\u2190\u2191\u2192\u2193', 'target node'], ['Enter', 'connect / bind'], ['Esc', 'cancel']],
+    port: ['OUTPUT', ['\u2191\u2193', 'output'], ['Enter', 'connect from it'], ['Esc', 'cancel']],
     bind: ['BIND', ['\u2191\u2193', 'parameter'], ['Enter', 'bind'], ['Esc', 'cancel']],
     help: ['HELP', ['PgUp/PgDn', 'scroll'], ['Home/End', 'top / bottom'], ['Esc', 'close']],
     insert: ['INSERT', ['\u2191\u2193', 'operator'], ['A-Z', 'jump'], ['Enter', 'insert'], ['Esc', 'cancel']],
@@ -326,7 +331,7 @@ function keybar_update()
 function help_text()
 {
     let s = 'TABLE  arrows: move cursor   Ctrl+arrows: move node   Enter: edit node / insert node (empty cell)\n' +
-            '       Del: remove   C: connect (arrows to target node, Enter)   X: disconnect inputs   Space: preview node\n' +
+            '       Del: remove   C: connect (arrows to target node, Enter)   X: disconnect inputs   P: preview node   Space: full-screen preview\n' +
             '       Ctrl+D: duplicate   F: frame view   mouse: click selects, drag moves a node, double-click = Enter\n' +
             'VALUES Lod / Seed / Const / Expr nodes: C on the value node, arrows to the target, Enter: an Expr input, or pick a parameter\n' +
             '       (or the node seed) to bind; U in edit mode unbinds. Expr: x y z (inputs), lod; + - * / ^ min max round clamp lerp ...\n' +
@@ -348,7 +353,9 @@ function main()
     let text = null, seeds = null;
     try { text = localStorage.getItem(STORE_SPECIES); seeds = JSON.parse(localStorage.getItem(STORE_SEEDS) || 'null'); A.title = localStorage.getItem(STORE_TITLE) || A.title; } catch (e) { /* ignore */ }
     const r = species_read(text || DEFAULT_SPECIES);
-    A.g = r.graph.nodes.length ? r.graph : species_read(DEFAULT_SPECIES).graph;
+    // An autosave from an older editor version (unknown operators) falls back to the default species.
+    const stale = r.errors.some(e => e.indexOf("unknown operator") >= 0);
+    A.g = r.graph.nodes.length && !stale ? r.graph : species_read(DEFAULT_SPECIES).graph;
     if (seeds) { A.seeds = seeds.seeds || A.seeds; A.locks = seeds.locks || {}; A.seed_list = seeds.list || []; A.lod = seeds.lod || 0; }
     A.E = editor_init(A, $('graph'), $('inspector'));
     $('title').value = A.title;

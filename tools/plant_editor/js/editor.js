@@ -83,7 +83,7 @@ function editor_key(E, e)
             else {
                 const m = node_add(g, op, E.cur[0], E.cur[1]);
                 // Random-using nodes get their seed wired to the channel's Seed node, if there is one (visible, editable).
-                if (OPS[op].chan) { const sn = g.nodes.find(q => q.op === 'Seed' && ['structure', 'foliage', 'texture'][q.p.channel.v] === OPS[op].chan); if (sn) bind(g, sn.id, m.id, 'seed'); } A.changed(true); editor_msg(E, 'added ' + m.name); E.insp_node = -1; editor_select_changed(E); }
+                if (OPS[op].chan) { const sn = g.nodes.find(q => q.op === 'Inputs'); if (sn) bind(g, REF(sn.id, OPS.Inputs.outs.indexOf(OPS[op].chan)), m.id, 'seed'); } A.changed(true); editor_msg(E, 'added ' + m.name); E.insp_node = -1; editor_select_changed(E); }
             E.mode = 'nav';
         } else if (k.length === 1 && /[a-z]/i.test(k)) {
             const i = OP_NAMES.findIndex(o => o[0].toLowerCase() === k.toLowerCase());
@@ -114,13 +114,22 @@ function editor_key(E, e)
         } else return false;
         return true;
     }
+    if (E.mode === 'port') {
+        const outs = OPS[node_find(g, E.port_node).op].outs;
+        if (k === 'Escape') E.mode = 'nav';
+        else if (k === 'ArrowUp') E.port_sel = (E.port_sel + outs.length - 1) % outs.length;
+        else if (k === 'ArrowDown') E.port_sel = (E.port_sel + 1) % outs.length;
+        else if (k === 'Enter') { E.wire_src = REF(E.port_node, E.port_sel); E.mode = 'wire'; editor_msg(E, 'connect ' + ref_name(g, E.wire_src) + ': move to the target node, Enter'); }
+        else return false;
+        return true;
+    }
     if (E.mode === 'bind') {
         if (k === 'Escape') E.mode = 'nav';
         else if (k === 'ArrowUp') E.bind_sel = (E.bind_sel + E.bind_list.length - 1) % E.bind_list.length;
         else if (k === 'ArrowDown') E.bind_sel = (E.bind_sel + 1) % E.bind_list.length;
         else if (k === 'Enter') {
             const p = E.bind_list[E.bind_sel], err = bind(g, E.wire_src, E.bind_dst, p);
-            if (err) editor_msg(E, err); else { editor_msg(E, node_find(g, E.bind_dst).name + '.' + p + ' <- ' + node_find(g, E.wire_src).name); A.changed(true); }
+            if (err) editor_msg(E, err); else { editor_msg(E, node_find(g, E.bind_dst).name + '.' + p + ' <- ' + ref_name(g, E.wire_src)); A.changed(true); }
             E.mode = 'nav'; E.insp_node = -1; editor_select_changed(E);
         } else return false;
         return true;
@@ -145,10 +154,11 @@ function editor_key(E, e)
     }
     if ((k === 'c' || k === 'C') && n) {
         if (OPS[n.op].out === 'output') { editor_msg(E, 'Output has no output'); return true; }
+        if (OPS[n.op].outs) { E.port_node = n.id; E.port_sel = 0; E.mode = 'port'; return true; }
         E.wire_src = n.id; E.mode = 'wire'; editor_msg(E, 'connect ' + n.name + ': move to the target node, Enter'); return true;
     }
     if ((k === 'x' || k === 'X') && n) { n.ins = n.ins.map(() => 0); n.binds = {}; editor_msg(E, 'disconnected inputs of ' + n.name); A.changed(true); return true; }
-    if (k === ' ' && n) { A.preview_id = A.preview_id === n.id ? 0 : n.id; A.refit = true; A.changed(false); return true; }
+    if ((k === 'p' || k === 'P') && n) { A.preview_id = A.preview_id === n.id ? 0 : n.id; A.refit = true; A.changed(false); return true; }
     if ((k === 'd' || k === 'D') && (e.ctrlKey || e.metaKey) && n) {
         const c = nearest_free_cell(g, n.col + 1, n.row);
         const m = node_add(g, n.op, c[0], c[1]);
@@ -166,6 +176,13 @@ function editor_scroll_to(E)
     if (x + CELL_W > E.scroll[0] + w) E.scroll[0] = x + CELL_W - w;
     if (y < E.scroll[1]) E.scroll[1] = y;
     if (y + CELL_H > E.scroll[1] + h) E.scroll[1] = y + CELL_H - h;
+}
+
+// y of a node's output port (multi-output nodes: one row of ~26 px per output under the title).
+function out_y(n, ref)
+{
+    const o = OPS[n.op].outs;
+    return o ? n.row * CELL_H + CELL_PAD + 32 + ref_port(ref) * 26 : n.row * CELL_H + CELL_H / 2;
 }
 
 function port_y(op, i) { const n = OPS[op].ins.length; return CELL_PAD + 22 + (CELL_H - 2 * CELL_PAD - 26) * (n === 1 ? 0.5 : i / (n - 1)); }
@@ -193,7 +210,7 @@ function editor_draw(E)
         for (let i = 0; i < n.ins.length; i++) {
             const s = node_find(g, n.ins[i]);
             if (!s) continue;
-            const x0 = s.col * CELL_W + CELL_W - CELL_PAD, y0 = s.row * CELL_H + CELL_H / 2;
+            const x0 = s.col * CELL_W + CELL_W - CELL_PAD, y0 = out_y(s, n.ins[i]);
             const x1 = n.col * CELL_W + CELL_PAD, y1 = n.row * CELL_H + port_y(n.op, i);
             const dx = Math.max(30, Math.abs(x1 - x0) * 0.5);
             x.strokeStyle = TYPE_COLORS[OPS[s.op].out];
@@ -205,7 +222,7 @@ function editor_draw(E)
         for (const k of Object.keys(n.binds)) {
             const s = node_find(g, n.binds[k]);
             if (!s) continue;
-            const x0 = s.col * CELL_W + CELL_W - CELL_PAD, y0 = s.row * CELL_H + CELL_H / 2;
+            const x0 = s.col * CELL_W + CELL_W - CELL_PAD, y0 = out_y(s, n.binds[k]);
             const x1 = n.col * CELL_W + CELL_W / 2, y1 = n.row * CELL_H + CELL_PAD;
             x.strokeStyle = k === 'seed' ? 'rgba(138,143,153,0.35)' : 'rgba(200,205,215,0.8)';
             x.beginPath(); x.moveTo(x0, y0); x.bezierCurveTo(x0 + 40, y0, x1, y1 - 40, x1, y1); x.stroke();
@@ -213,7 +230,7 @@ function editor_draw(E)
     x.setLineDash([]);
     // Nodes.
     for (const n of g.nodes) {
-        const op = OPS[n.op], bx = n.col * CELL_W + CELL_PAD, by = n.row * CELL_H + CELL_PAD, bw = CELL_W - 2 * CELL_PAD, bh = CELL_H - 2 * CELL_PAD;
+        const op = OPS[n.op], bx = n.col * CELL_W + CELL_PAD, by = n.row * CELL_H + CELL_PAD, bw = CELL_W - 2 * CELL_PAD, bh = node_span(n) * CELL_H - 2 * CELL_PAD;
         x.fillStyle = '#2d3036'; x.fillRect(bx, by, bw, bh);
         x.fillStyle = TYPE_COLORS[op.out]; x.fillRect(bx, by, bw, 17);
         x.strokeStyle = n._err ? '#d0503c' : '#44474e'; x.lineWidth = 1; x.strokeRect(bx + 0.5, by + 0.5, bw - 1, bh - 1);
@@ -221,10 +238,21 @@ function editor_draw(E)
         x.fillText(n.name, bx + 6, by + 9);
         if (A.preview_id === n.id) { x.fillStyle = '#ffd860'; x.fillText('◉', bx + bw - 14, by + 9); }
         x.font = '11px sans-serif'; x.fillStyle = '#b8bcc4';
+        if (op.outs) {
+            // One labelled row per output, with its current value.
+            x.font = '11px monospace';
+            for (let o = 0; o < op.outs.length; o++) {
+                const y = out_y(n, REF(n.id, o)), v = n._val ? n._val[o] : undefined;
+                x.fillStyle = '#b8bcc4'; x.fillText(op.outs[o], bx + 10, y);
+                x.fillStyle = '#9ad08a'; x.fillText(v === undefined ? '' : String(Math.round(v * 1000) / 1000), bx + 78, y);
+                x.fillStyle = TYPE_COLORS.value; x.beginPath(); x.arc(bx + bw, y, 4, 0, Math.PI * 2); x.fill();
+            }
+            continue;
+        }
         x.fillText(n.op + (op.chan ? '  · ' + op.chan : ''), bx + 10, by + 30);
         x.fillStyle = n._err ? '#e0705c' : n._cached ? '#7f8590' : '#9ad08a';
         const nb = Object.keys(n.binds).filter(k => k !== 'seed').length;
-        const st = n._err ? (n._err === 'skipped' ? '' : 'error') : n._val !== undefined ? '= ' + (Math.round(n._val * 1000) / 1000) :
+        const st = n._err ? (n._err === 'skipped' ? '' : 'error') : typeof n._val === 'number' ? '= ' + (Math.round(n._val * 1000) / 1000) :
                    n._ms === undefined ? '' : (n._cached ? 'cached' : n._ms.toFixed(1) + ' ms') + (nb ? '  \u00b7 ' + nb + ' bound' : '');
         x.fillText(st, bx + 10, by + bh - 10);
         if (op.out === 'texture' && n._tex) {
@@ -237,7 +265,7 @@ function editor_draw(E)
             x.strokeStyle = TYPE_COLORS[op.ins[i]];
             x.beginPath(); x.arc(bx, n.row * CELL_H + port_y(n.op, i), 4, 0, Math.PI * 2); x.fill(); x.stroke();
         }
-        if (op.out !== 'output') { x.fillStyle = TYPE_COLORS[op.out]; x.beginPath(); x.arc(bx + bw, by + bh / 2, 4, 0, Math.PI * 2); x.fill(); }
+        if (op.out !== 'output' && !op.outs) { x.fillStyle = TYPE_COLORS[op.out]; x.beginPath(); x.arc(bx + bw, by + bh / 2, 4, 0, Math.PI * 2); x.fill(); }
     }
     // Cursor.
     x.strokeStyle = E.mode === 'wire' ? '#5fd0ff' : E.mode === 'edit' ? '#ffd860' : '#e8e8e8';
@@ -247,8 +275,18 @@ function editor_draw(E)
         const s = node_find(g, E.wire_src);
         if (s) {
             x.setLineDash([5, 4]); x.strokeStyle = '#5fd0ff';
-            x.beginPath(); x.moveTo(s.col * CELL_W + CELL_W - CELL_PAD, s.row * CELL_H + CELL_H / 2);
+            x.beginPath(); x.moveTo(s.col * CELL_W + CELL_W - CELL_PAD, out_y(s, E.wire_src));
             x.lineTo(E.cur[0] * CELL_W + CELL_PAD, E.cur[1] * CELL_H + CELL_H / 2); x.stroke(); x.setLineDash([]);
+        }
+    }
+    if (E.mode === 'port') {
+        const s = node_find(g, E.port_node), outs = OPS[s.op].outs, lx = s.col * CELL_W + CELL_W - 20, ly = s.row * CELL_H + 10, lh = 17;
+        x.fillStyle = '#25272c'; x.fillRect(lx, ly, 150, outs.length * lh + 26);
+        x.strokeStyle = '#5a5e66'; x.strokeRect(lx + 0.5, ly + 0.5, 150, outs.length * lh + 26);
+        x.font = '12px sans-serif'; x.fillStyle = '#9a9ea6'; x.fillText('connect output:', lx + 8, ly + 12);
+        for (let i = 0; i < outs.length; i++) {
+            if (i === E.port_sel) { x.fillStyle = '#3d5f88'; x.fillRect(lx + 2, ly + 22 + i * lh, 146, lh); }
+            x.fillStyle = '#eee'; x.fillText(outs[i], lx + 12, ly + 31 + i * lh);
         }
     }
     if (E.mode === 'bind') {
@@ -300,7 +338,7 @@ function inspector_build(E)
     head.innerHTML = '<input class="name" value="' + n.name + '" title="node name (part of the node seed)"> <span class="op">' + n.op + '</span>' +
         '<div class="desc">' + op.desc + '</div>' +
         '<div class="desc">LOD input: <b>' + A.lod + '</b> (per-LOD rows show and edit this level) &nbsp; seed channel: <b>' + (op.chan || '-') + '</b>' + (op.chan ? ' &nbsp; node seed ' + (n._seed !== undefined ? hex32(n._seed) : '-') : '') + '</div>' +
-        (n.binds.seed ? '<div class="desc">seed \u2190 <b>' + node_find(A.g, n.binds.seed).name + '</b> <button class="unbind" data-p="seed">\u00d7</button></div>' : '') +
+        (n.binds.seed ? '<div class="desc">seed \u2190 <b>' + ref_name(A.g, n.binds.seed) + '</b> <button class="unbind" data-p="seed">\u00d7</button></div>' : '') +
         (n._err && n._err !== 'skipped' ? '<div class="err">' + n._err + '</div>' : '');
     el.appendChild(head);
     head.querySelectorAll('.unbind').forEach(b => b.addEventListener('click', () => { delete n.binds[b.dataset.p]; A.changed(true); }));
@@ -320,7 +358,7 @@ function inspector_build(E)
         const td_val = document.createElement('td'), td_var = document.createElement('td'), td_now = document.createElement('td');
         td_now.className = 'now';
         if (n.binds[d.name]) {
-            td_val.innerHTML = '\u2190 <b>' + node_find(A.g, n.binds[d.name]).name + '</b> ';
+            td_val.innerHTML = '\u2190 <b>' + ref_name(A.g, n.binds[d.name]) + '</b> ';
             const ub = document.createElement('button');
             ub.textContent = '\u00d7'; ub.title = 'unbind (key U)';
             ub.addEventListener('click', () => { delete n.binds[d.name]; A.changed(true); });
@@ -379,7 +417,7 @@ function inspector_build(E)
         tbl.appendChild(tr);
     });
     el.appendChild(tbl);
-    if (n.op === 'Seed' || n.op === 'Lod') {
+    if (n.op === 'Inputs') {
         // The instance values themselves (not part of the species): the three seeds and the LOD level.
         const inst = document.createElement('div');
         inst.className = 'instance';
@@ -392,7 +430,7 @@ function inspector_build(E)
     if (ins.length) {
         const d = document.createElement('div');
         d.className = 'desc';
-        d.innerHTML = 'inputs: ' + ins.map((t, i) => { const s = node_find(A.g, n.ins[i]); return t + ' ← ' + (s ? '<b>' + s.name + '</b>' : '<i>none</i>'); }).join(', ');
+        d.innerHTML = 'inputs: ' + ins.map((t, i) => { return t + ' ← ' + (n.ins[i] ? '<b>' + ref_name(A.g, n.ins[i]) + '</b>' : '<i>none</i>'); }).join(', ');
         el.appendChild(d);
     }
     inspector_values(E);
@@ -409,7 +447,7 @@ function inspector_values(E)
         const d = op.params[parseInt(tr.dataset.row, 10)], v = n._P[d.name];
         const td = tr.querySelector('.now');
         if (d.type === 'e') td.textContent = d.name === 'size' ? v : d.labels[v];
-        else if (d.type === 's') td.textContent = n._val !== undefined ? '= ' + (Math.round(n._val * 1000) / 1000) : '';
+        else if (d.type === 's') td.textContent = typeof n._val === 'number' ? '= ' + (Math.round(n._val * 1000) / 1000) : '';
         else if (d.type === 'c') td.textContent = '';
         else td.textContent = d.type === 'i' ? String(v) : (Math.round(v * 1000) / 1000).toString();
     });

@@ -18,17 +18,12 @@ function S(name, def, desc) { return { name: name, type: 's', def: def, vari: 0,
 const SIZES = '128|256|512|1024|2048';
 
 const OPS = {
-    Lod: {
-        chan: null, ins: [], out: 'value', ver: 1, lod: true,
-        desc: 'Network input: the current LOD level (0 = full detail).',
-        params: [],
-        fn: function (P, ins, seed, ctx) { return ctx.lod; },
-    },
-    Seed: {
-        chan: null, ins: [], out: 'value', ver: 1, seeds: true,
-        desc: 'Network input: one of the instance seeds. Bind it to a node\'s seed to make the dependency explicit.',
-        params: [E('channel', 'structure|foliage|texture', 0, 'which instance seed')],
-        fn: function (P, ins, seed, ctx) { return ctx.seeds[['structure', 'foliage', 'texture'][P.channel]] >>> 0; },
+    Inputs: {
+        chan: null, ins: [], out: 'value', ver: 1, lod: true, seeds: true, span: 3,
+        outs: ['lod', 'structure', 'foliage', 'texture', 'c1', 'c2', 'c3'],
+        desc: 'All network inputs in one node: the LOD level, the three instance seeds and three constants (per-LOD values possible). Each is a separate output.',
+        params: [F('c1', -10000, 10000, 1, 0, 1, 'constant 1'), F('c2', -10000, 10000, 1, 0, 1, 'constant 2'), F('c3', -10000, 10000, 1, 0, 1, 'constant 3')],
+        fn: function (P, ins, seed, ctx) { return [ctx.lod, ctx.seeds.structure >>> 0, ctx.seeds.foliage >>> 0, ctx.seeds.texture >>> 0, P.c1, P.c2, P.c3]; },
     },
     Const: {
         chan: null, ins: [], out: 'value', ver: 1,

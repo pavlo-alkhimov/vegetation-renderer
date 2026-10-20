@@ -4,11 +4,14 @@ button, select, input { background: #2b2e34; color: #e4e6ea; border: 1px solid #
 button:hover { background: #363a42; }
 #toolbar { display: flex; align-items: center; gap: 6px; padding: 5px 8px; background: #202226; border-bottom: 1px solid #33363c; flex: none; }
 #toolbar .sep { width: 8px; }
-#graph { flex: 1 1 0; min-height: 0; width: 100%; display: block; outline: none; border-bottom: 1px solid #33363c; }
+#graph { flex: 2 1 0; min-height: 0; width: 100%; display: block; outline: none; border-bottom: 1px solid #33363c; }
 #graph:focus { box-shadow: inset 0 0 0 1px #4a6f9a; }
 #main { flex: 1 1 0; display: flex; min-height: 0; }
-#inspector { width: 50%; flex: none; box-sizing: border-box; overflow-y: auto; padding: 8px; border-right: 1px solid #33363c; background: #1b1c20; }
-#center { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+#inspector { flex: 1; min-width: 0; box-sizing: border-box; overflow-y: auto; padding: 8px; border-right: 1px solid #33363c; background: #1b1c20; }
+#center { width: 12.5%; flex: none; display: flex; flex-direction: column; min-width: 0; border-left: 1px solid #33363c; }
+/* Space: the preview takes the whole window above the key bar. */
+body.fullview #graph, body.fullview #inspector { display: none; }
+body.fullview #center { flex: 1; width: auto; border: none; }
 #view { flex: 1; width: 100%; min-height: 0; display: block; cursor: grab; }
 #variants { flex: none; display: flex; gap: 4px; padding: 4px; background: #1b1c20; border-top: 1px solid #33363c; overflow-x: auto; }
 #variants canvas { width: 112px; height: 112px; border: 1px solid #33363c; cursor: pointer; }
