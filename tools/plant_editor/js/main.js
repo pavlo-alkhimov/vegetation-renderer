@@ -312,6 +312,12 @@ function ui_init()
             if (e.key === 'Escape') { ae.blur(); if (A.E.mode === 'edit') editor_set_mode(A.E, 'nav'); e.preventDefault(); }
             return;
         }
+        // LOD level: an engine input, not part of the species; [ / ] change it anywhere (outside text fields).
+        if ((e.key === '[' || e.key === ']') && A.E.mode !== 'insert') {
+            const l = clamp(A.lod + (e.key === ']' ? 1 : -1), 0, 3);
+            if (l !== A.lod) { A.lod = l; A.refit = false; A.changed(false); }
+            e.preventDefault(); return;
+        }
         if (e.key === ' ' && (A.E.mode === 'nav' || A.E.mode === 'edit')) { document.body.classList.toggle('fullview'); A.V.auto_off = false; A.V.fullview = document.body.classList.contains('fullview'); A.dirty = true; e.preventDefault(); return; }
         if (e.key === 'Escape' && document.body.classList.contains('fullview')) { document.body.classList.remove('fullview'); e.preventDefault(); return; }
         if ((e.key === 'f' || e.key === 'F') && A.E.mode === 'nav' && !e.ctrlKey && !e.metaKey) { A.refit = true; A.dirty = true; e.preventDefault(); return; }
@@ -338,11 +344,12 @@ const KEYBAR_VIEW = [['LMB', 'orbit'], ['RMB', 'pan'], ['Wheel', 'zoom'], ['F11'
 function keybar_update()
 {
     const mode = !$('help').classList.contains('hidden') ? 'help' : document.body.classList.contains('fullview') ? 'full' : A.E.mode;
-    if (A.keybar_mode === mode) return;
-    A.keybar_mode = mode;
+    if (A.keybar_mode === mode + A.lod) return;
+    A.keybar_mode = mode + A.lod;
     const k = KEYBAR[mode] || KEYBAR.nav;
     let h = '<span class="slot mode">' + k[0] + '</span>';
-    for (const e of mode === 'full' ? k.slice(1) : k.slice(1).concat(KEYBAR_VIEW)) h += '<span class="slot"><kbd>' + e[0] + '</kbd>' + e[1] + '</span>';
+    const lod = mode === 'help' || mode === 'insert' ? [] : [['[ ]', 'LOD ' + A.lod + ' (engine input)']];
+    for (const e of lod.concat(mode === 'full' ? k.slice(1) : k.slice(1).concat(KEYBAR_VIEW))) h += '<span class="slot"><kbd>' + e[0] + '</kbd>' + e[1] + '</span>';
     $('keybar').innerHTML = h;
 }
 
@@ -354,6 +361,7 @@ function help_text()
             'VALUES Lod / Seed / Const / Expr nodes: C on the value node, arrows to the target, Enter: an Expr input, or pick a parameter\n' +
             '       (or the node seed) to bind; U in edit mode unbinds. Expr: x y z (inputs), lod; + - * / ^ min max round clamp lerp ...\n' +
             'EDIT   Up/Down: parameter   Left/Right: value (Shift x10)   Alt+Left/Right: variation   Enter: next enum   Esc: back\n' +
+            'LOD    [ / ]: LOD level down / up (an engine input: used by expressions via inputs.lod, not stored in the species)\n' +
             'VIEW   left drag: orbit   right drag: pan   wheel: zoom\n\n' +
             'Species = graph + parameter values + variations (saved once: .species).  Instance = seeds (structure, foliage,\n' +
             'texture) - the only per-plant data a level needs.  Effective value = value + variation x random(seed) in [-1, 1).\n\nOPERATORS\n';

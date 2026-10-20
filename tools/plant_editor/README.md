@@ -48,7 +48,7 @@ Effects of the channels:
 
 ### LOD level: a network input
 
-The LOD level (0 = full detail … 3) is the `lod` output of the Inputs node, set in its instance values. It is chosen at run time rather than stored per plant. Every parameter has exactly one value; anything that depends on the LOD is an **Expr** of `inputs.lod` bound to the parameter. Nothing is derived from the LOD implicitly. The only built-in rule is Branches `max_lod`: the branch order exists only up to this level.
+The LOD level (0 = full detail … 3) is an engine input: the `lod` output of the Inputs node. It is not part of the species (never written to `.species` files); change it with **[** and **]** anywhere in the editor (the key bar shows the current level), or in the Inputs node's instance values. Every parameter has exactly one value; anything that depends on the LOD is an **Expr** of `inputs.lod` bound to the parameter. Nothing is derived from the LOD implicitly. The only built-in rule is Branches `max_lod`: the branch order exists only up to this level.
 
 The library species use expressions in column 1 for:
 - trunk `segments` and `sides`;
