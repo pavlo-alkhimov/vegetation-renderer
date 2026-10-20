@@ -57,13 +57,13 @@ function editor_select_changed(E)
 {
     const n = node_at(E.A.g, E.cur[0], E.cur[1]);
     const id = n ? n.id : 0;
-    if (id !== E.insp_node) { E.insp_node = id; E.row = 0; inspector_build(E); }
+    if (id !== E.insp_node) { E.insp_node = id; E.row = -1; inspector_build(E); }
 }
 
 function editor_enter(E)
 {
     const n = node_at(E.A.g, E.cur[0], E.cur[1]);
-    if (n) { E.row = 0; editor_set_mode(E, 'edit'); }
+    if (n) { E.row = -1; editor_set_mode(E, 'edit'); }
     else { E.mode = 'insert'; E.ins_sel = Math.max(0, E.ins_sel); }
 }
 
@@ -352,7 +352,16 @@ function inspector_build(E)
     // type a value.
     const tbl = document.createElement('div');
     tbl.className = 'pgrid';
-    op.params.forEach(function (d, i) {
+    // Rows grouped by kind (numbers, choices, colours, text; bound parameters stay with their kind), in declaration
+    // order inside a group; a rule one column wide separates the groups. E.order is the visual order for Up/Down.
+    const kind = d => d.type === 'f' || d.type === 'i' ? 0 : d.type === 'e' ? 1 : d.type === 'c' ? 2 : 3;
+    E.order = op.params.map((d, i) => i).sort((a, b) => kind(op.params[a]) - kind(op.params[b]) || a - b);
+    if (E.order.indexOf(E.row) < 0) E.row = E.order.length ? E.order[0] : 0;
+    let last_kind = -1;
+    E.order.forEach(function (i) {
+        const d = op.params[i];
+        if (last_kind >= 0 && kind(d) !== last_kind) { const sep = document.createElement('div'); sep.className = 'psep'; tbl.appendChild(sep); }
+        last_kind = kind(d);
         const p = n.p[d.name], tr = document.createElement('div');
         tr.className = 'prow' + (E.mode === 'edit' && E.row === i ? ' sel' : '');
         tr.dataset.row = i;
@@ -509,8 +518,9 @@ function inspector_key(E, e)
     if (!op.params.length) return k === 'Enter';
     const d = op.params[E.row], p = n.p[d.name];
     const sel = function () { E.insp.querySelectorAll('[data-row]').forEach(tr => tr.classList.toggle('sel', parseInt(tr.dataset.row, 10) === E.row)); };
-    if (k === 'ArrowUp') { E.row = (E.row + op.params.length - 1) % op.params.length; sel(); return true; }
-    if (k === 'ArrowDown') { E.row = (E.row + 1) % op.params.length; sel(); return true; }
+    const oi = Math.max(0, E.order.indexOf(E.row)), on = E.order.length;
+    if (k === 'ArrowUp') { E.row = E.order[(oi + on - 1) % on]; sel(); return true; }
+    if (k === 'ArrowDown') { E.row = E.order[(oi + 1) % on]; sel(); return true; }
     if (k === 'ArrowLeft' || k === 'ArrowRight') {
         const dir = k === 'ArrowLeft' ? -1 : 1, mul = e.shiftKey ? 10 : 1;
         if (d.type === 'e') p.v = (p.v + dir + d.labels.length) % d.labels.length;
@@ -526,6 +536,6 @@ function inspector_key(E, e)
     if (n.binds[d.name]) return k === 'ArrowLeft' || k === 'ArrowRight';
     if ((k === 'l' || k === 'L') && (d.type === 'f' || d.type === 'i')) { plod_toggle(p); A.changed(false); inspector_build(E); return true; }
     if (k === 'Enter' && d.type === 'e') { p.v = (p.v + 1) % d.labels.length; A.changed(false); inspector_build(E); return true; }
-    if (k === 'Enter' && d.type === 'c') { const ci = E.insp.querySelectorAll('[data-row]')[E.row].querySelector('input[type=color]'); if (ci) ci.click(); return true; }
+    if (k === 'Enter' && d.type === 'c') { const ci = E.insp.querySelector('[data-row="' + E.row + '"]').querySelector('input[type=color]'); if (ci) ci.click(); return true; }
     return false;
 }
