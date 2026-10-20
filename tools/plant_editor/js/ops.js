@@ -4,6 +4,8 @@
 // Parameter: { name, type: 'f' | 'i' | 'e' | 'c', min, max, def, vari (default variation), step, labels, desc }.
 // Seed channel: which instance seed drives the node ('structure' | 'foliage' | 'texture' | null).
 // A float/int parameter's effective value = clamp(value + variation * u, min, max), u in [-1, 1) from the node's seed.
+// A float/int parameter may hold one explicit value per LOD level (p.lods = [v0, v1, v2, v3]); the network's LOD input
+// selects one. Nothing is derived from the LOD implicitly.
 
 function F(name, min, max, def, vari, step, desc) { return { name: name, type: 'f', min: min, max: max, def: def, vari: vari, step: step, desc: desc }; }
 function I(name, min, max, def, vari, desc) { return { name: name, type: 'i', min: min, max: max, def: def, vari: vari, step: 1, desc: desc }; }
@@ -74,7 +76,7 @@ const OPS = {
         fn: function (P, ins) { return apply_prune(ins[0], P); },
     },
     LeafShape: {
-        chan: 'foliage', ins: [], out: 'organ', ver: 1, lod: true,
+        chan: 'foliage', ins: [], out: 'organ', ver: 1,
         desc: 'Leaf blade template: outline, margin, fold and curl, triangulated; also the texture mask.',
         params: [
             E('outline', 'ovate|elliptic|lobed|palmate|needle|spray|tuft', 0, 'outline; spray = conifer shoot with needles, tuft = needle bunch'),
@@ -87,12 +89,11 @@ const OPS = {
             F('curl', -1, 1, 0.15, 0.05, 0.01, 'bend along the blade (+ down)'),
             I('detail', 2, 12, 5, 0, 'segments along the blade'),
             I('veins', 2, 20, 7, 0, 'secondary vein pairs (texture)'),
-            I('lod_detail', 0, 4, 1, 0, 'segments removed per LOD level'),
         ],
-        fn: function (P, ins, seed, ctx) { P.detail = Math.max(2, P.detail - P.lod_detail * ctx.lod); return make_leaf_shape(P, seed); },
+        fn: function (P, ins, seed) { return make_leaf_shape(P, seed); },
     },
     Leaves: {
-        chan: 'foliage', ins: ['skeleton', 'organ'], out: 'placements', ver: 1, lod: true,
+        chan: 'foliage', ins: ['skeleton', 'organ'], out: 'placements', ver: 1,
         desc: 'Places leaves on the highest branch orders.',
         params: [
             I('orders', 1, 4, 1, 0, 'number of highest branch orders carrying leaves'),
@@ -102,30 +103,20 @@ const OPS = {
             F('angle', 0, 120, 55, 5, 1, 'angle from the branch (deg)'),
             F('droop', -1, 1, 0.15, 0.05, 0.01, 'downward tilt of the leaf axis'),
             F('roll', 0, 90, 25, 0, 1, 'random roll around the leaf axis (deg)'),
-            F('scale', 0.2, 4, 1.8, 0.1, 0.05, 'leaf scale (clusters at > 1)'),
+            F('scale', 0.2, 12, 1.8, 0.1, 0.05, 'leaf scale (clusters at > 1)'),
             F('size_jitter', 0, 0.6, 0.2, 0, 0.01, 'random size per leaf'),
-            F('lod_thin', 0.2, 1, 0.5, 0, 0.05, 'leaf count factor per LOD level (leaves grow to keep the coverage)'),
         ],
-        fn: function (P, ins, seed, ctx) {
-            const f = Math.pow(P.lod_thin, ctx.lod);
-            P.density *= f; P.scale *= Math.pow(1 / f, 0.5);
-            return place_leaves(ins[0], ins[1], P, seed);
-        },
+        fn: function (P, ins, seed) { return place_leaves(ins[0], ins[1], P, seed); },
     },
     Wood: {
-        chan: 'structure', ins: ['skeleton'], out: 'mesh', ver: 1, lod: true,
+        chan: 'structure', ins: ['skeleton'], out: 'mesh', ver: 1,
         desc: 'Tubes along all branches, cylindrical uv with constant texel density (material: bark).',
         params: [
             I('sides', 3, 24, 10, 0, 'tube sides at the trunk (fewer on thin branches)'),
             F('min_radius', 0.0005, 0.05, 0.003, 0, 0.0005, 'skip branches thinner than this (m)'),
             F('tile', 0.05, 3, 0.6, 0, 0.05, 'bark texture tile size (m)'),
-            F('lod_reduce', 0.3, 1, 0.65, 0, 0.05, 'tube sides factor per LOD level; branches thinner than min_radius / factor are dropped'),
         ],
-        fn: function (P, ins, seed, ctx) {
-            const f = Math.pow(P.lod_reduce, ctx.lod);
-            P.sides = Math.max(3, Math.round(P.sides * f)); P.min_radius /= f;
-            return mesh_wood(ins[0], P);
-        },
+        fn: function (P, ins) { return mesh_wood(ins[0], P); },
     },
     LeafMesh: {
         chan: 'foliage', ins: ['placements', 'organ'], out: 'mesh', ver: 1,
@@ -204,12 +195,12 @@ const OPS = {
 const OP_NAMES = Object.keys(OPS);
 
 // Effective parameter values of a node for its seed.
-function resolve_params(node, seed)
+function resolve_params(node, seed, lod)
 {
     const op = OPS[node.op], P = {};
     for (let i = 0; i < op.params.length; i++) {
         const d = op.params[i], s = node.p[d.name] || { v: d.def, vari: d.vari };
-        let v = s.v;
+        let v = s.lods ? s.lods[lod || 0] : s.v;
         if ((d.type === 'f' || d.type === 'i') && s.vari > 0) {
             const u = rng_s(rng_sub(seed, 1000 + i));
             v = clamp(v + s.vari * u, d.min, d.max);

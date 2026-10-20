@@ -88,7 +88,7 @@ function eval_node(g, id, ctx)
     if (res.err) { n._err = res.err; n._ms = 0; n._cached = false; return res; }
     if (op.texture && ctx.no_textures) { res.val = null; res.err = 'skipped'; return res; }
     const seed = node_seed(ctx.seeds, op.chan, n.name);
-    const P = resolve_params(n, seed);
+    const P = resolve_params(n, seed, ctx.lod);
     res.key = hash2(hash_str(n.op + '/' + op.ver + '/' + JSON.stringify(P) + '/' + keys.join(',') + (op.lod ? '/lod' + ctx.lod : '')), seed);
     if (ctx.cache.has(res.key)) {
         res.val = ctx.cache.get(res.key); res.cached = true;

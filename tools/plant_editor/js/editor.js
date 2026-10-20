@@ -2,7 +2,8 @@
 //
 // Keys (table):  arrows move the cursor · Ctrl+arrows move the node · Enter edit node / insert node in an empty cell
 //                Del remove · C connect (arrows to target, Enter) · X disconnect inputs · Space preview · Ctrl+D duplicate
-// Keys (edit):   Up/Down parameter · Left/Right value (Shift x10) · Alt/Ctrl+Left/Right variation · Enter cycle enum · Esc back
+// Keys (edit):   Up/Down parameter · Left/Right value (Shift x10) · Alt/Ctrl+Left/Right variation · L per-LOD values
+//                Enter cycle enum · Esc back
 
 const CELL_W = 150, CELL_H = 76, CELL_PAD = 7;
 const TYPE_COLORS = { skeleton: '#8a6a45', organ: '#4f8a3a', placements: '#6f9a4a', mesh: '#3f6f9e', texture: '#7a4f9a', output: '#a98a2c' };
@@ -231,6 +232,11 @@ function editor_draw(E)
 
 // ---------------------------------------------------------------------------------------------------------------
 // Inspector: species parameters of the selected node (value + variation), effective values for the current seeds.
+// Numeric rows can hold one value per LOD level ('LOD' toggle, key L): the slider then edits the current level's value.
+
+function pval(p, lod) { return p.lods ? p.lods[lod] : p.v; }
+function pset(p, v, lod) { if (p.lods) { p.lods[lod] = v; p.v = p.lods[0]; } else p.v = v; }
+function plod_toggle(p) { if (p.lods) { p.v = p.lods[0]; delete p.lods; } else p.lods = [p.v, p.v, p.v, p.v]; }
 
 function inspector_build(E)
 {
@@ -242,7 +248,7 @@ function inspector_build(E)
     head.className = 'insp-head';
     head.innerHTML = '<input class="name" value="' + n.name + '" title="node name (part of the node seed)"> <span class="op">' + n.op + '</span>' +
         '<div class="desc">' + op.desc + '</div>' +
-        '<div class="desc">seed channel: <b>' + (op.chan || '-') + '</b>' + (op.chan ? ' &nbsp; node seed ' + hex32(node_seed(A.seeds, op.chan, n.name)) : '') + '</div>' +
+        '<div class="desc">LOD input: <b>' + A.lod + '</b> (per-LOD rows show and edit this level) &nbsp; seed channel: <b>' + (op.chan || '-') + '</b>' + (op.chan ? ' &nbsp; node seed ' + hex32(node_seed(A.seeds, op.chan, n.name)) : '') + '</div>' +
         (n._err && n._err !== 'skipped' ? '<div class="err">' + n._err + '</div>' : '');
     el.appendChild(head);
     head.querySelector('.name').addEventListener('change', ev => {
@@ -262,13 +268,18 @@ function inspector_build(E)
         td_now.className = 'now';
         if (d.type === 'f' || d.type === 'i') {
             const rng = document.createElement('input');
-            rng.type = 'range'; rng.min = d.min; rng.max = d.max; rng.step = d.step; rng.value = p.v;
+            rng.type = 'range'; rng.min = d.min; rng.max = d.max; rng.step = d.step; rng.value = pval(p, A.lod);
             const num = document.createElement('input');
-            num.type = 'number'; num.min = d.min; num.max = d.max; num.step = d.step; num.value = p.v; num.className = 'num';
-            const set = function (v) { v = clamp(parseFloat(v), d.min, d.max); if (isNaN(v)) return; p.v = d.type === 'i' ? Math.round(v) : v; rng.value = p.v; num.value = p.v; A.changed(false); };
+            num.type = 'number'; num.min = d.min; num.max = d.max; num.step = d.step; num.value = pval(p, A.lod); num.className = 'num';
+            const set = function (v) { v = clamp(parseFloat(v), d.min, d.max); if (isNaN(v)) return; pset(p, d.type === 'i' ? Math.round(v) : v, A.lod); rng.value = pval(p, A.lod); num.value = pval(p, A.lod); lodspan.innerHTML = lod_html(p); A.changed(false); };
+            const lb = document.createElement('button');
+            lb.textContent = 'LOD'; lb.className = 'lodbtn' + (p.lods ? ' on' : ''); lb.title = 'one value per LOD level (key L)';
+            lb.addEventListener('click', () => { plod_toggle(p); A.changed(false); inspector_build(E); });
+            const lodspan = document.createElement('span');
+            lodspan.className = 'lods'; lodspan.innerHTML = lod_html(p);
             rng.addEventListener('input', () => set(rng.value));
             num.addEventListener('change', () => set(num.value));
-            td_val.appendChild(rng); td_val.appendChild(num);
+            td_val.appendChild(rng); td_val.appendChild(num); td_val.appendChild(lb); td_val.appendChild(lodspan);
             const vr = document.createElement('input');
             vr.type = 'number'; vr.min = 0; vr.step = d.step; vr.value = p.vari; vr.className = 'num';
             vr.addEventListener('change', () => { p.vari = Math.max(0, parseFloat(vr.value) || 0); A.changed(false); });
@@ -316,6 +327,12 @@ function inspector_values(E)
     });
 }
 
+function lod_html(p)
+{
+    if (!p.lods) return '';
+    return p.lods.map((v, i) => i === A.lod ? '<b>' + (Math.round(v * 1000) / 1000) + '</b>' : String(Math.round(v * 1000) / 1000)).join(' | ');
+}
+
 function inspector_key(E, e)
 {
     const A = E.A, n = node_find(A.g, E.insp_node);
@@ -332,12 +349,13 @@ function inspector_key(E, e)
         if (d.type === 'e') p.v = (p.v + dir + d.labels.length) % d.labels.length;
         else if (d.type === 'f' || d.type === 'i') {
             if (e.altKey || e.ctrlKey || e.metaKey) p.vari = Math.max(0, Math.round((p.vari + dir * d.step * mul) * 1e5) / 1e5);
-            else p.v = clamp(Math.round((p.v + dir * d.step * mul) * 1e5) / 1e5, d.min, d.max);
+            else pset(p, clamp(Math.round((pval(p, A.lod) + dir * d.step * mul) * 1e5) / 1e5, d.min, d.max), A.lod);
         } else return true;
         A.changed(false);
         inspector_build(E);
         return true;
     }
+    if ((k === 'l' || k === 'L') && (d.type === 'f' || d.type === 'i')) { plod_toggle(p); A.changed(false); inspector_build(E); return true; }
     if (k === 'Enter' && d.type === 'e') { p.v = (p.v + 1) % d.labels.length; A.changed(false); inspector_build(E); return true; }
     if (k === 'Enter' && d.type === 'c') { const ci = E.insp.querySelectorAll('tr[data-row]')[E.row].querySelector('input[type=color]'); if (ci) ci.click(); return true; }
     return false;

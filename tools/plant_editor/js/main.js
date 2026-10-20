@@ -174,7 +174,7 @@ function seeds_ui_build()
     const lodrow = document.createElement('div');
     lodrow.className = 'seed-row';
     lodrow.innerHTML = '<label>LOD</label><button data-d="-1">\u2039</button><input type="number" min="0" max="3" step="1" id="lod"><button data-d="1">\u203a</button><span class="hint">network input (0 = full detail)</span>';
-    const set_lod = function (v) { A.lod = clamp(v | 0, 0, 3); A.refit = false; A.changed(false); };
+    const set_lod = function (v) { A.lod = clamp(v | 0, 0, 3); A.refit = false; A.changed(false); inspector_build(A.E); };
     lodrow.querySelector('#lod').addEventListener('change', e => set_lod(parseInt(e.target.value, 10) || 0));
     lodrow.querySelectorAll('button').forEach(b => b.addEventListener('click', () => set_lod(A.lod + parseInt(b.dataset.d, 10))));
     el.appendChild(lodrow);
@@ -291,7 +291,7 @@ function help_text()
     let s = 'TABLE  arrows: move cursor   Ctrl+arrows: move node   Enter: edit node / insert node (empty cell)\n' +
             '       Del: remove   C: connect (arrows to target node, Enter)   X: disconnect inputs   Space: preview node\n' +
             '       Ctrl+D: duplicate   F: frame view   mouse: click selects, drag moves a node, double-click = Enter\n' +
-            'EDIT   Up/Down: parameter   Left/Right: value (Shift x10)   Alt+Left/Right: variation   Enter: next enum value   Esc: back\n' +
+            'EDIT   Up/Down: parameter   Left/Right: value (Shift x10)   Alt+Left/Right: variation   L: per-LOD values   Enter: next enum   Esc: back\n' +
             'VIEW   left drag: orbit   right drag: pan   wheel: zoom\n\n' +
             'Species = graph + parameter values + variations (saved once: .species).  Instance = seeds (structure, foliage,\n' +
             'texture) - the only per-plant data a level needs.  Effective value = value + variation x random(seed) in [-1, 1).\n\nOPERATORS\n';

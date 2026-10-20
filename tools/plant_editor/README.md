@@ -23,16 +23,18 @@ Effects of the channels:
 
 ### LOD level: a network input
 
-The **LOD** field in the seeds panel (0 = full detail … 3) is an input to the whole network, like the seeds, but chosen at run time rather than stored per plant. Nodes that react to it:
+The **LOD** field in the seeds panel (0 = full detail … 3) is an input to the whole network, like the seeds, but chosen at run time rather than stored per plant. Nothing is derived from it implicitly:
 
-| Node | Parameter | Effect per LOD level |
-|---|---|---|
-| Branches | `max_lod` | the branch order exists only up to this level (e.g. order 3 up to LOD 1, order 2 up to LOD 2) |
-| Leaves | `lod_thin` | leaf count × factor; leaves grow by 1/√factor to keep the coverage |
-| LeafShape | `lod_detail` | blade segments removed |
-| Wood | `lod_reduce` | tube sides × factor; branches thinner than `min_radius / factor` dropped |
+- **Per-LOD values:** any numeric parameter can hold one explicit value per level. Use the **LOD** button on its row, or key **L** in edit mode. The slider then edits the value of the current level, and the row lists all four with the current one highlighted. In `.species` files: `sides=10|7|4|3` (variation after `~` applies to all levels).
+- **Branches `max_lod`:** the branch order exists only up to this level, e.g. order 3 up to LOD 1, order 2 up to LOD 2.
 
-Cache keys include the level, so switching between levels is instant after the first visit. Export GLB writes all four levels into one file.
+The library species set per-LOD values for:
+- Trunk `segments`
+- Wood `sides` and `min_radius`
+- LeafShape `detail`
+- Leaves `density` and `scale` (fewer, larger leaves)
+
+Results are cached per level, so switching between levels is instant after the first visit. Export GLB writes all four levels into one file.
 
 ### Species library
 

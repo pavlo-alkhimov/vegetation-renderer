@@ -37,3 +37,7 @@ table.params td.now { color: #9ad08a; font: 11px monospace; }
 #help { position: fixed; left: 40px; right: 40px; top: 50px; bottom: 40px; background: #1d1f23; border: 1px solid #4a4e56; overflow: auto; padding: 10px; z-index: 10; }
 #help pre { font: 12px monospace; margin: 0; }
 .hidden { display: none; }
+.lodbtn { font-size: 10px; padding: 0 3px; margin-left: 3px; color: #8a8e96; }
+.lodbtn.on { color: #1c1d20; background: #ffd860; }
+.lods { font: 10px monospace; color: #9a9ea6; margin-left: 4px; }
+.lods b { color: #ffd860; }
