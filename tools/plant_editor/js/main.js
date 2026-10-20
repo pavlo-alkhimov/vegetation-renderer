@@ -286,6 +286,29 @@ function ui_init()
     $('help_text').textContent = help_text();
 }
 
+// Key bar along the bottom (as in the terrain viewer): the keys of the current mode, then the viewport mouse.
+const KEYBAR = {
+    nav: ['TABLE', ['\u2190\u2191\u2192\u2193', 'move cursor'], ['Ctrl+\u2190\u2192', 'move node'], ['Enter', 'edit / insert'], ['Del', 'remove node'],
+          ['C', 'connect / bind'], ['X', 'disconnect'], ['Space', 'preview node'], ['Ctrl+D', 'duplicate'], ['F', 'frame view']],
+    edit: ['EDIT', ['\u2191\u2193', 'parameter'], ['\u2190\u2192', 'value'], ['Shift', 'step x10'], ['Alt+\u2190\u2192', 'variation'],
+           ['L', 'per-LOD values'], ['U', 'unbind'], ['Enter', 'enum / colour'], ['Esc', 'back to table']],
+    wire: ['CONNECT', ['\u2190\u2191\u2192\u2193', 'target node'], ['Enter', 'connect / bind'], ['Esc', 'cancel']],
+    bind: ['BIND', ['\u2191\u2193', 'parameter'], ['Enter', 'bind'], ['Esc', 'cancel']],
+    insert: ['INSERT', ['\u2191\u2193', 'operator'], ['A-Z', 'jump'], ['Enter', 'insert'], ['Esc', 'cancel']],
+};
+const KEYBAR_VIEW = [['LMB', 'orbit'], ['RMB', 'pan'], ['Wheel', 'zoom'], ['F11', 'fullscreen']];
+
+function keybar_update()
+{
+    const mode = A.E.mode;
+    if (A.keybar_mode === mode) return;
+    A.keybar_mode = mode;
+    const k = KEYBAR[mode] || KEYBAR.nav;
+    let h = '<span class="slot mode">' + k[0] + '</span>';
+    for (const e of k.slice(1).concat(KEYBAR_VIEW)) h += '<span class="slot"><kbd>' + e[0] + '</kbd>' + e[1] + '</span>';
+    $('keybar').innerHTML = h;
+}
+
 function help_text()
 {
     let s = 'TABLE  arrows: move cursor   Ctrl+arrows: move node   Enter: edit node / insert node (empty cell)\n' +
@@ -325,6 +348,7 @@ function main()
         if (A.dirty) { A.dirty = false; evaluate(); }
         else variants_step();
         editor_draw(A.E);
+        keybar_update();
         view_draw(A.V, A.out ? A.out.bark : null, A.out ? A.out.leaf : null);
         requestAnimationFrame(frame);
     };

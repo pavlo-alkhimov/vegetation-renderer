@@ -21,6 +21,12 @@ button:hover { background: #363a42; }
 .seed-row .lock { font-size: 11px; color: #9a9ea6; }
 .chip { display: inline-block; margin: 2px; padding: 1px 6px; background: #2b2e34; border: 1px solid #44474e; border-radius: 9px; cursor: pointer; font: 11px monospace; }
 .chip:hover { border-color: #ffd860; }
+#keybar { flex: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 3px 10px; padding: 5px 8px;
+          background: #1b1c20; border-top: 1px solid #33363c; font: 12px monospace; color: #c8ccd4; }
+#keybar .slot { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#keybar .mode { color: #9ad08a; font-weight: bold; }
+#keybar kbd { display: inline-block; min-width: 14px; padding: 0 4px; margin-right: 5px; text-align: center; font: bold 11px monospace;
+              color: #1c1d20; background: #d4ad2a; border: 1px solid; border-color: #ffe27a #8a6d10 #8a6d10 #ffe27a; }
 #status { flex: none; padding: 4px 8px; background: #202226; border-top: 1px solid #33363c; font: 12px monospace; color: #aeb2ba; white-space: nowrap; overflow: hidden; }
 .hint { color: #7f8590; font-size: 12px; }
 .insp-head .name { width: 140px; font-weight: bold; }
