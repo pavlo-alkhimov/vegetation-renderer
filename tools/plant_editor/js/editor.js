@@ -468,6 +468,16 @@ function inspector_build(E)
         group.appendChild(tr);
     });
     el.appendChild(tbl);
+    // Groups stay together only while that costs no extra column: if the kept-together layout overflows the panel
+    // width, groups may split. Re-checked whenever the panel changes size.
+    const fit = function () {
+        tbl.classList.add('magnetic');
+        if (tbl.scrollWidth > tbl.clientWidth + 1) tbl.classList.remove('magnetic');
+    };
+    fit();
+    if (E.fit_obs) E.fit_obs.disconnect();
+    E.fit_obs = new ResizeObserver(fit);
+    E.fit_obs.observe(tbl);
     if (n.op === 'Inputs') {
         // The instance values themselves (not part of the species): the three seeds and the LOD level.
         const inst = document.createElement('div');
