@@ -353,14 +353,15 @@ function inspector_build(E)
     const tbl = document.createElement('div');
     tbl.className = 'pgrid';
     // Rows grouped by kind (numbers, choices, colours, text; bound parameters stay with their kind), in declaration
-    // order inside a group; a rule one column wide separates the groups. E.order is the visual order for Up/Down.
+    // order inside a group; a rule one column wide separates the groups, and a group moves to the next column as a whole when it fits there. E.order is the visual order for Up/Down.
     const kind = d => d.type === 'f' || d.type === 'i' ? 0 : d.type === 'e' ? 1 : d.type === 'c' ? 2 : 3;
     E.order = op.params.map((d, i) => i).sort((a, b) => kind(op.params[a]) - kind(op.params[b]) || a - b);
     if (E.order.indexOf(E.row) < 0) E.row = E.order.length ? E.order[0] : 0;
-    let last_kind = -1;
+    let last_kind = -1, group = null;
     E.order.forEach(function (i) {
         const d = op.params[i];
-        if (last_kind >= 0 && kind(d) !== last_kind) { const sep = document.createElement('div'); sep.className = 'psep'; tbl.appendChild(sep); }
+        // One block per group, kept in one column when it fits ('magnetic'); taller groups still break.
+        if (kind(d) !== last_kind) { group = document.createElement('div'); group.className = 'pgroup'; tbl.appendChild(group); }
         last_kind = kind(d);
         const p = n.p[d.name], tr = document.createElement('div');
         tr.className = 'prow' + (E.mode === 'edit' && E.row === i ? ' sel' : '');
@@ -464,7 +465,7 @@ function inspector_build(E)
         }
         if (!td_val.parentNode) { tr.appendChild(td_val); tr.appendChild(td_now); }
         tr.addEventListener('mousedown', () => { E.row = i; });
-        tbl.appendChild(tr);
+        group.appendChild(tr);
     });
     el.appendChild(tbl);
     if (n.op === 'Inputs') {
