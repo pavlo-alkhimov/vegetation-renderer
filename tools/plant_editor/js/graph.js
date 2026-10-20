@@ -134,6 +134,7 @@ function eval_node(g, id, ctx)
     }
     ctx.used.add(res.key);
     n._err = res.err; n._ms = res.ms; n._cached = res.cached; n._P = P; n._seed = op.chan ? seed : undefined; n._val = op.out === 'value' ? res.val : undefined;
+    n._tex = op.out === 'texture' && !res.err ? res.val : n._tex;
     return res;
 }
 

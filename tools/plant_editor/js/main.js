@@ -190,6 +190,7 @@ function seeds_ui_build()
 
 function seeds_ui_refresh()
 {
+    if (!$('seeds')) return;
     const li = $('lod');
     if (li && document.activeElement !== li) li.value = A.lod;
     $('seeds').querySelectorAll('.seed-row[data-c]').forEach(row => {
@@ -202,6 +203,7 @@ function seeds_ui_refresh()
 function seed_list_ui()
 {
     const el = $('seed_list');
+    if (!el) return;
     el.innerHTML = A.seed_list.length ? '' : '<span class="hint">kept seed vectors (the instance data of a level) appear here</span>';
     A.seed_list.forEach((s, i) => {
         const b = document.createElement('span');
@@ -265,7 +267,7 @@ function ui_init()
     $('title').addEventListener('change', e => { A.title = e.target.value.trim().replace(/[^\w-]/g, '_') || 'species'; e.target.value = A.title; save_local(); });
     $('view_mode').addEventListener('change', e => { A.V.mode = parseInt(e.target.value, 10); });
     $('btn_frame').addEventListener('click', () => { A.refit = true; A.dirty = true; });
-    $('btn_help').addEventListener('click', () => { $('help').classList.toggle('hidden'); });
+    $('btn_help').addEventListener('click', () => { $('help').classList.toggle('hidden'); $('btn_help').blur(); });
     const vs = $('variants');
     for (let k = 0; k < 8; k++) {
         const c = document.createElement('canvas');
@@ -274,6 +276,17 @@ function ui_init()
         vs.appendChild(c);
     }
     document.addEventListener('keydown', e => {
+        const help = $('help');
+        if (!help.classList.contains('hidden')) {
+            if (e.key === 'Escape') help.classList.add('hidden');
+            else if (e.key === 'PageDown') help.scrollTop += help.clientHeight * 0.9;
+            else if (e.key === 'PageUp') help.scrollTop -= help.clientHeight * 0.9;
+            else if (e.key === 'Home') help.scrollTop = 0;
+            else if (e.key === 'End') help.scrollTop = help.scrollHeight;
+            else return;
+            e.preventDefault();
+            return;
+        }
         const ae = document.activeElement, tag = ae ? ae.tagName : '';
         const text_input = (tag === 'INPUT' && ['range', 'checkbox', 'color', 'button'].indexOf(ae.type) < 0) || tag === 'SELECT' || tag === 'TEXTAREA';
         if (text_input) {
@@ -294,13 +307,14 @@ const KEYBAR = {
            ['L', 'per-LOD values'], ['U', 'unbind'], ['Enter', 'enum / colour'], ['Esc', 'back to table']],
     wire: ['CONNECT', ['\u2190\u2191\u2192\u2193', 'target node'], ['Enter', 'connect / bind'], ['Esc', 'cancel']],
     bind: ['BIND', ['\u2191\u2193', 'parameter'], ['Enter', 'bind'], ['Esc', 'cancel']],
+    help: ['HELP', ['PgUp/PgDn', 'scroll'], ['Home/End', 'top / bottom'], ['Esc', 'close']],
     insert: ['INSERT', ['\u2191\u2193', 'operator'], ['A-Z', 'jump'], ['Enter', 'insert'], ['Esc', 'cancel']],
 };
 const KEYBAR_VIEW = [['LMB', 'orbit'], ['RMB', 'pan'], ['Wheel', 'zoom'], ['F11', 'fullscreen']];
 
 function keybar_update()
 {
-    const mode = A.E.mode;
+    const mode = $('help').classList.contains('hidden') ? A.E.mode : 'help';
     if (A.keybar_mode === mode) return;
     A.keybar_mode = mode;
     const k = KEYBAR[mode] || KEYBAR.nav;
@@ -339,7 +353,6 @@ function main()
     A.E = editor_init(A, $('graph'), $('inspector'));
     $('title').value = A.title;
     ui_init();
-    seeds_ui_build();
     const outn = graph_output(A.g);
     if (outn) A.E.cur = [outn.col, outn.row];
     editor_select_changed(A.E);

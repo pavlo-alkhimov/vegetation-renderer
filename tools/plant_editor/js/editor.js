@@ -227,6 +227,11 @@ function editor_draw(E)
         const st = n._err ? (n._err === 'skipped' ? '' : 'error') : n._val !== undefined ? '= ' + (Math.round(n._val * 1000) / 1000) :
                    n._ms === undefined ? '' : (n._cached ? 'cached' : n._ms.toFixed(1) + ' ms') + (nb ? '  \u00b7 ' + nb + ' bound' : '');
         x.fillText(st, bx + 10, by + bh - 10);
+        if (op.out === 'texture' && n._tex) {
+            if (!n._tex._thumb) n._tex._thumb = rgba_canvas(n._tex.albedo, n._tex.size);
+            const s = Math.min(bw / 3, bh - 20);
+            x.drawImage(n._tex._thumb, bx + bw - s - 3, by + 19, s, s);
+        }
         for (let i = 0; i < op.ins.length; i++) {
             x.fillStyle = n.ins[i] ? TYPE_COLORS[op.ins[i]] : '#1c1d20';
             x.strokeStyle = TYPE_COLORS[op.ins[i]];
@@ -287,7 +292,8 @@ function inspector_build(E)
 {
     const A = E.A, el = E.insp, n = node_find(A.g, E.insp_node);
     el.innerHTML = '';
-    if (!n) { el.innerHTML = '<div class="hint">Select a node (arrows / click).<br>Enter on an empty cell inserts a node.</div>'; return; }
+    el.style.visibility = n ? 'visible' : 'hidden';
+    if (!n) return;
     const op = OPS[n.op];
     const head = document.createElement('div');
     head.className = 'insp-head';
@@ -329,15 +335,29 @@ function inspector_build(E)
             rng.type = 'range'; rng.min = d.min; rng.max = d.max; rng.step = d.step; rng.value = pval(p, A.lod);
             const num = document.createElement('input');
             num.type = 'number'; num.min = d.min; num.max = d.max; num.step = d.step; num.value = pval(p, A.lod); num.className = 'num';
-            const set = function (v) { v = clamp(parseFloat(v), d.min, d.max); if (isNaN(v)) return; pset(p, d.type === 'i' ? Math.round(v) : v, A.lod); rng.value = pval(p, A.lod); num.value = pval(p, A.lod); lodspan.innerHTML = lod_html(p); A.changed(false); };
-            const lb = document.createElement('button');
-            lb.textContent = 'LOD'; lb.className = 'lodbtn' + (p.lods ? ' on' : ''); lb.title = 'one value per LOD level (key L)';
-            lb.addEventListener('click', () => { plod_toggle(p); A.changed(false); inspector_build(E); });
-            const lodspan = document.createElement('span');
-            lodspan.className = 'lods'; lodspan.innerHTML = lod_html(p);
-            rng.addEventListener('input', () => set(rng.value));
-            num.addEventListener('change', () => set(num.value));
-            td_val.appendChild(rng); td_val.appendChild(num); td_val.appendChild(lb); td_val.appendChild(lodspan);
+            // 'per LOD' checkbox: off = one value for all LOD levels; on = four values L0..L3 (the field of the current
+            // LOD input is outlined; slider and arrows edit that one).
+            const lodvals = document.createElement('div');
+            lodvals.className = 'lodvals';
+            const set = function (v, lod) { v = clamp(parseFloat(v), d.min, d.max); if (isNaN(v)) return; pset(p, d.type === 'i' ? Math.round(v) : v, lod); rng.value = pval(p, A.lod); num.value = pval(p, A.lod); fill_lods(); A.changed(false); };
+            const fill_lods = function () {
+                if (!p.lods) { lodvals.innerHTML = ''; return; }
+                if (!lodvals.children.length)
+                    for (let l = 0; l < 4; l++) {
+                        const s = document.createElement('span'); s.textContent = 'L' + l; lodvals.appendChild(s);
+                        const li = document.createElement('input'); li.type = 'number'; li.step = d.step; li.className = l === A.lod ? 'cur' : '';
+                        li.title = 'value at LOD ' + l; li.addEventListener('change', () => set(li.value, l)); lodvals.appendChild(li);
+                    }
+                lodvals.querySelectorAll('input').forEach((li, l) => { if (document.activeElement !== li) li.value = p.lods[l]; });
+            };
+            const lb = document.createElement('label');
+            lb.className = 'perlod'; lb.title = 'separate value for each LOD level (key L)';
+            lb.innerHTML = '<input type="checkbox"' + (p.lods ? ' checked' : '') + '> per LOD';
+            lb.querySelector('input').addEventListener('change', () => { plod_toggle(p); A.changed(false); inspector_build(E); });
+            rng.addEventListener('input', () => set(rng.value, A.lod));
+            num.addEventListener('change', () => set(num.value, A.lod));
+            td_val.appendChild(rng); td_val.appendChild(num); td_val.appendChild(lb); td_val.appendChild(lodvals);
+            fill_lods();
             const vr = document.createElement('input');
             vr.type = 'number'; vr.min = 0; vr.step = d.step; vr.value = p.vari; vr.className = 'num';
             vr.addEventListener('change', () => { p.vari = Math.max(0, parseFloat(vr.value) || 0); A.changed(false); });
@@ -359,6 +379,15 @@ function inspector_build(E)
         tbl.appendChild(tr);
     });
     el.appendChild(tbl);
+    if (n.op === 'Seed' || n.op === 'Lod') {
+        // The instance values themselves (not part of the species): the three seeds and the LOD level.
+        const inst = document.createElement('div');
+        inst.className = 'instance';
+        inst.innerHTML = '<div class="desc">Instance inputs (not stored in the species; a level stores only the seeds):</div><div id="seeds"></div><div id="seed_list"></div>';
+        el.appendChild(inst);
+        seeds_ui_build();
+        seeds_ui_refresh();
+    }
     const ins = OPS[n.op].ins;
     if (ins.length) {
         const d = document.createElement('div');

@@ -57,7 +57,7 @@ Effects of the channels:
 
 The **LOD** field in the seeds panel (0 = full detail … 3) is an input to the whole network, like the seeds, but chosen at run time rather than stored per plant. Nothing is derived from it implicitly:
 
-- **Per-LOD values:** any numeric parameter can hold one explicit value per level. Use the **LOD** button on its row, or key **L** in edit mode. The slider then edits the value of the current level, and the row lists all four with the current one highlighted. In `.species` files: `sides=10|7|4|3` (variation after `~` applies to all levels).
+- **Per-LOD values:** tick **per LOD** on a numeric row to give it four values, edited in the fields L0 to L3. The field of the current LOD input is outlined; the slider and arrow keys edit that one. Key **L** in edit mode toggles it. In `.species` files: `sides=10|7|4|3` (variation after `~` applies to all levels).
 - **Branches `max_lod`:** the branch order exists only up to this level, e.g. order 3 up to LOD 1, order 2 up to LOD 2.
 
 The library species set per-LOD values for:
@@ -91,6 +91,14 @@ The **Wireframe** node (between Merge and Output in every library species, `enab
 - In the export: a separate line mesh `lodN/debug:wire` with material `debug:wire` and `extras.debug = true`, so the game viewer can switch it on while walking over the terrain. `parts` limits it to wood or leaves.
 
 The variant strip under the viewport shows the next 8 seed combinations; click one to use it. **lock** keeps a channel fixed there, and for "all ›" / "all ⟳". **+ keep in list** collects seed vectors; Save seeds writes them as a `.seeds` file (one `structure foliage texture` line per plant).
+
+## Screen layout
+
+- **Top half:** the node table. Texture nodes show their result in the right third of the cell.
+- **Bottom left:** the selected node (hidden when the cursor is on an empty cell). Selecting a Seed or Lod node also shows the instance inputs: the three seeds, the LOD level and the kept seed list.
+- **Bottom right:** the preview and the variant strip.
+- **Bottom edge:** the key bar for the current mode.
+- **Help:** lists all keys and operators. Esc closes it; PgUp/PgDn, Home/End scroll it.
 
 ## Table editor
 

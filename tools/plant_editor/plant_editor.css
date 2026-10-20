@@ -4,10 +4,10 @@ button, select, input { background: #2b2e34; color: #e4e6ea; border: 1px solid #
 button:hover { background: #363a42; }
 #toolbar { display: flex; align-items: center; gap: 6px; padding: 5px 8px; background: #202226; border-bottom: 1px solid #33363c; flex: none; }
 #toolbar .sep { width: 8px; }
-#graph { flex: none; height: 34vh; width: 100%; display: block; outline: none; border-bottom: 1px solid #33363c; }
+#graph { flex: 1 1 0; min-height: 0; width: 100%; display: block; outline: none; border-bottom: 1px solid #33363c; }
 #graph:focus { box-shadow: inset 0 0 0 1px #4a6f9a; }
-#main { flex: 1; display: flex; min-height: 0; }
-#inspector { width: 380px; flex: none; overflow-y: auto; padding: 8px; border-right: 1px solid #33363c; background: #1b1c20; }
+#main { flex: 1 1 0; display: flex; min-height: 0; }
+#inspector { width: 50%; flex: none; box-sizing: border-box; overflow-y: auto; padding: 8px; border-right: 1px solid #33363c; background: #1b1c20; }
 #center { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 #view { flex: 1; width: 100%; min-height: 0; display: block; cursor: grab; }
 #variants { flex: none; display: flex; gap: 4px; padding: 4px; background: #1b1c20; border-top: 1px solid #33363c; overflow-x: auto; }
@@ -43,8 +43,9 @@ table.params td.now { color: #9ad08a; font: 11px monospace; }
 #help { position: fixed; left: 40px; right: 40px; top: 50px; bottom: 40px; background: #1d1f23; border: 1px solid #4a4e56; overflow: auto; padding: 10px; z-index: 10; }
 #help pre { font: 12px monospace; margin: 0; }
 .hidden { display: none; }
-.lodbtn { font-size: 10px; padding: 0 3px; margin-left: 3px; color: #8a8e96; }
-.lodbtn.on { color: #1c1d20; background: #ffd860; }
-.lods { font: 10px monospace; color: #9a9ea6; margin-left: 4px; }
-.lods b { color: #ffd860; }
+.perlod { font-size: 11px; color: #9a9ea6; margin-left: 6px; }
+.lodvals input { width: 46px; margin-left: 2px; }
+.lodvals input.cur { border-color: #ffd860; }
+.lodvals span { font-size: 10px; color: #7f8590; margin-left: 4px; }
+.instance { margin-top: 10px; padding-top: 6px; border-top: 1px solid #33363c; }
 table.params input.text { width: 230px; font-family: monospace; }
