@@ -17,7 +17,7 @@ const OPS = {
         chan: 'structure', ins: [], out: 'skeleton', ver: 1,
         desc: 'Main stem: a polyline with radius, taper and root flare.',
         params: [
-            F('height', 1, 60, 24, 2, 0.1, 'stem height (m)'),
+            F('height', 0.1, 60, 24, 2, 0.1, 'stem height (m)'),
             F('radius', 0.02, 2, 0.33, 0.04, 0.01, 'base radius (m)'),
             F('taper', 0.3, 3, 1.1, 0.1, 0.05, 'radius exponent along the stem'),
             F('flare', 0, 2, 0.5, 0.15, 0.05, 'root flare at the base'),
@@ -28,10 +28,10 @@ const OPS = {
         fn: function (P, ins, seed) { return make_trunk(P, seed); },
     },
     Branches: {
-        chan: 'structure', ins: ['skeleton'], out: 'skeleton', ver: 1,
+        chan: 'structure', ins: ['skeleton'], out: 'skeleton', ver: 1, lod: true,
         desc: 'Adds one branch order on the highest existing order. Chain it once per order.',
         params: [
-            F('count', 0, 60, 14, 2, 0.5, 'children on the longest parent (fewer on shorter ones)'),
+            F('count', 0, 200, 14, 2, 0.5, 'children on the longest parent (fewer on shorter ones)'),
             F('start', 0, 1, 0.3, 0.04, 0.01, 'first child along the parent (fraction)'),
             F('end', 0, 1, 0.95, 0, 0.01, 'last child along the parent (fraction)'),
             E('phyllotaxis', 'spiral|distichous|whorl', 0, 'arrangement around the parent'),
@@ -39,15 +39,16 @@ const OPS = {
             F('angle', 0, 150, 55, 5, 1, 'angle from the parent (deg)'),
             F('angle_jitter', 0, 60, 10, 0, 1, 'random angle per child (deg)'),
             F('az_jitter', 0, 180, 25, 0, 1, 'random azimuth per child (deg)'),
-            F('length', 0.02, 1.5, 0.45, 0.05, 0.01, 'child length / parent length at the first child'),
+            F('length', 0.02, 20, 0.45, 0.05, 0.01, 'child length / parent length at the first child'),
             F('length_top', 0, 2, 0.4, 0.05, 0.01, 'length factor of the last child relative to the first'),
             F('radius', 0.1, 1, 0.5, 0, 0.01, 'child base radius / parent radius at the attachment'),
             F('curvature', -2, 2, 0.3, 0.1, 0.05, 'upward bend over the child'),
             F('droop', 0, 2, 0.1, 0.05, 0.05, 'downward bend growing towards the tip'),
             F('wobble', 0, 0.3, 0.05, 0, 0.005, 'random bending per segment'),
             I('segments', 1, 20, 6, 0, 'polyline segments per child'),
+            I('max_lod', 0, 3, 3, 0, 'highest LOD level that still has this branch order'),
         ],
-        fn: function (P, ins, seed) { return add_branches(ins[0], P, seed); },
+        fn: function (P, ins, seed, ctx) { return ctx.lod > P.max_lod ? ins[0] : add_branches(ins[0], P, seed); },
     },
     Tropism: {
         chan: 'structure', ins: ['skeleton'], out: 'skeleton', ver: 1,
@@ -73,24 +74,25 @@ const OPS = {
         fn: function (P, ins) { return apply_prune(ins[0], P); },
     },
     LeafShape: {
-        chan: 'foliage', ins: [], out: 'organ', ver: 1,
+        chan: 'foliage', ins: [], out: 'organ', ver: 1, lod: true,
         desc: 'Leaf blade template: outline, margin, fold and curl, triangulated; also the texture mask.',
         params: [
-            E('outline', 'ovate|elliptic|lobed|palmate|needle', 0, 'blade outline'),
+            E('outline', 'ovate|elliptic|lobed|palmate|needle|spray|tuft', 0, 'outline; spray = conifer shoot with needles, tuft = needle bunch'),
             F('length', 0.01, 0.4, 0.09, 0.008, 0.005, 'blade length (m)'),
-            F('width', 0.005, 0.3, 0.055, 0.005, 0.005, 'blade width (m)'),
+            F('width', 0.0005, 0.3, 0.055, 0.005, 0.0005, 'blade width (m); spray: 2 x needle length; tuft: needle base width'),
             F('petiole', 0, 0.1, 0.01, 0, 0.002, 'leaf stalk length (m)'),
-            I('teeth', 0, 40, 7, 0, 'margin teeth (lobes for lobed)'),
-            F('tooth_depth', 0, 0.8, 0.06, 0, 0.01, 'tooth / lobe depth'),
-            F('fold', 0, 1, 0.25, 0.05, 0.01, 'V-fold along the midrib'),
+            I('teeth', 0, 40, 7, 0, 'margin teeth (lobes for lobed; needles per side for spray, per bunch for tuft)'),
+            F('tooth_depth', 0, 0.8, 0.06, 0, 0.01, 'tooth / lobe depth (spray: extra needle width / length)'),
+            F('fold', 0, 1, 0.25, 0.05, 0.01, 'V-fold along the midrib (spray: needle lift; tuft: opening)'),
             F('curl', -1, 1, 0.15, 0.05, 0.01, 'bend along the blade (+ down)'),
             I('detail', 2, 12, 5, 0, 'segments along the blade'),
             I('veins', 2, 20, 7, 0, 'secondary vein pairs (texture)'),
+            I('lod_detail', 0, 4, 1, 0, 'segments removed per LOD level'),
         ],
-        fn: function (P, ins, seed) { return make_leaf_shape(P, seed); },
+        fn: function (P, ins, seed, ctx) { P.detail = Math.max(2, P.detail - P.lod_detail * ctx.lod); return make_leaf_shape(P, seed); },
     },
     Leaves: {
-        chan: 'foliage', ins: ['skeleton', 'organ'], out: 'placements', ver: 1,
+        chan: 'foliage', ins: ['skeleton', 'organ'], out: 'placements', ver: 1, lod: true,
         desc: 'Places leaves on the highest branch orders.',
         params: [
             I('orders', 1, 4, 1, 0, 'number of highest branch orders carrying leaves'),
@@ -102,18 +104,28 @@ const OPS = {
             F('roll', 0, 90, 25, 0, 1, 'random roll around the leaf axis (deg)'),
             F('scale', 0.2, 4, 1.8, 0.1, 0.05, 'leaf scale (clusters at > 1)'),
             F('size_jitter', 0, 0.6, 0.2, 0, 0.01, 'random size per leaf'),
+            F('lod_thin', 0.2, 1, 0.5, 0, 0.05, 'leaf count factor per LOD level (leaves grow to keep the coverage)'),
         ],
-        fn: function (P, ins, seed) { return place_leaves(ins[0], ins[1], P, seed); },
+        fn: function (P, ins, seed, ctx) {
+            const f = Math.pow(P.lod_thin, ctx.lod);
+            P.density *= f; P.scale *= Math.pow(1 / f, 0.5);
+            return place_leaves(ins[0], ins[1], P, seed);
+        },
     },
     Wood: {
-        chan: 'structure', ins: ['skeleton'], out: 'mesh', ver: 1,
+        chan: 'structure', ins: ['skeleton'], out: 'mesh', ver: 1, lod: true,
         desc: 'Tubes along all branches, cylindrical uv with constant texel density (material: bark).',
         params: [
             I('sides', 3, 24, 10, 0, 'tube sides at the trunk (fewer on thin branches)'),
             F('min_radius', 0.0005, 0.05, 0.003, 0, 0.0005, 'skip branches thinner than this (m)'),
             F('tile', 0.05, 3, 0.6, 0, 0.05, 'bark texture tile size (m)'),
+            F('lod_reduce', 0.3, 1, 0.65, 0, 0.05, 'tube sides factor per LOD level; branches thinner than min_radius / factor are dropped'),
         ],
-        fn: function (P, ins) { return mesh_wood(ins[0], P); },
+        fn: function (P, ins, seed, ctx) {
+            const f = Math.pow(P.lod_reduce, ctx.lod);
+            P.sides = Math.max(3, Math.round(P.sides * f)); P.min_radius /= f;
+            return mesh_wood(ins[0], P);
+        },
     },
     LeafMesh: {
         chan: 'foliage', ins: ['placements', 'organ'], out: 'mesh', ver: 1,
@@ -136,7 +148,7 @@ const OPS = {
             F('plates', 1, 40, 10, 2, 1, 'bark plates across the tile'),
             F('plate_depth', 0, 1, 0.08, 0, 0.01, 'plate relief'),
             F('lenticels', 1, 60, 18, 0, 1, 'lenticel cells across the tile'),
-            F('lenticel_contrast', 0, 1, 0.35, 0, 0.01, 'lenticel darkness'),
+            F('lenticel_contrast', 0, 1, 0.35, 0, 0.01, 'lenticel visibility'),
             I('octaves', 1, 8, 5, 0, 'detail noise octaves'),
             F('moss', 0, 1, 0.15, 0.05, 0.01, 'moss cover'),
             F('roughness', 0, 1, 0.8, 0, 0.01, 'roughness'),
@@ -144,6 +156,7 @@ const OPS = {
             C('color_dark', '#5f605b', 'dark bark colour'),
             C('color_light', '#a4a59e', 'light bark colour'),
             C('moss_color', '#5b6b2c', 'moss colour'),
+            C('lenticel_color', '#4a4a46', 'lenticel and fissure colour'),
         ],
         fn: function (P, ins, seed) { return make_bark_texture(P, seed); },
     },
@@ -163,6 +176,16 @@ const OPS = {
             F('normal_strength', 0, 4, 0.6, 0, 0.05, 'normal map strength'),
         ],
         fn: function (P, ins, seed) { return make_leaf_texture(ins[0], P, seed); },
+    },
+    Wireframe: {
+        chan: null, ins: ['mesh'], out: 'mesh', ver: 1,
+        desc: 'Debug overlay: adds the triangle edges as a line part, shown in the viewport and exported as a separate line mesh (debug:wire) that the game viewer can switch on.',
+        params: [
+            E('enabled', 'off|on', 1, 'add the overlay'),
+            E('parts', 'all|wood|leaves', 0, 'which parts get edges'),
+            C('color', '#ffd040', 'line colour'),
+        ],
+        fn: function (P, ins) { return P.enabled ? mesh_wireframe(ins[0], P) : ins[0]; },
     },
     Merge: {
         chan: null, ins: ['mesh', 'mesh', 'mesh'], optional: [false, true, true], out: 'mesh', ver: 1,

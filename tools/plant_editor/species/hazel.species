@@ -1,0 +1,16 @@
+# hazel - plant editor species (graph + parameters; seeds are separate)
+trunk = Trunk @0,0 height=0.6 radius=0.07 taper=0.5 flare=0 lean=0 wobble=0 segments=2
+branches1 = Branches @1,0 in=trunk count=9~2 start=0.05 end=0.95 phyllotaxis=spiral angle=16~4 angle_jitter=8 az_jitter=40 length=8~1 length_top=0.8 radius=0.85 curvature=-0.06~0.04 droop=0.1 wobble=0.05 segments=8 max_lod=3
+branches2 = Branches @2,0 in=branches1 count=12~2 start=0.25 end=0.97 phyllotaxis=spiral angle=45~5 angle_jitter=15 az_jitter=40 length=0.32~0.04 length_top=0.5 radius=0.4 curvature=0.1 droop=0.3~0.1 wobble=0.08 segments=4 max_lod=2
+branches3 = Branches @3,0 in=branches2 count=6~1 start=0.1 end=0.95 phyllotaxis=distichous angle=45 angle_jitter=15 az_jitter=40 length=0.4 length_top=0.6 radius=0.5 curvature=0 droop=0.15 wobble=0.08 segments=2 max_lod=1
+tropism = Tropism @4,0 in=branches3 gravity=0.06 photo=0.04 order_scale=0.5
+prune = Prune @5,0 in=tropism shape=cylinder crown_base=0 width=0.42~0.05 mode=shrink min_order=2 min_keep=0.2
+wood = Wood @6,0 in=prune sides=7 min_radius=0.002 tile=0.3 lod_reduce=0.65
+merge = Merge @7,0 in=wood,leafmesh,-
+wireframe = Wireframe @8,0 in=merge enabled=off parts=all color=#ffd040
+output = Output @9,0 in=wireframe,barktexture,leaftexture
+leafshape = LeafShape @4,1 outline=ovate length=0.1~0.01 width=0.09~0.008 petiole=0.012 teeth=16 tooth_depth=0.1 fold=0.1 curl=0.1 detail=5 veins=6 lod_detail=1
+leaves = Leaves @5,1 in=prune,leafshape orders=2 density=8~1 start=0.2 arrangement=distichous angle=60~5 droop=0.1 roll=25 scale=1.5~0.1 size_jitter=0.2 lod_thin=0.5
+leafmesh = LeafMesh @6,1 in=leaves,leafshape color_var=0.1 hue_var=0.05
+leaftexture = LeafTexture @6,2 in=leafshape size=256 color=#3f6a20 vein_color=#86a650 vein_width=0.03 vein_angle=45 vein_contrast=0.45 network=16 color_var=0.12 roughness=0.6 normal_strength=0.7
+barktexture = BarkTexture @7,2 size=512 furrows=2 stretch=3 furrow_width=0.03 furrow_depth=0.02 plates=4 plate_depth=0.02 lenticels=25 lenticel_contrast=0.5 octaves=5 moss=0.1 roughness=0.55 normal_strength=0.6 color_dark=#5a4a3e color_light=#9b8a78 moss_color=#5b6b2c lenticel_color=#c9b9a0

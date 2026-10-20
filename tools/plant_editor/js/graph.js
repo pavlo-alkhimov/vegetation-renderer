@@ -66,7 +66,7 @@ function pick_slot(g, src_id, dst_id)
 }
 
 // Context: { seeds, cache: Map, used: Set, memo: Map, no_textures }.
-function eval_ctx(seeds, cache) { return { seeds: seeds, cache: cache, used: new Set(), memo: new Map(), no_textures: false }; }
+function eval_ctx(seeds, cache, lod) { return { seeds: seeds, cache: cache, lod: lod || 0, used: new Set(), memo: new Map(), no_textures: false }; }
 
 function eval_node(g, id, ctx)
 {
@@ -89,12 +89,12 @@ function eval_node(g, id, ctx)
     if (op.texture && ctx.no_textures) { res.val = null; res.err = 'skipped'; return res; }
     const seed = node_seed(ctx.seeds, op.chan, n.name);
     const P = resolve_params(n, seed);
-    res.key = hash2(hash_str(n.op + '/' + op.ver + '/' + JSON.stringify(P) + '/' + keys.join(',')), seed);
+    res.key = hash2(hash_str(n.op + '/' + op.ver + '/' + JSON.stringify(P) + '/' + keys.join(',') + (op.lod ? '/lod' + ctx.lod : '')), seed);
     if (ctx.cache.has(res.key)) {
         res.val = ctx.cache.get(res.key); res.cached = true;
     } else {
         const t0 = performance.now();
-        try { res.val = op.fn(P, ins, seed); }
+        try { res.val = op.fn(P, ins, seed, ctx); }
         catch (e) { res.err = String(e && e.message || e); console.error(e); }
         res.ms = performance.now() - t0;
         if (!res.err) ctx.cache.set(res.key, res.val);

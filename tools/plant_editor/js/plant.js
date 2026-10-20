@@ -187,7 +187,10 @@ function apply_prune(sk_in, P)
 {
     const sk = skel_clone(sk_in);
     const trunk = sk.branches[0];
-    const H = sk.height, base = P.crown_base * H, top = H * 1.03, W = P.width * H;
+    // Plant height = highest point of any branch (shrubs: the stems rise far above the short trunk).
+    let H = sk.height;
+    for (const b of sk.branches) if (!b.dead) for (const p of b.pts) H = Math.max(H, p[1]);
+    const base = P.crown_base * H, top = H * 1.03, W = P.width * H;
     const t0 = trunk.pts[0], t1 = trunk.pts[trunk.pts.length - 1];
     const inside = function (p) {
         const u = (p[1] - base) / (top - base);
@@ -308,7 +311,11 @@ function mesh_wood(sk, P)
 
 // Leaf organ template in leaf space: x along the midrib (petiole from 0 to x0, blade from x0 to x0 + bl), y across,
 // z up (fold and curl). uv covers the blade's bounding box: u = (x - x0) / bl, v = 0.5 + y / w.
-const LEAF_OVATE = 0, LEAF_ELLIPTIC = 1, LEAF_LOBED = 2, LEAF_PALMATE = 3, LEAF_NEEDLE = 4;
+// LEAF_SPRAY: a conifer shoot: thin axis with needles (one triangle each) on both sides, angled forward and lifted
+//   by 'fold'; width = 2 x needle length, teeth = needles per side, tooth_depth widens the needles.
+// LEAF_TUFT: a bunch of needles from one point (pine fascicles, larch short shoots); length = needle length,
+//   width = needle base width, teeth = needles, fold = opening of the bunch.
+const LEAF_OVATE = 0, LEAF_ELLIPTIC = 1, LEAF_LOBED = 2, LEAF_PALMATE = 3, LEAF_NEEDLE = 4, LEAF_SPRAY = 5, LEAF_TUFT = 6;
 
 function leaf_half_width(P, s)
 {
@@ -339,7 +346,38 @@ function make_leaf_shape(P, seed)
     const lift = function (x, y) { const s = (x - x0) / bl; return P.fold * Math.abs(y) - P.curl * s * s * bl; };
     const add = function (x, y) { verts.push([x, y, lift(x, y)]); uv.push([(x - x0) / bl, 0.5 + y / w]); return verts.length - 1; };
     const outline = [];     // closed polygon in (u, v), for the texture mask
-    if (P.outline === LEAF_PALMATE) {
+    const needle = function (base, dir, len, hw, up) {     // one triangle: base edge across 'up x dir', tip along dir
+        const side = vnorm(vcross(up, dir));
+        const a = add(base[0] + side[0] * hw, base[1] + side[1] * hw), b = add(base[0] - side[0] * hw, base[1] - side[1] * hw);
+        const c = add(base[0] + dir[0] * len, base[1] + dir[1] * len);
+        // add() puts z from the fold function; needles carry their own lift instead.
+        verts[a][2] = base[2]; verts[b][2] = base[2]; verts[c][2] = base[2] + dir[2] * len;
+        tris.push(a, b, c);
+    };
+    if (P.outline === LEAF_SPRAY) {
+        // Needle half width: 5 % of its length plus tooth_depth x length (wider 'needles' stand for needle bundles).
+        const n = Math.max(2, Math.round(P.teeth)), nl = w / 2, hw = Math.max(0.0006, nl * (0.05 + P.tooth_depth));
+        const ax0 = add(x0, -0.0015), ax1 = add(x0, 0.0015), ax2 = add(x0 + bl, 0.0006), ax3 = add(x0 + bl, -0.0006);
+        for (const k of [ax0, ax1, ax2, ax3]) verts[k][2] = 0;
+        tris.push(ax0, ax1, ax2, ax0, ax2, ax3);
+        const lift = P.fold * 70 * Math.PI / 180, fw = 50 * Math.PI / 180;
+        for (let i = 0; i < n; i++)
+            for (const sgn of [1, -1]) {
+                const s = (i + 0.5 + rng_s(r) * 0.2) / n, x = x0 + s * bl;
+                const dir = vnorm([Math.cos(fw), sgn * Math.sin(fw) * Math.cos(lift), Math.sin(fw) * Math.sin(lift)]);
+                needle([x, 0, -P.curl * s * s * bl], dir, nl * (1 - 0.45 * s) * (1 + rng_s(r) * 0.1), hw, [0, 0, 1]);
+            }
+        outline.push([0, 0], [1, 0], [1, 1], [0, 1]);
+    } else if (P.outline === LEAF_TUFT) {
+        const n = Math.max(1, Math.round(P.teeth)), open = (5 + P.fold * 45) * Math.PI / 180;
+        for (let i = 0; i < n; i++) {
+            const az = i * 2.39996 + rng_s(r) * 0.3, c = open * Math.sqrt((i + 0.5) / n);
+            const dir = vnorm([Math.cos(c), Math.sin(c) * Math.cos(az), Math.sin(c) * Math.sin(az)]);
+            const up = Math.abs(dir[2]) < 0.9 ? [0, 0, 1] : [0, 1, 0];
+            needle([x0, 0, 0], dir, bl * (1 + rng_s(r) * 0.12), Math.max(0.0004, w / 2), up);
+        }
+        outline.push([0, 0], [1, 0], [1, 1], [0, 1]);
+    } else if (P.outline === LEAF_PALMATE) {
         const R = bl / 2, cx = x0 + R, n = segs * 6;
         const c = add(cx, 0);
         const ring = [];
@@ -447,6 +485,26 @@ function mesh_leaves(placements, organ, P)
     return { parts: [pt] };
 }
 
+function mesh_wireframe(m, P)
+{
+    const col = hex_rgb(P.color), out = part_make('debug:wire', 'wire');
+    out.lines = true;
+    for (const p of m.parts) {
+        if (p.lines || (P.parts === 1 && p.mat !== 'bark') || (P.parts === 2 && p.mat !== 'leaves')) continue;
+        const base = out.pos.length / 3, nv = p.pos.length / 3;
+        for (let i = 0; i < nv; i++) part_vertex(out, [p.pos[i * 3], p.pos[i * 3 + 1], p.pos[i * 3 + 2]], [0, 1, 0], 0, 0, col);
+        const seen = new Set();
+        for (let i = 0; i < p.idx.length; i += 3)
+            for (let k = 0; k < 3; k++) {
+                const a = p.idx[i + k], b = p.idx[i + (k + 1) % 3], key = a < b ? a * 4194304 + b : b * 4194304 + a;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                out.idx.push(base + a, base + b);
+            }
+    }
+    return { parts: m.parts.filter(p => !p.lines).concat([out]) };
+}
+
 function mesh_merge(meshes)
 {
     const parts = [];
@@ -457,6 +515,6 @@ function mesh_merge(meshes)
 function mesh_triangles(m)
 {
     let n = 0;
-    for (const p of m.parts) n += p.idx.length / 3;
+    for (const p of m.parts) if (!p.lines) n += p.idx.length / 3;
     return n;
 }

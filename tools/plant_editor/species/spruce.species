@@ -1,0 +1,15 @@
+# spruce - plant editor species (graph + parameters; seeds are separate)
+trunk = Trunk @0,0 height=28~2 radius=0.34~0.04 taper=1~0.1 flare=0.4~0.1 lean=1~1 wobble=0.01 segments=16
+branches1 = Branches @1,0 in=trunk count=150~10 start=0.06 end=0.99 phyllotaxis=whorl whorl=5 angle=86~5 angle_jitter=8 az_jitter=15 length=0.2~0.02 length_top=0.1 radius=0.3 curvature=0.45~0.1 droop=0.35~0.1 wobble=0.03 segments=6 max_lod=3
+branches2 = Branches @2,0 in=branches1 count=14~2 start=0.1 end=0.95 phyllotaxis=distichous angle=62~5 angle_jitter=12 az_jitter=25 length=0.32~0.04 length_top=0.45 radius=0.45 curvature=0 droop=0.45~0.1 wobble=0.05 segments=3 max_lod=1
+tropism = Tropism @4,0 in=branches2 gravity=0.05~0.02 photo=0.02 order_scale=0.5
+prune = Prune @5,0 in=tropism shape=cone crown_base=0.04~0.02 width=0.22~0.02 mode=shrink min_order=1 min_keep=0.15
+wood = Wood @6,0 in=prune sides=8 min_radius=0.004 tile=0.4 lod_reduce=0.65
+merge = Merge @7,0 in=wood,leafmesh,-
+wireframe = Wireframe @8,0 in=merge enabled=off parts=all color=#ffd040
+output = Output @9,0 in=wireframe,barktexture,leaftexture
+leafshape = LeafShape @4,1 outline=spray length=0.3~0.03 width=0.11 petiole=0 teeth=6 tooth_depth=0.16 fold=0.35~0.05 curl=0.2~0.05 detail=4 veins=2 lod_detail=0
+leaves = Leaves @5,1 in=prune,leafshape orders=2 density=3.6~0.4 start=0.1 arrangement=distichous angle=45~5 droop=0.1 roll=40 scale=1.5~0.1 size_jitter=0.2 lod_thin=0.5
+leafmesh = LeafMesh @6,1 in=leaves,leafshape color_var=0.08 hue_var=0.03
+leaftexture = LeafTexture @6,2 in=leafshape size=128 color=#2e5226 vein_color=#3b6630 vein_width=0.03 vein_angle=45 vein_contrast=0.15 network=30 color_var=0.12 roughness=0.5 normal_strength=0.3
+barktexture = BarkTexture @7,2 size=512 furrows=4 stretch=1 furrow_width=0.05 furrow_depth=0.06 plates=22~3 plate_depth=0.25 lenticels=1 lenticel_contrast=0 octaves=5 moss=0.1~0.05 roughness=0.85 normal_strength=1.2 color_dark=#45362b color_light=#86705f moss_color=#5b6b2c lenticel_color=#2e241d

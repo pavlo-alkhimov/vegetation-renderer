@@ -3,14 +3,14 @@
 
 const VS_MESH = `#version 300 es
 layout(location=0) in vec3 a_pos; layout(location=1) in vec3 a_nrm; layout(location=2) in vec2 a_uv; layout(location=3) in vec3 a_col;
-uniform mat4 u_vp;
+uniform mat4 u_vp; uniform float u_bias;
 out vec3 v_pos; out vec3 v_nrm; out vec2 v_uv; out vec3 v_col;
-void main() { v_pos = a_pos; v_nrm = a_nrm; v_uv = a_uv; v_col = a_col; gl_Position = u_vp * vec4(a_pos, 1.0); }`;
+void main() { v_pos = a_pos; v_nrm = a_nrm; v_uv = a_uv; v_col = a_col; gl_Position = u_vp * vec4(a_pos, 1.0); gl_Position.z -= u_bias * gl_Position.w; }`;
 
 const FS_MESH = `#version 300 es
 precision highp float;
 in vec3 v_pos; in vec3 v_nrm; in vec2 v_uv; in vec3 v_col;
-uniform int u_mat;            // 0 bark, 1 leaves, 2 ground
+uniform int u_mat;            // 0 bark, 1 leaves, 2 ground, 3 wire (unlit vertex colour)
 uniform int u_tex;            // textures bound
 uniform int u_mode;           // 0 shaded, 1 albedo, 2 normals
 uniform sampler2D u_albedo, u_normal, u_mr;
@@ -18,6 +18,7 @@ uniform vec3 u_base, u_sun, u_eye;
 out vec4 o;
 vec3 to_lin(vec3 c) { return pow(c, vec3(2.2)); }
 void main() {
+    if (u_mat == 3) { o = vec4(v_col, 1.0); return; }
     vec3 N = normalize(v_nrm);
     bool back = !gl_FrontFacing;
     if (u_mat == 1 && back) N = -N;
@@ -124,7 +125,7 @@ function view_upload_part(V, pt)
     const sz = [3, 3, 2, 3], off = [0, 3, 6, 8];
     for (let a = 0; a < 4; a++) { gl.enableVertexAttribArray(a); gl.vertexAttribPointer(a, sz[a], gl.FLOAT, false, 44, off[a] * 4); }
     gl.bindVertexArray(null);
-    return { vao: vao, vb: vb, ib: ib, count: pt.idx.length, mat: pt.mat };
+    return { vao: vao, vb: vb, ib: ib, count: pt.idx.length, mat: pt.mat, lines: !!pt.lines };
 }
 
 function view_free_parts(V)
@@ -237,7 +238,14 @@ function view_draw_scene(V, w, h, bark, leaf)
     gl.disable(gl.CULL_FACE);
     gl.bindVertexArray(V.ground.vao); gl.drawElements(gl.TRIANGLES, V.ground.count, gl.UNSIGNED_INT, 0);
     gl.uniformMatrix4fv(pm.u.u_vp, false, M.vp);
+    gl.uniform1f(pm.u.u_bias, 0);
     for (const p of V.parts) {
+        if (p.lines) {
+            gl.uniform1i(pm.u.u_mat, 3); gl.uniform1f(pm.u.u_bias, 0.0004);
+            gl.bindVertexArray(p.vao); gl.drawElements(gl.LINES, p.count, gl.UNSIGNED_INT, 0);
+            gl.uniform1f(pm.u.u_bias, 0);
+            continue;
+        }
         const leafy = p.mat === 'leaves';
         const t = view_texture(V, leafy ? leaf : bark);
         gl.uniform1i(pm.u.u_mat, leafy ? 1 : 0);

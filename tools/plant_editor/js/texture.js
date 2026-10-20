@@ -107,7 +107,7 @@ function put_rgb(arr, o, c)
 function make_bark_texture(P, seed)
 {
     const n = P.size, t = tex_alloc(n), h = new Float32Array(n * n);
-    const c0 = hex_rgb(P.color_dark), c1 = hex_rgb(P.color_light), cm = hex_rgb(P.moss_color);
+    const c0 = hex_rgb(P.color_dark), c1 = hex_rgb(P.color_light), cm = hex_rgb(P.moss_color), cl = hex_rgb(P.lenticel_color);
     const fx = Math.max(1, Math.round(P.furrows)), fy = Math.max(1, Math.round(P.furrows / Math.max(P.stretch, 0.1)));
     const plates = Math.max(1, Math.round(P.plates)), len = Math.max(1, Math.round(P.lenticels));
     const vo = { f1: 0, f2: 0, id: 0 };
@@ -134,7 +134,7 @@ function make_bark_texture(P, seed)
             h[i] = hh;
             let tone = clamp(0.5 + (hh - 0.5) * 1.6 + (detail - 0.5) * 0.4, 0, 1);
             let c = vlerp(c0, c1, tone);
-            c = vlerp(c, vscale(c0, 0.6), lent * P.lenticel_contrast);
+            c = vlerp(c, cl, clamp(lent * P.lenticel_contrast + crack * P.furrow_depth * 0.8, 0, 1));
             const moss = smoothstep(1 - P.moss, 1 - P.moss + 0.15, f_moss(u, v) + crack * 0.2);
             c = vlerp(c, vscale(cm, 0.7 + detail * 0.6), moss);
             put_rgb(t.albedo, o, c);

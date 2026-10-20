@@ -36,7 +36,9 @@ function part_tangents(p)
     return out;
 }
 
-async function gltf_export(out, extras)
+// outs: one Output result per LOD level (index = level). Nodes are named 'lodN/<part>' (wood, part:leaves,
+// debug:wire); the scene's root node 'lodN' groups each level.
+async function gltf_export(outs, extras)
 {
     const json = {
         asset: { version: '2.0', generator: 'vegetation-renderer plant editor' },
@@ -86,10 +88,25 @@ async function gltf_export(out, extras)
         json.materials.push(m);
         mat_index[name] = json.materials.length - 1;
     };
+    const out = outs[0];
     await add_material('bark', out.bark);
     await add_material('leaves', out.leaf);
-    for (const p of out.mesh.parts) {
+    json.materials.push({ name: 'debug:wire', pbrMetallicRoughness: { baseColorFactor: [1, 0.8, 0.2, 1], metallicFactor: 0, roughnessFactor: 1 }, extras: { debug: true } });
+    mat_index.wire = json.materials.length - 1;
+    for (let lod = 0; lod < outs.length; lod++) {
+    const group = { name: 'lod' + lod, children: [], extras: { lod: lod } };
+    for (const p of outs[lod].mesh.parts) {
         if (!p.idx.length) continue;
+        if (p.lines) {
+            const prim = { mode: 1, material: mat_index.wire, attributes: {
+                POSITION: add_accessor(new Float32Array(p.pos), 'VEC3', 5126, 34962, true),
+                COLOR_0: add_accessor(new Float32Array(p.col), 'VEC3', 5126, 34962) },
+                indices: add_accessor(new Uint32Array(p.idx), 'SCALAR', 5125, 34963) };
+            json.meshes.push({ name: 'lod' + lod + '/' + p.name, primitives: [prim], extras: { debug: true } });
+            json.nodes.push({ name: 'lod' + lod + '/' + p.name, mesh: json.meshes.length - 1, extras: { debug: true } });
+            group.children.push(json.nodes.length - 1);
+            continue;
+        }
         const prim = {
             attributes: {
                 POSITION: add_accessor(new Float32Array(p.pos), 'VEC3', 5126, 34962, true),
@@ -101,9 +118,12 @@ async function gltf_export(out, extras)
             indices: add_accessor(new Uint32Array(p.idx), 'SCALAR', 5125, 34963),
             material: mat_index[p.mat === 'leaves' ? 'leaves' : 'bark'],
         };
-        json.meshes.push({ name: p.name, primitives: [prim] });
-        json.nodes.push({ name: p.name, mesh: json.meshes.length - 1 });
-        json.scenes[0].nodes.push(json.nodes.length - 1);
+        json.meshes.push({ name: 'lod' + lod + '/' + p.name, primitives: [prim] });
+        json.nodes.push({ name: 'lod' + lod + '/' + p.name, mesh: json.meshes.length - 1 });
+        group.children.push(json.nodes.length - 1);
+    }
+    json.nodes.push(group);
+    json.scenes[0].nodes.push(json.nodes.length - 1);
     }
     const pad_end = (4 - (offset % 4)) % 4;
     if (pad_end) { chunks.push(new Uint8Array(pad_end)); offset += pad_end; }

@@ -4,7 +4,7 @@ const SEED_CHANNELS = ['structure', 'foliage', 'texture'];
 const STORE_SPECIES = 'plant_editor.species', STORE_SEEDS = 'plant_editor.seeds', STORE_TITLE = 'plant_editor.title';
 
 const A = {
-    g: null, title: 'beech_like', seeds: { structure: 1, foliage: 1, texture: 1 }, locks: {}, seed_list: [],
+    g: null, title: 'beech_like', seeds: { structure: 1, foliage: 1, texture: 1 }, lod: 0, locks: {}, seed_list: [],
     cache: new Map(), vcache: new Map(), preview_id: 0, dirty: true, refit: true, structural: false,
     out: null, last_change: 0, variants: null, eval_ms: 0,
 };
@@ -24,7 +24,7 @@ function save_local()
 {
     try {
         localStorage.setItem(STORE_SPECIES, species_write(A.g, A.title));
-        localStorage.setItem(STORE_SEEDS, JSON.stringify({ seeds: A.seeds, locks: A.locks, list: A.seed_list }));
+        localStorage.setItem(STORE_SEEDS, JSON.stringify({ seeds: A.seeds, locks: A.locks, list: A.seed_list, lod: A.lod }));
         localStorage.setItem(STORE_TITLE, A.title);
     } catch (e) { /* storage unavailable (private mode): ignore */ }
 }
@@ -71,7 +71,7 @@ function tex_hash(t)
 function evaluate()
 {
     const g = A.g, V = A.V, t0 = performance.now();
-    const ctx = eval_ctx(A.seeds, A.cache);
+    const ctx = eval_ctx(A.seeds, A.cache, A.lod);
     const outn = graph_output(g);
     const ro = outn ? eval_node(g, outn.id, ctx) : null;
     A.out = ro && !ro.err ? ro.val : null;
@@ -102,7 +102,7 @@ function evaluate()
     A.refit = false;
 
     // Status bar.
-    let s = 'eval ' + A.eval_ms.toFixed(1) + ' ms';
+    let s = 'LOD ' + A.lod + ' \u00b7 eval ' + A.eval_ms.toFixed(1) + ' ms';
     if (A.out && A.out.mesh) {
         const b = mesh_bounds(A.out.mesh);
         let leaves = 0;
@@ -139,7 +139,7 @@ function variants_step()
     const cv = $('variants').children[k];
     const ctx2 = cv.getContext('2d');
     if (!outn) { ctx2.clearRect(0, 0, cv.width, cv.height); return; }
-    const ctx = eval_ctx(variant_seeds(k), A.vcache);
+    const ctx = eval_ctx(variant_seeds(k), A.vcache, A.lod);
     ctx.no_textures = true;
     const n_saved = A.g.nodes.map(n => [n._err, n._ms, n._cached, n._P]);
     const r = eval_node(A.g, outn.id, ctx);
@@ -171,6 +171,13 @@ function seeds_ui_build()
         row.dataset.c = c;
         el.appendChild(row);
     }
+    const lodrow = document.createElement('div');
+    lodrow.className = 'seed-row';
+    lodrow.innerHTML = '<label>LOD</label><button data-d="-1">\u2039</button><input type="number" min="0" max="3" step="1" id="lod"><button data-d="1">\u203a</button><span class="hint">network input (0 = full detail)</span>';
+    const set_lod = function (v) { A.lod = clamp(v | 0, 0, 3); A.refit = false; A.changed(false); };
+    lodrow.querySelector('#lod').addEventListener('change', e => set_lod(parseInt(e.target.value, 10) || 0));
+    lodrow.querySelectorAll('button').forEach(b => b.addEventListener('click', () => set_lod(A.lod + parseInt(b.dataset.d, 10))));
+    el.appendChild(lodrow);
     const tools = document.createElement('div');
     tools.className = 'seed-row';
     tools.innerHTML = '<button id="all_next">all ›</button><button id="all_rand">all ⟳</button><button id="keep">+ keep in list</button>';
@@ -183,6 +190,8 @@ function seeds_ui_build()
 
 function seeds_ui_refresh()
 {
+    const li = $('lod');
+    if (li && document.activeElement !== li) li.value = A.lod;
     $('seeds').querySelectorAll('.seed-row[data-c]').forEach(row => {
         const c = row.dataset.c, num = row.querySelector('input[type=number]');
         if (document.activeElement !== num) num.value = A.seeds[c];
@@ -220,8 +229,17 @@ async function export_glb()
 {
     if (!A.out || !A.out.mesh) { alert('The Output node has no result.'); return; }
     const text = species_write(A.g, A.title);
-    const extras = { species: A.title, species_hash: hex32(hash_str(text)), seeds: Object.assign({}, A.seeds), generator: 'plant_editor v1' };
-    const glb = await gltf_export(A.out, extras);
+    // All LOD levels 0-3 into one file (cache keys include the level; textures are shared).
+    const outn = graph_output(A.g), outs = [];
+    for (let lod = 0; lod < 4; lod++) {
+        const r = eval_node(A.g, outn.id, eval_ctx(A.seeds, A.cache, lod));
+        if (r.err || !r.val || !r.val.mesh) { alert('LOD ' + lod + ': ' + (r.err || 'no result')); A.dirty = true; return; }
+        outs.push(r.val);
+    }
+    A.dirty = true;     // restore node status of the current LOD
+    const tris = outs.map(o => mesh_triangles(o.mesh));
+    const extras = { species: A.title, species_hash: hex32(hash_str(text)), seeds: Object.assign({}, A.seeds), lods: 4, lod_triangles: tris, generator: 'plant_editor v1' };
+    const glb = await gltf_export(outs, extras);
     download(A.title + '_' + A.seeds.structure + '_' + A.seeds.foliage + '_' + A.seeds.texture + '.glb', glb, 'model/gltf-binary');
 }
 
@@ -231,7 +249,14 @@ function ui_init()
         if (!confirm('Start a new species (only an Output node)?')) return;
         A.g = graph_new(); node_add(A.g, 'Output', 3, 0); A.title = 'new_species'; $('title').value = A.title; A.cache.clear(); A.changed(true);
     });
-    $('btn_default').addEventListener('click', () => { if (confirm('Replace the graph with the default species?')) load_species_text(DEFAULT_SPECIES, 'beech_like'); });
+    const lib = $('library');
+    for (const name of Object.keys(SPECIES_LIBRARY)) { const o = document.createElement('option'); o.value = name; o.textContent = name; lib.appendChild(o); }
+    lib.addEventListener('change', () => {
+        const name = lib.value;
+        lib.value = '';
+        if (name && confirm('Replace the graph with the built-in species ' + name + '?')) load_species_text(SPECIES_LIBRARY[name], name);
+        A.E.canvas.focus();
+    });
     $('btn_load').addEventListener('click', () => pick_file('.species,.txt', (t, name) => load_species_text(t, name.replace(/\.[^.]*$/, ''))));
     $('btn_save').addEventListener('click', () => download(A.title + '.species', species_write(A.g, A.title), 'text/plain'));
     $('btn_load_seeds').addEventListener('click', () => pick_file('.seeds,.txt', t => { A.seed_list = seeds_read(t); if (A.seed_list.length) A.seeds = Object.assign({}, A.seed_list[0]); seed_list_ui(); A.changed(false); }));
@@ -285,7 +310,7 @@ function main()
     try { text = localStorage.getItem(STORE_SPECIES); seeds = JSON.parse(localStorage.getItem(STORE_SEEDS) || 'null'); A.title = localStorage.getItem(STORE_TITLE) || A.title; } catch (e) { /* ignore */ }
     const r = species_read(text || DEFAULT_SPECIES);
     A.g = r.graph.nodes.length ? r.graph : species_read(DEFAULT_SPECIES).graph;
-    if (seeds) { A.seeds = seeds.seeds || A.seeds; A.locks = seeds.locks || {}; A.seed_list = seeds.list || []; }
+    if (seeds) { A.seeds = seeds.seeds || A.seeds; A.locks = seeds.locks || {}; A.seed_list = seeds.list || []; A.lod = seeds.lod || 0; }
     A.E = editor_init(A, $('graph'), $('inspector'));
     $('title').value = A.title;
     ui_init();
