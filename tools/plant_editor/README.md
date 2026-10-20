@@ -107,7 +107,7 @@ Nodes sit in table cells; wires connect typed ports. Port colours: skeleton brow
 | C | connect: arrows to the target node, Enter (wrong types and cycles are refused) |
 | X | disconnect the node's inputs |
 | P | preview this node: skeleton as lines, leaf shape, placements, mesh, texture maps; P again returns to the output |
-| Space | full-screen preview on / off (Esc also leaves it) |
+| Space | full-screen preview on / off (Esc also leaves it): a 3D result turns slowly; a texture node shows its maps flat plus a lit, rotating sphere and cube; turning with the mouse stops the rotation |
 | Ctrl + D | duplicate the node |
 | F | frame the view |
 

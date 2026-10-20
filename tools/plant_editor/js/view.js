@@ -3,9 +3,12 @@
 
 const VS_MESH = `#version 300 es
 layout(location=0) in vec3 a_pos; layout(location=1) in vec3 a_nrm; layout(location=2) in vec2 a_uv; layout(location=3) in vec3 a_col;
-uniform mat4 u_vp; uniform float u_bias;
+uniform mat4 u_vp; uniform mat4 u_model; uniform float u_bias;
 out vec3 v_pos; out vec3 v_nrm; out vec2 v_uv; out vec3 v_col;
-void main() { v_pos = a_pos; v_nrm = a_nrm; v_uv = a_uv; v_col = a_col; gl_Position = u_vp * vec4(a_pos, 1.0); gl_Position.z -= u_bias * gl_Position.w; }`;
+void main() {
+    v_pos = (u_model * vec4(a_pos, 1.0)).xyz; v_nrm = mat3(u_model) * a_nrm; v_uv = a_uv; v_col = a_col;
+    gl_Position = u_vp * vec4(v_pos, 1.0); gl_Position.z -= u_bias * gl_Position.w;
+}`;
 
 const FS_MESH = `#version 300 es
 precision highp float;
@@ -105,6 +108,9 @@ function view_init(canvas)
     for (let i = 0; i <= segs; i++) { const a = i / segs * Math.PI * 2; part_vertex(g, [Math.cos(a) * R, 0, Math.sin(a) * R], [0, 1, 0], 0, 0, [1, 1, 1]); }
     for (let i = 0; i < segs; i++) g.idx.push(0, i + 2, i + 1);
     V.ground = view_upload_part(V, g);
+    V.sphere = view_upload_part(V, solid_sphere());
+    V.cube = view_upload_part(V, solid_cube());
+    V.spin = 0;
     view_input(V);
     return V;
 }
@@ -220,12 +226,14 @@ function view_draw_scene(V, w, h, bark, leaf)
     const gl = V.gl;
     gl.viewport(0, 0, w, h);
     gl.clearColor(0.16, 0.17, 0.19, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    if (V.tex2d && V.fullview) { view_draw_texture_full(V, w, h); return; }
     if (V.tex2d) { view_draw_tex2d(V, w, h); return; }
     gl.enable(gl.DEPTH_TEST);
     const M = view_matrices(V, w / Math.max(h, 1));
     const pm = V.prog_mesh;
     gl.useProgram(pm.p);
     gl.uniformMatrix4fv(pm.u.u_vp, false, M.vp);
+    gl.uniformMatrix4fv(pm.u.u_model, false, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
     gl.uniform3fv(pm.u.u_sun, [0.45, 0.8, 0.35]);
     gl.uniform3fv(pm.u.u_eye, M.eye);
     gl.uniform1i(pm.u.u_mode, V.mode);
@@ -288,8 +296,78 @@ function view_draw_tex2d(V, w, h)
     gl.bindVertexArray(null);
 }
 
+// Full-screen texture preview: the three maps flat (top half), a lit rotating sphere and cube with the texture
+// as material (bottom half).
+function view_draw_texture_full(V, w, h)
+{
+    const gl = V.gl, h2 = Math.floor(h / 2);
+    gl.viewport(0, h - h2, w, h2);
+    view_draw_tex2d(V, w, h2);
+    const t = view_texture(V, V.tex2d), pm = V.prog_mesh, a = V.spin;
+    gl.enable(gl.DEPTH_TEST); gl.enable(gl.SCISSOR_TEST); gl.enable(gl.CULL_FACE); gl.cullFace(gl.BACK);
+    gl.useProgram(pm.p);
+    gl.uniform1i(pm.u.u_albedo, 0); gl.uniform1i(pm.u.u_normal, 1); gl.uniform1i(pm.u.u_mr, 2);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, t.albedo);
+    gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, t.normal);
+    gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, t.mr);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.uniform1i(pm.u.u_mat, 0); gl.uniform1i(pm.u.u_tex, 1); gl.uniform1i(pm.u.u_mode, V.mode);
+    gl.uniform1f(pm.u.u_bias, 0); gl.uniform3fv(pm.u.u_base, [1, 1, 1]);
+    gl.uniform3fv(pm.u.u_sun, [0.5, 0.7, 0.6]);
+    const ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(0.45), sb = Math.sin(0.45);
+    const model = m4_mul([1, 0, 0, 0, 0, cb, sb, 0, 0, -sb, cb, 0, 0, 0, 0, 1], [ca, 0, -sa, 0, 0, 1, 0, 0, sa, 0, ca, 0, 0, 0, 0, 1]);
+    const objs = [V.sphere, V.cube];
+    for (let k = 0; k < 2; k++) {
+        const vw = Math.floor(w / 2), vx = k * vw;
+        gl.viewport(vx, 0, vw, h2); gl.scissor(vx, 0, vw, h2);
+        gl.clear(gl.DEPTH_BUFFER_BIT);
+        const eye = [0, 0, 3.6];
+        gl.uniformMatrix4fv(pm.u.u_vp, false, m4_mul(m4_perspective(40 * Math.PI / 180, vw / Math.max(h2, 1), 0.1, 20), m4_lookat(eye, [0, 0, 0], [0, 1, 0])));
+        gl.uniformMatrix4fv(pm.u.u_model, false, model);
+        gl.uniform3fv(pm.u.u_eye, eye);
+        gl.bindVertexArray(objs[k].vao); gl.drawElements(gl.TRIANGLES, objs[k].count, gl.UNSIGNED_INT, 0);
+    }
+    gl.disable(gl.SCISSOR_TEST);
+    gl.bindVertexArray(null);
+}
+
+// Unit sphere (uv: 2 texture repeats around, 1 from pole to pole) and cube (each face 0..1).
+function solid_sphere()
+{
+    const pt = part_make('sphere', 'bark'), nu = 64, nv = 32, white = [1, 1, 1];
+    for (let j = 0; j <= nv; j++)
+        for (let i = 0; i <= nu; i++) {
+            const th = j / nv * Math.PI, ph = i / nu * Math.PI * 2;
+            const n = [Math.sin(th) * Math.cos(ph), Math.cos(th), Math.sin(th) * Math.sin(ph)];
+            part_vertex(pt, n, n, i / nu * 2, j / nv, white);
+        }
+    for (let j = 0; j < nv; j++)
+        for (let i = 0; i < nu; i++) { const a = j * (nu + 1) + i, b = a + nu + 1; pt.idx.push(a, a + 1, b + 1, a, b + 1, b); }
+    return pt;
+}
+
+function solid_cube()
+{
+    const pt = part_make('cube', 'bark'), white = [1, 1, 1], s = 0.62;
+    const faces = [[[1, 0, 0], [0, 0, -1], [0, 1, 0]], [[-1, 0, 0], [0, 0, 1], [0, 1, 0]], [[0, 1, 0], [1, 0, 0], [0, 0, -1]],
+                   [[0, -1, 0], [1, 0, 0], [0, 0, 1]], [[0, 0, 1], [1, 0, 0], [0, 1, 0]], [[0, 0, -1], [-1, 0, 0], [0, 1, 0]]];
+    for (const f of faces) {
+        const n = f[0], u = f[1], v = f[2], base = pt.pos.length / 3;
+        for (const c of [[0, 0], [1, 0], [1, 1], [0, 1]]) {
+            const p = vscale(vadd(n, vadd(vscale(u, c[0] * 2 - 1), vscale(v, c[1] * 2 - 1))), s);
+            part_vertex(pt, p, n, c[0], 1 - c[1], white);
+        }
+        pt.idx.push(base, base + 1, base + 2, base, base + 2, base + 3);
+    }
+    return pt;
+}
+
 function view_draw(V, bark, leaf)
 {
+    // Full-screen preview: slow turntable for 3D, rotating sphere / cube for textures.
+    const now = performance.now(), dt = V.last_t ? Math.min(now - V.last_t, 100) / 1000 : 0;
+    V.last_t = now;
+    if (V.fullview && !V.auto_off) { V.spin = (V.spin || 0) + dt * 0.35; if (!V.tex2d) V.az += dt * 0.15; }
     const c = V.canvas, dpr = window.devicePixelRatio || 1;
     const w = Math.max(1, Math.floor(c.clientWidth * dpr)), h = Math.max(1, Math.floor(c.clientHeight * dpr));
     if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
@@ -335,7 +413,8 @@ function view_input(V)
         if (!drag) return;
         const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
         drag.x = e.clientX; drag.y = e.clientY;
-        if (drag.b === 0) { V.az -= dx * 0.008; V.el = clamp(V.el + dy * 0.008, -1.4, 1.5); }
+        // Turning by mouse stops the automatic rotation of the full-screen preview (until Space is pressed again).
+        if (drag.b === 0) { V.auto_off = true; if (V.tex2d && V.fullview) V.spin -= dx * 0.008; else { V.az -= dx * 0.008; V.el = clamp(V.el + dy * 0.008, -1.4, 1.5); } }
         else {
             const s = V.dist * 0.0015;
             const right = [Math.cos(V.az), 0, -Math.sin(V.az)];

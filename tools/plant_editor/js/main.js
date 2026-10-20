@@ -295,7 +295,7 @@ function ui_init()
             if (e.key === 'Escape') { ae.blur(); if (A.E.mode === 'edit') editor_set_mode(A.E, 'nav'); e.preventDefault(); }
             return;
         }
-        if (e.key === ' ' && (A.E.mode === 'nav' || A.E.mode === 'edit')) { document.body.classList.toggle('fullview'); e.preventDefault(); return; }
+        if (e.key === ' ' && (A.E.mode === 'nav' || A.E.mode === 'edit')) { document.body.classList.toggle('fullview'); A.V.auto_off = false; e.preventDefault(); return; }
         if (e.key === 'Escape' && document.body.classList.contains('fullview')) { document.body.classList.remove('fullview'); e.preventDefault(); return; }
         if ((e.key === 'f' || e.key === 'F') && A.E.mode === 'nav' && !e.ctrlKey && !e.metaKey) { A.refit = true; A.dirty = true; e.preventDefault(); return; }
         if (editor_key(A.E, e)) e.preventDefault();
@@ -312,6 +312,7 @@ const KEYBAR = {
     wire: ['CONNECT', ['\u2190\u2191\u2192\u2193', 'target node'], ['Enter', 'connect / bind'], ['Esc', 'cancel']],
     port: ['OUTPUT', ['\u2191\u2193', 'output'], ['Enter', 'connect from it'], ['Esc', 'cancel']],
     bind: ['BIND', ['\u2191\u2193', 'parameter'], ['Enter', 'bind'], ['Esc', 'cancel']],
+    full: ['PREVIEW', ['Space', 'back'], ['Esc', 'back'], ['LMB', 'turn (stops rotation)'], ['RMB', 'pan'], ['Wheel', 'zoom']],
     help: ['HELP', ['PgUp/PgDn', 'scroll'], ['Home/End', 'top / bottom'], ['Esc', 'close']],
     insert: ['INSERT', ['\u2191\u2193', 'operator'], ['A-Z', 'jump'], ['Enter', 'insert'], ['Esc', 'cancel']],
 };
@@ -319,12 +320,12 @@ const KEYBAR_VIEW = [['LMB', 'orbit'], ['RMB', 'pan'], ['Wheel', 'zoom'], ['F11'
 
 function keybar_update()
 {
-    const mode = $('help').classList.contains('hidden') ? A.E.mode : 'help';
+    const mode = !$('help').classList.contains('hidden') ? 'help' : document.body.classList.contains('fullview') ? 'full' : A.E.mode;
     if (A.keybar_mode === mode) return;
     A.keybar_mode = mode;
     const k = KEYBAR[mode] || KEYBAR.nav;
     let h = '<span class="slot mode">' + k[0] + '</span>';
-    for (const e of k.slice(1).concat(KEYBAR_VIEW)) h += '<span class="slot"><kbd>' + e[0] + '</kbd>' + e[1] + '</span>';
+    for (const e of mode === 'full' ? k.slice(1) : k.slice(1).concat(KEYBAR_VIEW)) h += '<span class="slot"><kbd>' + e[0] + '</kbd>' + e[1] + '</span>';
     $('keybar').innerHTML = h;
 }
 
@@ -389,6 +390,7 @@ function main()
         else variants_step();
         editor_draw(A.E);
         keybar_update();
+        A.V.fullview = document.body.classList.contains('fullview');
         view_draw(A.V, A.out ? A.out.bark : null, A.out ? A.out.leaf : null);
         requestAnimationFrame(frame);
     };
