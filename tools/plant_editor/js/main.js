@@ -78,6 +78,23 @@ function evaluate()
     let pn = node_find(g, A.preview_id) || outn;
     let rp = pn ? eval_node(g, pn.id, ctx) : null;
     for (const n of g.nodes) if (!ctx.memo.has(n.id)) eval_node(g, n.id, ctx);     // unconnected nodes still show status
+    // Full-screen preview of a mesh: the previewed node at all four LOD levels (node status of the current level kept).
+    let lod_meshes = null;
+    const ptype = pn ? OPS[pn.op].out : null;
+    if (V.fullview && rp && !rp.err && (ptype === 'mesh' || ptype === 'output')) {
+        const saved = g.nodes.map(n => [n._err, n._ms, n._cached, n._P, n._val, n._seed, n._tex]);
+        lod_meshes = [];
+        for (let l = 0; l < 4; l++) {
+            const c = eval_ctx(A.seeds, A.cache, l);
+            c.no_textures = true;
+            const r = eval_node(g, pn.id, c);
+            for (const k of c.used) ctx.used.add(k);
+            const m = r.err || !r.val ? null : ptype === 'output' ? r.val.mesh : r.val;
+            lod_meshes.push(m || { parts: [] });
+        }
+        g.nodes.forEach((n, i) => { [n._err, n._ms, n._cached, n._P, n._val, n._seed, n._tex] = saved[i]; });
+    }
+    view_set_lod_meshes(V, lod_meshes);
     cache_trim(A.cache, ctx.used);
     A.eval_ms = performance.now() - t0;
 
@@ -295,7 +312,7 @@ function ui_init()
             if (e.key === 'Escape') { ae.blur(); if (A.E.mode === 'edit') editor_set_mode(A.E, 'nav'); e.preventDefault(); }
             return;
         }
-        if (e.key === ' ' && (A.E.mode === 'nav' || A.E.mode === 'edit')) { document.body.classList.toggle('fullview'); A.V.auto_off = false; e.preventDefault(); return; }
+        if (e.key === ' ' && (A.E.mode === 'nav' || A.E.mode === 'edit')) { document.body.classList.toggle('fullview'); A.V.auto_off = false; A.V.fullview = document.body.classList.contains('fullview'); A.dirty = true; e.preventDefault(); return; }
         if (e.key === 'Escape' && document.body.classList.contains('fullview')) { document.body.classList.remove('fullview'); e.preventDefault(); return; }
         if ((e.key === 'f' || e.key === 'F') && A.E.mode === 'nav' && !e.ctrlKey && !e.metaKey) { A.refit = true; A.dirty = true; e.preventDefault(); return; }
         if (editor_key(A.E, e)) e.preventDefault();
@@ -308,7 +325,7 @@ const KEYBAR = {
     nav: ['TABLE', ['\u2190\u2191\u2192\u2193', 'move cursor'], ['Ctrl+\u2190\u2192', 'move node'], ['Enter', 'edit / insert'], ['Del', 'remove node'],
           ['C', 'connect / bind'], ['X', 'disconnect'], ['P', 'preview node'], ['Space', 'full-screen preview'], ['Ctrl+D', 'duplicate'], ['F', 'frame view']],
     edit: ['EDIT', ['\u2191\u2193', 'parameter'], ['\u2190\u2192', 'value'], ['Shift', 'step x10'], ['Alt+\u2190\u2192', 'variation'],
-           ['L', 'per-LOD values'], ['U', 'unbind'], ['Enter', 'enum / colour'], ['Esc', 'back to table']],
+           ['U', 'unbind'], ['Enter', 'enum / colour'], ['Esc', 'back to table']],
     wire: ['CONNECT', ['\u2190\u2191\u2192\u2193', 'target node'], ['Enter', 'connect / bind'], ['Esc', 'cancel']],
     port: ['OUTPUT', ['\u2191\u2193', 'output'], ['Enter', 'connect from it'], ['Esc', 'cancel']],
     bind: ['BIND', ['\u2191\u2193', 'parameter'], ['Enter', 'bind'], ['Esc', 'cancel']],
@@ -336,7 +353,7 @@ function help_text()
             '       Ctrl+D: duplicate   F: frame view   mouse: click selects, drag moves a node, double-click = Enter\n' +
             'VALUES Lod / Seed / Const / Expr nodes: C on the value node, arrows to the target, Enter: an Expr input, or pick a parameter\n' +
             '       (or the node seed) to bind; U in edit mode unbinds. Expr: x y z (inputs), lod; + - * / ^ min max round clamp lerp ...\n' +
-            'EDIT   Up/Down: parameter   Left/Right: value (Shift x10)   Alt+Left/Right: variation   L: per-LOD values   Enter: next enum   Esc: back\n' +
+            'EDIT   Up/Down: parameter   Left/Right: value (Shift x10)   Alt+Left/Right: variation   Enter: next enum   Esc: back\n' +
             'VIEW   left drag: orbit   right drag: pan   wheel: zoom\n\n' +
             'Species = graph + parameter values + variations (saved once: .species).  Instance = seeds (structure, foliage,\n' +
             'texture) - the only per-plant data a level needs.  Effective value = value + variation x random(seed) in [-1, 1).\n\nOPERATORS\n';

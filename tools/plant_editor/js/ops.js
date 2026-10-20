@@ -6,8 +6,7 @@
 // parameter takes the source's value (clamped, rounded for integers), without variation.
 // Seed channel: which instance seed drives the node ('structure' | 'foliage' | 'texture' | null).
 // A float/int parameter's effective value = clamp(value + variation * u, min, max), u in [-1, 1) from the node's seed.
-// A float/int parameter may hold one explicit value per LOD level (p.lods = [v0, v1, v2, v3]); the network's LOD input
-// selects one. Nothing is derived from the LOD implicitly.
+// A parameter has one value; anything that should change with the LOD level is bound to an expression of the LOD input.
 
 function F(name, min, max, def, vari, step, desc) { return { name: name, type: 'f', min: min, max: max, def: def, vari: vari, step: step, desc: desc }; }
 function I(name, min, max, def, vari, desc) { return { name: name, type: 'i', min: min, max: max, def: def, vari: vari, step: 1, desc: desc }; }
@@ -21,13 +20,13 @@ const OPS = {
     Inputs: {
         chan: null, ins: [], out: 'value', ver: 1, lod: true, seeds: true, span: 3,
         outs: ['lod', 'structure', 'foliage', 'texture', 'c1', 'c2', 'c3'],
-        desc: 'All network inputs in one node: the LOD level, the three instance seeds and three constants (per-LOD values possible). Each is a separate output.',
+        desc: 'All network inputs in one node: the LOD level, the three instance seeds and three constants. Each is a separate output.',
         params: [F('c1', -10000, 10000, 1, 0, 1, 'constant 1'), F('c2', -10000, 10000, 1, 0, 1, 'constant 2'), F('c3', -10000, 10000, 1, 0, 1, 'constant 3')],
         fn: function (P, ins, seed, ctx) { return [ctx.lod, ctx.seeds.structure >>> 0, ctx.seeds.foliage >>> 0, ctx.seeds.texture >>> 0, P.c1, P.c2, P.c3]; },
     },
     Const: {
         chan: null, ins: [], out: 'value', ver: 1,
-        desc: 'A constant (per-LOD values possible), to feed several parameters at once.',
+        desc: 'A constant, to feed several parameters at once.',
         params: [F('value', -10000, 10000, 1, 0, 0.1, 'value')],
         fn: function (P) { return P.value; },
     },
@@ -227,7 +226,7 @@ function resolve_params(node, seed, lod, binds)
     const op = OPS[node.op], P = {};
     for (let i = 0; i < op.params.length; i++) {
         const d = op.params[i], s = node.p[d.name] || { v: d.def, vari: d.vari };
-        let v = s.lods ? s.lods[lod || 0] : s.v;
+        let v = s.v;
         if (binds && binds[d.name] !== undefined) v = clamp(binds[d.name], d.min, d.max);
         else if ((d.type === 'f' || d.type === 'i') && s.vari > 0) {
             const u = rng_s(rng_sub(seed, 1000 + i));

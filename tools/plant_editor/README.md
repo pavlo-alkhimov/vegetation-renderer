@@ -28,7 +28,7 @@ Column 1 holds derived values: `trunk_segments = max(2, round(x*(1-0.17*y)))` an
 | Value node | Output |
 |---|---|
 | `Inputs` | `lod`, the three seeds and constants `c1`..`c3`, each a separate output (`.species`: `@inputs.c1`) |
-| `Const` | a number (per-LOD values possible) |
+| `Const` | a number |
 | `Expr` | an expression of its inputs x, y, z and `lod`: `+ - * / ^`, `min max abs floor ceil round sqrt pow clamp lerp sin cos exp log`, `pi`; e.g. `2*x+1` |
 
 **Binding.** Press **C** on a value node, use the arrows to move to the target, and press Enter. If the target is an Expr, the value goes into a free x/y/z input. Otherwise a list opens: pick the numeric parameter (or `seed`) to bind.
@@ -48,16 +48,15 @@ Effects of the channels:
 
 ### LOD level: a network input
 
-The **LOD** field in the seeds panel (0 = full detail … 3) is an input to the whole network, like the seeds, but chosen at run time rather than stored per plant. Nothing is derived from it implicitly:
+The LOD level (0 = full detail … 3) is the `lod` output of the Inputs node, set in its instance values. It is chosen at run time rather than stored per plant. Every parameter has exactly one value; anything that depends on the LOD is an **Expr** of `inputs.lod` bound to the parameter. Nothing is derived from the LOD implicitly. The only built-in rule is Branches `max_lod`: the branch order exists only up to this level.
 
-- **Per-LOD values:** tick **per LOD** on a numeric row to give it four values, shown as sub-bars LOD 0 to LOD 3 indented under the row (the current LOD input's one is outlined; the main bar and the arrow keys edit that one). Key **L** in edit mode toggles it. In `.species` files: `sides=10|7|4|3` (variation after `~` applies to all levels).
-- **Branches `max_lod`:** the branch order exists only up to this level, e.g. order 3 up to LOD 1, order 2 up to LOD 2.
+The library species use expressions in column 1 for:
+- trunk `segments` and `sides`;
+- Wood `sides` and `min_radius`;
+- LeafShape `detail`;
+- Leaves `density` and `scale` (fewer, larger leaves).
 
-The library species set per-LOD values for:
-- Trunk `segments`
-- Wood `sides` and `min_radius`
-- LeafShape `detail`
-- Leaves `density` and `scale` (fewer, larger leaves)
+For example `wood_sides = Expr in=inputs.lod expr="round(10*pow(0.66943, x))"`.
 
 Results are cached per level, so switching between levels is instant after the first visit. Export GLB writes all four levels into one file.
 
@@ -88,7 +87,7 @@ The **Wireframe** node (between Merge and Output in every library species, `enab
 ## Screen layout
 
 - **Top two thirds:** the node table. Texture nodes show their result in the right third of the cell.
-- **Bottom left:** the selected node, its parameters in newspaper-style columns: the first column fills to the bottom of the panel, then the next (reflowing when the window or the border changes; more columns scroll sideways; dotted lines between columns), grouped by kind: numbers, choices, colours, text, with a rule between groups; layout preference, first that fits the panel width: every group starts its own column; else groups are kept together (a group moves to the next column as a whole); else groups split. Numbers are slider bars: drag inside the frame (Ctrl: fine), double-click to type a value. Per row: variation (±), per-LOD checkbox, the effective value. The panel is hidden when the cursor is on an empty cell. Selecting the Inputs node also shows the instance values: the three seeds, the LOD level and the kept seed list.
+- **Bottom left:** the selected node, its parameters in newspaper-style columns: the first column fills to the bottom of the panel, then the next (reflowing when the window or the border changes; more columns scroll sideways; dotted lines between columns), grouped by kind: numbers, choices, colours, text, with a rule between groups; layout preference, first that fits the panel width: every group starts its own column; else groups are kept together (a group moves to the next column as a whole); else groups split. Numbers are slider bars: drag inside the frame (Ctrl: fine), double-click to type a value. Per row: variation (±) and the effective value. The panel is hidden when the cursor is on an empty cell. Selecting the Inputs node also shows the instance values: the three seeds, the LOD level and the kept seed list.
 - **Bottom right:** the preview (1/8 of the width); **Space** shows it full screen.
 - **Border:** drag the line between the table and the bottom part (it turns thick blue under the mouse); the height is remembered.
 - **Bottom edge:** the key bar for the current mode.
@@ -107,7 +106,7 @@ Nodes sit in table cells; wires connect typed ports. Port colours: skeleton brow
 | C | connect: arrows to the target node, Enter (wrong types and cycles are refused) |
 | X | disconnect the node's inputs |
 | P | preview this node: skeleton as lines, leaf shape, placements, mesh, texture maps; P again returns to the output |
-| Space | full-screen preview on / off (Esc also leaves it): a 3D result turns slowly; a texture node shows its maps flat plus a lit, rotating sphere and cube; turning with the mouse stops the rotation |
+| Space | full-screen preview on / off (Esc also leaves it): a mesh result shows all four LOD levels side by side, each half the size of the previous (as if twice as far away), with triangle counts, turning slowly; a texture node shows its maps flat plus a lit, rotating sphere and cube; turning with the mouse stops the rotation |
 | Ctrl + D | duplicate the node |
 | F | frame the view |
 

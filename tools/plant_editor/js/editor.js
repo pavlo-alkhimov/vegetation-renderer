@@ -4,7 +4,7 @@
 // C on the value node, arrows to the target, Enter, then pick the parameter from the list.
 // Keys (table):  arrows move the cursor · Ctrl+arrows move the node · Enter edit node / insert node in an empty cell
 //                Del remove · C connect (arrows to target, Enter) · X disconnect inputs · Space preview · Ctrl+D duplicate
-// Keys (edit):   Up/Down parameter · Left/Right value (Shift x10) · Alt/Ctrl+Left/Right variation · L per-LOD values
+// Keys (edit):   Up/Down parameter · Left/Right value (Shift x10) · Alt/Ctrl+Left/Right variation
 //                Enter cycle enum · Esc back
 
 const CELL_W = 150, CELL_H = 76, CELL_PAD = 7;
@@ -320,11 +320,7 @@ function editor_draw(E)
 
 // ---------------------------------------------------------------------------------------------------------------
 // Inspector: species parameters of the selected node (value + variation), effective values for the current seeds.
-// Numeric rows can hold one value per LOD level ('LOD' toggle, key L): the slider then edits the current level's value.
 
-function pval(p, lod) { return p.lods ? p.lods[lod] : p.v; }
-function pset(p, v, lod) { if (p.lods) { p.lods[lod] = v; p.v = p.lods[0]; } else p.v = v; }
-function plod_toggle(p) { if (p.lods) { p.v = p.lods[0]; delete p.lods; } else p.lods = [p.v, p.v, p.v, p.v]; }
 
 function inspector_build(E)
 {
@@ -337,7 +333,7 @@ function inspector_build(E)
     head.className = 'insp-head';
     head.innerHTML = '<input class="name" value="' + n.name + '" title="node name (part of the node seed)"> <span class="op">' + n.op + '</span>' +
         '<div class="desc">' + op.desc + '</div>' +
-        '<div class="desc">LOD input: <b>' + A.lod + '</b> (per-LOD rows show and edit this level) &nbsp; seed channel: <b>' + (op.chan || '-') + '</b>' + (op.chan ? ' &nbsp; node seed ' + (n._seed !== undefined ? hex32(n._seed) : '-') : '') + '</div>' +
+        '<div class="desc">LOD input: <b>' + A.lod + '</b> &nbsp; seed channel: <b>' + (op.chan || '-') + '</b>' + (op.chan ? ' &nbsp; node seed ' + (n._seed !== undefined ? hex32(n._seed) : '-') : '') + '</div>' +
         (n.binds.seed ? '<div class="desc">seed \u2190 <b>' + ref_name(A.g, n.binds.seed) + '</b> <button class="unbind" data-p="seed">\u00d7</button></div>' : '') +
         (n._err && n._err !== 'skipped' ? '<div class="err">' + n._err + '</div>' : '');
     el.appendChild(head);
@@ -386,22 +382,18 @@ function inspector_build(E)
             ti.addEventListener('change', () => { p.v = ti.value; A.changed(false); });
             td_val.appendChild(ti);
         } else if (d.type === 'f' || d.type === 'i') {
-            // 'per LOD' checkbox: off = one value for all LOD levels; on = four sub-bars L0..L3 indented under the row
-            // (the current LOD input's one highlighted; the main bar and the arrow keys edit that one).
             const shows = [];
-            const set = function (v, lod) {
+            const set = function (v) {
                 v = clamp(parseFloat(v), d.min, d.max); if (isNaN(v)) return;
                 if (d.type === 'i') v = Math.round(v); else v = Math.round(v / d.step) * d.step;
-                pset(p, Math.round(v * 1e6) / 1e6, lod); for (const s of shows) s(); A.changed(false);
+                p.v = Math.round(v * 1e6) / 1e6; for (const s of shows) s(); A.changed(false);
             };
-            // Slider bar for one LOD level (lod < 0: the current LOD input).
-            const make_bar = function (lod, label) {
-                const L = () => lod < 0 ? A.lod : lod;
+            const make_bar = function (label) {
                 const bar = document.createElement('div'), fill = document.createElement('div'), txt = document.createElement('span');
                 bar.className = 'sbar'; fill.className = 'sfill'; txt.className = 'stext';
                 bar.appendChild(fill); bar.appendChild(txt);
                 const show = function () {
-                    const v = pval(p, L());
+                    const v = p.v;
                     fill.style.width = (clamp((v - d.min) / (d.max - d.min), 0, 1) * 100) + '%';
                     txt.innerHTML = '<span>' + label + '</span><b>' + (Math.round(v * 1000) / 1000) + '</b>';
                 };
@@ -410,49 +402,35 @@ function inspector_build(E)
                     if (ev.button !== 0) return;
                     ev.preventDefault(); E.row = i;
                     if (ev.detail >= 2) return;           // second click of a double-click: typing, not sliding
-                    const r = bar.getBoundingClientRect(), v0 = pval(p, L()), x0 = ev.clientX;
+                    const r = bar.getBoundingClientRect(), v0 = p.v, x0 = ev.clientX;
                     bar._prev = v0;
                     const at = e2 => e2.ctrlKey ? v0 + (e2.clientX - x0) / r.width * (d.max - d.min) * 0.05
                                                : d.min + clamp((e2.clientX - r.left) / r.width, 0, 1) * (d.max - d.min);
-                    if (!ev.ctrlKey) set(at(ev), L());
+                    if (!ev.ctrlKey) set(at(ev));
                     bar.classList.add('drag');
-                    const move = e2 => set(at(e2), L());
+                    const move = e2 => set(at(e2));
                     const up = () => { bar.classList.remove('drag'); window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
                     window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
                 });
                 bar.addEventListener('dblclick', () => {
-                    if (bar._prev !== undefined) set(bar._prev, L());    // undo the jump of the first click
+                    if (bar._prev !== undefined) set(bar._prev);    // undo the jump of the first click
                     const ni = document.createElement('input');
-                    ni.type = 'number'; ni.step = d.step; ni.value = pval(p, L()); ni.className = 'sedit';
+                    ni.type = 'number'; ni.step = d.step; ni.value = p.v; ni.className = 'sedit';
                     bar.appendChild(ni); ni.focus(); ni.select();
                     let closed = false;
-                    const done = ok => { if (closed) return; closed = true; if (ok) set(ni.value, L()); ni.remove(); };
+                    const done = ok => { if (closed) return; closed = true; if (ok) set(ni.value); ni.remove(); };
                     ni.addEventListener('keydown', e2 => { if (e2.key === 'Enter') done(true); else if (e2.key === 'Escape') done(false); e2.stopPropagation(); });
                     ni.addEventListener('blur', () => done(true));
                 });
                 show();
                 return bar;
             };
-            const lb = document.createElement('label');
-            lb.className = 'perlod'; lb.title = 'separate value for each LOD level (key L)';
-            lb.innerHTML = '<input type="checkbox"' + (p.lods ? ' checked' : '') + '>per LOD';
-            lb.querySelector('input').addEventListener('change', () => { plod_toggle(p); A.changed(false); inspector_build(E); });
             const vr = document.createElement('input');
             vr.type = 'number'; vr.min = 0; vr.step = d.step; vr.value = p.vari; vr.className = 'vari'; vr.title = 'variation by seed (±)';
             vr.addEventListener('change', () => { p.vari = Math.max(0, parseFloat(vr.value) || 0); A.changed(false); });
             const pm = document.createElement('span'); pm.className = 'pm'; pm.textContent = '±';
-            td_val.appendChild(make_bar(-1, d.name)); td_val.appendChild(pm); td_val.appendChild(vr); td_val.appendChild(lb);
+            td_val.appendChild(make_bar(d.name)); td_val.appendChild(pm); td_val.appendChild(vr);
             tr.appendChild(td_val); tr.appendChild(td_now);
-            if (p.lods) {
-                const sub = document.createElement('div');
-                sub.className = 'lodvals';
-                for (let l = 0; l < 4; l++) {
-                    const b = make_bar(l, 'LOD ' + l);
-                    if (l === A.lod) b.classList.add('cur');
-                    sub.appendChild(b);
-                }
-                tr.appendChild(sub);
-            }
         } else if (d.type === 'e') {
             label();
             const s = document.createElement('select');
@@ -521,12 +499,6 @@ function inspector_values(E)
     });
 }
 
-function lod_html(p)
-{
-    if (!p.lods) return '';
-    return p.lods.map((v, i) => i === A.lod ? '<b>' + (Math.round(v * 1000) / 1000) + '</b>' : String(Math.round(v * 1000) / 1000)).join(' | ');
-}
-
 function inspector_key(E, e)
 {
     const A = E.A, n = node_find(A.g, E.insp_node);
@@ -550,7 +522,7 @@ function inspector_key(E, e)
         if (d.type === 'e') p.v = (p.v + dir + d.labels.length) % d.labels.length;
         else if (d.type === 'f' || d.type === 'i') {
             if (e.altKey || e.ctrlKey || e.metaKey) p.vari = Math.max(0, Math.round((p.vari + dir * d.step * mul) * 1e5) / 1e5);
-            else pset(p, clamp(Math.round((pval(p, A.lod) + dir * d.step * mul) * 1e5) / 1e5, d.min, d.max), A.lod);
+            else p.v = clamp(Math.round((p.v + dir * d.step * mul) * 1e5) / 1e5, d.min, d.max);
         } else return true;
         A.changed(false);
         inspector_build(E);
@@ -558,7 +530,6 @@ function inspector_key(E, e)
     }
     if ((k === 'u' || k === 'U') && n.binds[d.name]) { delete n.binds[d.name]; A.changed(true); return true; }
     if (n.binds[d.name]) return k === 'ArrowLeft' || k === 'ArrowRight';
-    if ((k === 'l' || k === 'L') && (d.type === 'f' || d.type === 'i')) { plod_toggle(p); A.changed(false); inspector_build(E); return true; }
     if (k === 'Enter' && d.type === 'e') { p.v = (p.v + 1) % d.labels.length; A.changed(false); inspector_build(E); return true; }
     if (k === 'Enter' && d.type === 'c') { const ci = E.insp.querySelector('[data-row="' + E.row + '"]').querySelector('input[type=color]'); if (ci) ci.click(); return true; }
     return false;

@@ -12,7 +12,7 @@ button:hover { background: #363a42; }
 body.fullview #splitter { display: none; }
 #main { flex: 1 1 0; display: flex; min-height: 0; }
 #inspector { flex: 1; min-width: 0; box-sizing: border-box; overflow: hidden; display: flex; flex-direction: column; padding: 8px; border-right: 1px solid #33363c; background: #1b1c20; }
-#center { width: 12.5%; flex: none; display: flex; flex-direction: column; min-width: 0; border-left: 1px solid #33363c; }
+#center { position: relative; width: 12.5%; flex: none; display: flex; flex-direction: column; min-width: 0; border-left: 1px solid #33363c; }
 /* Space: the preview takes the whole window above the key bar. */
 body.fullview #graph, body.fullview #inspector { display: none; }
 body.fullview #center { flex: 1; width: auto; border: none; }
@@ -50,7 +50,6 @@ table.params td.now { color: #9ad08a; font: 11px monospace; }
 #help { position: fixed; left: 40px; right: 40px; top: 50px; bottom: 40px; background: #1d1f23; border: 1px solid #4a4e56; overflow: auto; padding: 10px; z-index: 10; }
 #help pre { font: 12px monospace; margin: 0; }
 .hidden { display: none; }
-.perlod { font-size: 11px; color: #9a9ea6; margin-left: 6px; }
 .instance { margin-top: 10px; padding-top: 6px; border-top: 1px solid #33363c; }
 table.params input.text { width: 230px; font-family: monospace; }
 
@@ -72,15 +71,11 @@ table.params input.text { width: 230px; font-family: monospace; }
 .pm { color: #7f8590; font-size: 11px; }
 .prow input.vari { width: 46px; }
 .prow .now { width: 52px; text-align: right; color: #9ad08a; font: 11px monospace; }
-.prow .lodvals { flex-basis: 100%; display: flex; flex-direction: column; gap: 2px; margin: 1px 0 3px 10px; padding-left: 8px; border-left: 2px solid #3d84e6; }
-.lodvals .sbar { flex: none; width: 60%; height: 15px; }
-.lodvals .sbar.cur { border-color: #ffd860; }
-.lodvals .stext { font-size: 11px; }
 .prow input.text { flex: 1; font-family: monospace; }
-.prow .perlod { white-space: nowrap; margin-left: 2px; }
-.prow .perlod input { margin: 0 2px 0 0; vertical-align: middle; }
 .pgrid.separate .pgroup + .pgroup { break-before: column; margin-top: 0; padding-top: 0; border-top: none; }
 .pgrid.magnetic .pgroup { break-inside: avoid; }   /* dropped by the editor when it would need more columns */
 .pgroup + .pgroup { margin-top: 9px; padding-top: 9px; border-top: 1px solid #44474e; }
 .stext span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 6px; min-width: 0; }
 .stext b { flex: none; }
+.lodlabels { position: absolute; inset: 0; pointer-events: none; }
+.lodlabels span { position: absolute; transform: translateX(-50%); font: 12px monospace; color: #c8ccd4; white-space: nowrap; }

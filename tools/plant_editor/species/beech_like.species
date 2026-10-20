@@ -8,12 +8,17 @@ branches2 = Branches @4,0 in=branches1 count=11~1.5 start=0.12 end=0.95 phyllota
 branches3 = Branches @5,0 in=branches2 count=8~1 start=0.1 end=0.95 phyllotaxis=distichous angle=42~4 angle_jitter=12 az_jitter=40 length=0.42~0.04 length_top=0.6 radius=0.6 curvature=0.05 droop=0.1~0.05 wobble=0.08 segments=3 max_lod=1 seed=@inputs.structure
 tropism = Tropism @6,0 in=branches3 gravity=0.08~0.02 photo=0.03~0.01 order_scale=0.6 seed=@inputs.structure
 prune = Prune @7,0 in=tropism shape=ellipsoid crown_base=0.28~0.04 width=0.4~0.04 mode=shrink min_order=1 min_keep=0.2 seed=@inputs.structure
-wood = Wood @8,0 in=prune sides=10|7|4|3 min_radius=0.003|0.005|0.007|0.011 tile=0.6 seed=@inputs.structure
+wood_sides = Expr @1,2 in=inputs.lod,-,- expr="round(10*pow(0.66943, x))"
+wood_min_radius = Expr @1,3 in=inputs.lod,-,- expr="0.003*pow(1.54202, x)"
+wood = Wood @8,0 in=prune sides=@wood_sides min_radius=@wood_min_radius tile=0.6 seed=@inputs.structure
 merge = Merge @9,0 in=wood,leafmesh,-
 wireframe = Wireframe @10,0 in=merge enabled=off parts=all color=#ffd040
 output = Output @11,0 in=wireframe,barktexture,leaftexture
-leafshape = LeafShape @6,1 outline=ovate length=0.09~0.008 width=0.055~0.005 petiole=0.01 teeth=7 tooth_depth=0.06 fold=0.25~0.05 curl=0.15~0.05 detail=4|3|2|2 veins=7 seed=@inputs.foliage
-leaves = Leaves @7,1 in=prune,leafshape orders=2 density=9|4.5|2.25|1.125~1.5 start=0.3 arrangement=distichous angle=55~5 droop=0.15~0.05 roll=25 scale=2.2|3.111|4.4|6.223~0.1 size_jitter=0.2 seed=@inputs.foliage
+leafshape_detail = Expr @1,4 in=inputs.lod,-,- expr="round(4*pow(0.7937, x))"
+leafshape = LeafShape @6,1 outline=ovate length=0.09~0.008 width=0.055~0.005 petiole=0.01 teeth=7 tooth_depth=0.06 fold=0.25~0.05 curl=0.15~0.05 detail=@leafshape_detail veins=7 seed=@inputs.foliage
+leaves_density = Expr @1,5 in=inputs.lod,-,- expr="9*pow(0.5, x)"
+leaves_scale = Expr @1,6 in=inputs.lod,-,- expr="2.2*pow(1.41425, x)"
+leaves = Leaves @7,1 in=prune,leafshape orders=2 density=@leaves_density start=0.3 arrangement=distichous angle=55~5 droop=0.15~0.05 roll=25 scale=@leaves_scale size_jitter=0.2 seed=@inputs.foliage
 leafmesh = LeafMesh @8,1 in=leaves,leafshape color_var=0.12 hue_var=0.05 seed=@inputs.foliage
 leaftexture = LeafTexture @8,2 in=leafshape size=256 color=#3f6b1e vein_color=#93b055 vein_width=0.035 vein_angle=45~3 vein_contrast=0.45~0.05 network=18 color_var=0.1 roughness=0.55 normal_strength=0.6 seed=@inputs.texture
 barktexture = BarkTexture @9,2 size=512 furrows=6~1 stretch=3 furrow_width=0.08~0.02 furrow_depth=0.12~0.03 plates=10~2 plate_depth=0.08 lenticels=18 lenticel_contrast=0.35 octaves=5 moss=0.15~0.05 roughness=0.8 normal_strength=1 color_dark=#5f605b color_light=#a4a59e moss_color=#5b6b2c lenticel_color=#4a4a46 seed=@inputs.texture

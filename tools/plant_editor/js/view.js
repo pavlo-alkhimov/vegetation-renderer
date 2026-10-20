@@ -221,10 +221,10 @@ function view_matrices(V, aspect)
     return { vp: m4_mul(proj, m4_lookat(eye, V.target, [0, 1, 0])), eye: eye };
 }
 
-function view_draw_scene(V, w, h, bark, leaf)
+function view_draw_scene(V, w, h, bark, leaf, ox, oy)
 {
     const gl = V.gl;
-    gl.viewport(0, 0, w, h);
+    gl.viewport(ox || 0, oy || 0, w, h);
     gl.clearColor(0.16, 0.17, 0.19, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     if (V.tex2d && V.fullview) { view_draw_texture_full(V, w, h); return; }
     if (V.tex2d) { view_draw_tex2d(V, w, h); return; }
@@ -362,6 +362,50 @@ function solid_cube()
     return pt;
 }
 
+function view_set_lod_meshes(V, meshes)
+{
+    const gl = V.gl;
+    if (V.lod_sets) for (const s of V.lod_sets) for (const p of s.parts) { gl.deleteVertexArray(p.vao); gl.deleteBuffer(p.vb); gl.deleteBuffer(p.ib); }
+    V.lod_sets = meshes ? meshes.map(m => ({ parts: m.parts.map(p => view_upload_part(V, p)), tris: mesh_triangles(m) })) : null;
+}
+
+// LOD 0..3 side by side, bottom-aligned, each viewport half the size of the previous one (as if twice as far away),
+// all with the same camera; a label under each.
+function view_draw_lods(V, w, h, bark, leaf)
+{
+    const gl = V.gl, wt = [8, 4, 2, 1], sum = 15;
+    const s = Math.min(w / sum, h / 8.6);              // pixels per weight unit
+    let x = Math.floor((w - s * sum) / 2);
+    gl.viewport(0, 0, w, h); gl.clearColor(0.16, 0.17, 0.19, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.enable(gl.SCISSOR_TEST);
+    const saved = V.parts, labels = [];
+    for (let k = 0; k < 4; k++) {
+        const vw = Math.floor(wt[k] * s), vh = vw, vy = Math.floor(h * 0.06);
+        gl.scissor(x, vy, vw, vh);
+        V.parts = V.lod_sets[k].parts;
+        view_draw_scene(V, vw, vh, bark, leaf, x, vy);
+        labels.push([x + vw / 2, h - vy, 'LOD ' + k + ' \u00b7 ' + V.lod_sets[k].tris.toLocaleString() + ' tris']);
+        x += vw;
+    }
+    V.parts = saved;
+    gl.disable(gl.SCISSOR_TEST);
+    view_lod_labels(V, labels);
+}
+
+function view_lod_labels(V, labels)
+{
+    if (!V.label_el) {
+        V.label_el = document.createElement('div');
+        V.label_el.className = 'lodlabels';
+        V.canvas.parentNode.appendChild(V.label_el);
+    }
+    const key = JSON.stringify(labels);
+    if (V.label_key === key) return;
+    V.label_key = key;
+    const dpr = window.devicePixelRatio || 1;
+    V.label_el.innerHTML = labels.map(l => '<span style="left:' + (l[0] / dpr) + 'px;top:' + (l[1] / dpr + 4) + 'px">' + l[2] + '</span>').join('');
+}
+
 function view_draw(V, bark, leaf)
 {
     // Full-screen preview: slow turntable for 3D, rotating sphere / cube for textures.
@@ -371,7 +415,10 @@ function view_draw(V, bark, leaf)
     const c = V.canvas, dpr = window.devicePixelRatio || 1;
     const w = Math.max(1, Math.floor(c.clientWidth * dpr)), h = Math.max(1, Math.floor(c.clientHeight * dpr));
     if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
-    view_draw_scene(V, w, h, bark, leaf);
+    const lods = V.fullview && V.lod_sets && !V.tex2d;
+    if (lods) view_draw_lods(V, w, h, bark, leaf);
+    else view_draw_scene(V, w, h, bark, leaf);
+    if (V.label_el) V.label_el.style.display = lods ? '' : 'none';
 }
 
 // Renders a mesh offscreen into an RGBA image (thumbnails).

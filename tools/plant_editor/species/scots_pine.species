@@ -8,12 +8,16 @@ branches2 = Branches @4,0 in=branches1 count=7~1 start=0.3 end=1 phyllotaxis=spi
 branches3 = Branches @5,0 in=branches2 count=4~1 start=0.4 end=1 phyllotaxis=spiral angle=40 angle_jitter=15 az_jitter=40 length=0.4 length_top=0.7 radius=0.6 curvature=0.3 droop=0 wobble=0.1 segments=2 max_lod=1 seed=@inputs.structure
 tropism = Tropism @6,0 in=branches3 gravity=0.04 photo=0.03~0.01 order_scale=0.6 seed=@inputs.structure
 prune = Prune @7,0 in=tropism shape=ellipsoid crown_base=0.6~0.04 width=0.26~0.03 mode=shrink min_order=1 min_keep=0.15 seed=@inputs.structure
-wood = Wood @8,0 in=prune sides=9|6|4|3 min_radius=0.004|0.006|0.009|0.015 tile=0.5 seed=@inputs.structure
+wood_sides = Expr @1,2 in=inputs.lod,-,- expr="round(9*pow(0.69336, x))"
+wood_min_radius = Expr @1,3 in=inputs.lod,-,- expr="0.004*pow(1.55362, x)"
+wood = Wood @8,0 in=prune sides=@wood_sides min_radius=@wood_min_radius tile=0.5 seed=@inputs.structure
 merge = Merge @9,0 in=wood,leafmesh,-
 wireframe = Wireframe @10,0 in=merge enabled=off parts=all color=#ffd040
 output = Output @11,0 in=wireframe,barktexture,leaftexture
 leafshape = LeafShape @6,1 outline=tuft length=0.09~0.01 width=0.012 petiole=0 teeth=10 tooth_depth=0 fold=0.6~0.1 curl=0 detail=4 veins=2 seed=@inputs.foliage
-leaves = Leaves @7,1 in=prune,leafshape orders=2 density=18|9|4.5|2.25~2 start=0.35 arrangement=spiral angle=30~5 droop=-0.2 roll=0 scale=2.2|3.111|4.4|6.223~0.1 size_jitter=0.15 seed=@inputs.foliage
+leaves_density = Expr @1,4 in=inputs.lod,-,- expr="18*pow(0.5, x)"
+leaves_scale = Expr @1,5 in=inputs.lod,-,- expr="2.2*pow(1.41425, x)"
+leaves = Leaves @7,1 in=prune,leafshape orders=2 density=@leaves_density start=0.35 arrangement=spiral angle=30~5 droop=-0.2 roll=0 scale=@leaves_scale size_jitter=0.15 seed=@inputs.foliage
 leafmesh = LeafMesh @8,1 in=leaves,leafshape color_var=0.1 hue_var=0.05 seed=@inputs.foliage
 leaftexture = LeafTexture @8,2 in=leafshape size=128 color=#3c5a2a vein_color=#4a6a34 vein_width=0.03 vein_angle=45 vein_contrast=0.1 network=30 color_var=0.1 roughness=0.45 normal_strength=0.2 seed=@inputs.texture
 barktexture = BarkTexture @9,2 size=512 furrows=5~1 stretch=2 furrow_width=0.1 furrow_depth=0.3~0.05 plates=12~2 plate_depth=0.3 lenticels=1 lenticel_contrast=0 octaves=5 moss=0.08 roughness=0.85 normal_strength=1.3 color_dark=#4b3426 color_light=#b0703f moss_color=#5b6b2c lenticel_color=#2b1f18 seed=@inputs.texture

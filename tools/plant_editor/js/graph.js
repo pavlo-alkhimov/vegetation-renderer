@@ -1,7 +1,7 @@
 // Node graph: nodes pinned to table cells, typed single-output nodes, wires as input references.
 // Evaluation is pull-based from a target node with a per-evaluation memo and a cross-evaluation content cache.
 //
-// Graph = { nodes: [Node] }; Node = { id, name, op, col, row, p: { param: { v, vari, lods? } }, ins: [node id or 0],
+// Graph = { nodes: [Node] }; Node = { id, name, op, col, row, p: { param: { v, vari } }, ins: [node id or 0],
 //   binds: { param or 'seed': value ref } }.
 // A reference to a node output is ref = id + port * 65536 (port 0 for single-output nodes; multi-output nodes declare
 // op.outs, e.g. the Inputs node). node_find accepts refs.

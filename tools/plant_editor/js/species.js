@@ -3,7 +3,7 @@
 // .species, one node per line (docs/15 recipe format):
 //   name = Op @col,row in=a,b,- key=value key=value~variation ...
 // '-' = unconnected input; variation after '~' (omitted when 0); enums by label; colours as #rrggbb; '#' comments.
-// A number may be given per LOD level: key=v0|v1|v2|v3~variation. key=@node binds a parameter (or 'seed') to a value
+// key=@node binds a parameter (or 'seed') to a value
 // node; text values in double quotes: expr="2*x+1".
 // .seeds, one instance per line: "structure foliage texture" (unsigned 32-bit integers).
 
@@ -38,7 +38,7 @@ function species_write(g, title)
             if (d.type === 'e') v = d.labels[p.v];
             else if (d.type === 's') v = '"' + p.v.replace(/"/g, "'") + '"';
             else if (d.type === 'c') v = p.v;
-            else v = (p.lods ? p.lods.map(fmt_num).join('|') : fmt_num(p.v)) + (p.vari > 0 ? '~' + fmt_num(p.vari) : '');
+            else v = fmt_num(p.v) + (p.vari > 0 ? '~' + fmt_num(p.vari) : '');
             s += ' ' + d.name + '=' + v;
         }
         if (n.binds.seed) s += ' seed=@' + ref_name(g, n.binds.seed);
@@ -85,14 +85,12 @@ function species_read(text)
                 else errors.push('line ' + (ln + 1) + ': ' + key + ' must be #rrggbb');
             } else {
                 const parts = val.split('~');
-                // value, or 4 values separated by '|' (one per LOD level)
                 const vals = parts[0].split('|').map(parseFloat), vari = parts.length > 1 ? parseFloat(parts[1]) : 0;
                 if (vals.some(isNaN) || isNaN(vari)) { errors.push('line ' + (ln + 1) + ': bad number ' + val); continue; }
-                if (vals.length !== 1 && vals.length !== 4) { errors.push('line ' + (ln + 1) + ': ' + key + ' needs 1 value or 4 (per LOD)'); continue; }
+                if (vals.length !== 1) { errors.push('line ' + (ln + 1) + ': ' + key + ': one value only (LOD-dependent values: bind an Expr of inputs.lod)'); continue; }
                 if (vals.some(v => v < d.min || v > d.max)) errors.push('line ' + (ln + 1) + ': ' + key + ' outside ' + d.min + '..' + d.max + ' (clamped)');
                 const cv = vals.map(v => { v = clamp(v, d.min, d.max); return d.type === 'i' ? Math.round(v) : v; });
                 n.p[key] = { v: cv[0], vari: Math.max(0, vari) };
-                if (cv.length === 4) n.p[key].lods = cv;
             }
         }
     }
@@ -153,6 +151,20 @@ function make_species(title, n)
     const sides0 = Math.max(3, parseInt((n.wood.match(/sides=(\d+)/) || [0, 10])[1], 10) + 2);
     L.push('inputs = Inputs @0,0 c1=' + seg0 + ' c2=' + sides0 + ' c3=1');
     L.push('trunk_segments = Expr @1,0 in=inputs.c1,inputs.lod,- expr="max(2, round(x*(1-0.17*y)))"');
+    let expr_row = 2;
+    // v0|v1|v2|v3 in a parameter string -> an Expr node of inputs.lod (geometric or linear fit through v0 and v3)
+    // bound to the parameter; the species keeps one value per parameter.
+    const lod_exprs = function (node, op, s) {
+        return s.replace(/(\w+)=([-\d.]+(?:\|[-\d.]+){3})(~[\d.]+)?/g, function (m, key, list) {
+            const v = list.split('|').map(parseFloat), d = OPS[op].params.find(q => q.name === key);
+            const geo = v[0] > 0 && v[3] > 0, r = geo ? Math.pow(v[3] / v[0], 1 / 3) : 0;
+            let e = geo ? fmt_num(v[0]) + '*pow(' + fmt_num(r) + ', x)' : fmt_num(v[0]) + (v[3] >= v[0] ? '+' : '-') + fmt_num(Math.abs(v[3] - v[0]) / 3) + '*x';
+            if (d && d.type === 'i') e = 'round(' + e + ')';
+            const nm = node + '_' + key;
+            L.push(nm + ' = Expr @1,' + (expr_row++) + ' in=inputs.lod,-,- expr="' + e + '"');
+            return key + '=@' + nm;
+        });
+    };
     L.push('trunk_sides = Expr @1,1 in=inputs.c2,inputs.lod,- expr="max(3, round(x*pow(0.65,y)))"');
     const S = ' seed=@inputs.structure', Fo = ' seed=@inputs.foliage', T = ' seed=@inputs.texture';
     L.push('trunk = Trunk @2,0 ' + n.trunk.replace(/segments=\S+/, 'segments=@trunk_segments sides=@trunk_sides') + S);
@@ -160,12 +172,12 @@ function make_species(title, n)
     n.branches.forEach(function (b, i) { L.push('branches' + (i + 1) + ' = Branches @' + (i + 3) + ',0 in=' + prev + ' ' + b + S); prev = 'branches' + (i + 1); });
     L.push('tropism = Tropism @6,0 in=' + prev + ' ' + n.tropism + S);
     L.push('prune = Prune @7,0 in=tropism ' + n.prune + S);
-    L.push('wood = Wood @8,0 in=prune ' + n.wood + S);
+    L.push('wood = Wood @8,0 in=prune ' + lod_exprs('wood', 'Wood', n.wood) + S);
     L.push('merge = Merge @9,0 in=wood,leafmesh,-');
     L.push('wireframe = Wireframe @10,0 in=merge enabled=off parts=all color=#ffd040');
     L.push('output = Output @11,0 in=wireframe,barktexture,leaftexture');
-    L.push('leafshape = LeafShape @6,1 ' + n.leafshape + Fo);
-    L.push('leaves = Leaves @7,1 in=prune,leafshape ' + n.leaves + Fo);
+    L.push('leafshape = LeafShape @6,1 ' + lod_exprs('leafshape', 'LeafShape', n.leafshape) + Fo);
+    L.push('leaves = Leaves @7,1 in=prune,leafshape ' + lod_exprs('leaves', 'Leaves', n.leaves) + Fo);
     L.push('leafmesh = LeafMesh @8,1 in=leaves,leafshape ' + n.leafmesh + Fo);
     L.push('leaftexture = LeafTexture @8,2 in=leafshape ' + n.leaftexture + T);
     L.push('barktexture = BarkTexture @9,2 ' + n.bark + T);
