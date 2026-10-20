@@ -517,7 +517,13 @@ function inspector_key(E, e)
     if (k === 'Escape') { editor_set_mode(E, 'nav'); return true; }
     if (!op.params.length) return k === 'Enter';
     const d = op.params[E.row], p = n.p[d.name];
-    const sel = function () { E.insp.querySelectorAll('[data-row]').forEach(tr => tr.classList.toggle('sel', parseInt(tr.dataset.row, 10) === E.row)); };
+    const sel = function () {
+        E.insp.querySelectorAll('[data-row]').forEach(tr => {
+            const on = parseInt(tr.dataset.row, 10) === E.row;
+            tr.classList.toggle('sel', on);
+            if (on) tr.scrollIntoView({ block: 'nearest', inline: 'nearest' });     // rows in columns scrolled out of view
+        });
+    };
     const oi = Math.max(0, E.order.indexOf(E.row)), on = E.order.length;
     if (k === 'ArrowUp') { E.row = E.order[(oi + on - 1) % on]; sel(); return true; }
     if (k === 'ArrowDown') { E.row = E.order[(oi + 1) % on]; sel(); return true; }
