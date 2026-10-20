@@ -50,7 +50,7 @@ Effects of the channels:
 
 The **LOD** field in the seeds panel (0 = full detail … 3) is an input to the whole network, like the seeds, but chosen at run time rather than stored per plant. Nothing is derived from it implicitly:
 
-- **Per-LOD values:** tick **per LOD** on a numeric row to give it four values, edited in the fields L0 to L3. The field of the current LOD input is outlined; the slider and arrow keys edit that one. Key **L** in edit mode toggles it. In `.species` files: `sides=10|7|4|3` (variation after `~` applies to all levels).
+- **Per-LOD values:** tick **per LOD** on a numeric row to give it four values, shown as sub-bars LOD 0 to LOD 3 indented under the row (the current LOD input's one is outlined; the main bar and the arrow keys edit that one). Key **L** in edit mode toggles it. In `.species` files: `sides=10|7|4|3` (variation after `~` applies to all levels).
 - **Branches `max_lod`:** the branch order exists only up to this level, e.g. order 3 up to LOD 1, order 2 up to LOD 2.
 
 The library species set per-LOD values for:

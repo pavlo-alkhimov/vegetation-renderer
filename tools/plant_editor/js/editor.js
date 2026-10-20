@@ -386,58 +386,53 @@ function inspector_build(E)
             ti.addEventListener('change', () => { p.v = ti.value; A.changed(false); });
             td_val.appendChild(ti);
         } else if (d.type === 'f' || d.type === 'i') {
-            const bar = document.createElement('div'), fill = document.createElement('div'), txt = document.createElement('span');
-            bar.className = 'sbar'; fill.className = 'sfill'; txt.className = 'stext';
-            bar.appendChild(fill); bar.appendChild(txt);
-            const show = function () {
-                const v = pval(p, A.lod);
-                fill.style.width = (clamp((v - d.min) / (d.max - d.min), 0, 1) * 100) + '%';
-                txt.innerHTML = '<span>' + d.name + '</span><b>' + (Math.round(v * 1000) / 1000) + '</b>';
-            };
-            // 'per LOD' checkbox: off = one value for all LOD levels; on = four values L0..L3 (the field of the current
-            // LOD input is outlined; the bar and arrows edit that one).
-            const lodvals = document.createElement('div');
-            lodvals.className = 'lodvals';
+            // 'per LOD' checkbox: off = one value for all LOD levels; on = four sub-bars L0..L3 indented under the row
+            // (the current LOD input's one highlighted; the main bar and the arrow keys edit that one).
+            const shows = [];
             const set = function (v, lod) {
                 v = clamp(parseFloat(v), d.min, d.max); if (isNaN(v)) return;
                 if (d.type === 'i') v = Math.round(v); else v = Math.round(v / d.step) * d.step;
-                pset(p, Math.round(v * 1e6) / 1e6, lod); show(); fill_lods(); A.changed(false);
+                pset(p, Math.round(v * 1e6) / 1e6, lod); for (const s of shows) s(); A.changed(false);
             };
-            const fill_lods = function () {
-                if (!p.lods) { lodvals.innerHTML = ''; return; }
-                if (!lodvals.children.length)
-                    for (let l = 0; l < 4; l++) {
-                        const s = document.createElement('span'); s.textContent = 'L' + l; lodvals.appendChild(s);
-                        const li = document.createElement('input'); li.type = 'number'; li.step = d.step; li.className = l === A.lod ? 'cur' : '';
-                        li.title = 'value at LOD ' + l; li.addEventListener('change', () => set(li.value, l)); lodvals.appendChild(li);
-                    }
-                lodvals.querySelectorAll('input').forEach((li, l) => { if (document.activeElement !== li) li.value = p.lods[l]; });
+            // Slider bar for one LOD level (lod < 0: the current LOD input).
+            const make_bar = function (lod, label) {
+                const L = () => lod < 0 ? A.lod : lod;
+                const bar = document.createElement('div'), fill = document.createElement('div'), txt = document.createElement('span');
+                bar.className = 'sbar'; fill.className = 'sfill'; txt.className = 'stext';
+                bar.appendChild(fill); bar.appendChild(txt);
+                const show = function () {
+                    const v = pval(p, L());
+                    fill.style.width = (clamp((v - d.min) / (d.max - d.min), 0, 1) * 100) + '%';
+                    txt.innerHTML = '<span>' + label + '</span><b>' + (Math.round(v * 1000) / 1000) + '</b>';
+                };
+                shows.push(show);
+                bar.addEventListener('mousedown', ev => {
+                    if (ev.button !== 0) return;
+                    ev.preventDefault(); E.row = i;
+                    if (ev.detail >= 2) return;           // second click of a double-click: typing, not sliding
+                    const r = bar.getBoundingClientRect(), v0 = pval(p, L()), x0 = ev.clientX;
+                    bar._prev = v0;
+                    const at = e2 => e2.ctrlKey ? v0 + (e2.clientX - x0) / r.width * (d.max - d.min) * 0.05
+                                               : d.min + clamp((e2.clientX - r.left) / r.width, 0, 1) * (d.max - d.min);
+                    if (!ev.ctrlKey) set(at(ev), L());
+                    bar.classList.add('drag');
+                    const move = e2 => set(at(e2), L());
+                    const up = () => { bar.classList.remove('drag'); window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+                    window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+                });
+                bar.addEventListener('dblclick', () => {
+                    if (bar._prev !== undefined) set(bar._prev, L());    // undo the jump of the first click
+                    const ni = document.createElement('input');
+                    ni.type = 'number'; ni.step = d.step; ni.value = pval(p, L()); ni.className = 'sedit';
+                    bar.appendChild(ni); ni.focus(); ni.select();
+                    let closed = false;
+                    const done = ok => { if (closed) return; closed = true; if (ok) set(ni.value, L()); ni.remove(); };
+                    ni.addEventListener('keydown', e2 => { if (e2.key === 'Enter') done(true); else if (e2.key === 'Escape') done(false); e2.stopPropagation(); });
+                    ni.addEventListener('blur', () => done(true));
+                });
+                show();
+                return bar;
             };
-            bar.addEventListener('mousedown', ev => {
-                if (ev.button !== 0) return;
-                ev.preventDefault(); E.row = i;
-                if (ev.detail >= 2) return;           // second click of a double-click: typing, not sliding
-                const r = bar.getBoundingClientRect(), v0 = pval(p, A.lod), x0 = ev.clientX;
-                bar._prev = v0;
-                const at = e2 => e2.ctrlKey ? v0 + (e2.clientX - x0) / r.width * (d.max - d.min) * 0.05
-                                           : d.min + clamp((e2.clientX - r.left) / r.width, 0, 1) * (d.max - d.min);
-                if (!ev.ctrlKey) set(at(ev), A.lod);
-                bar.classList.add('drag');
-                const move = e2 => set(at(e2), A.lod);
-                const up = () => { bar.classList.remove('drag'); window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
-                window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
-            });
-            bar.addEventListener('dblclick', () => {
-                if (bar._prev !== undefined) set(bar._prev, A.lod);    // undo the jump of the first click
-                const ni = document.createElement('input');
-                ni.type = 'number'; ni.step = d.step; ni.value = pval(p, A.lod); ni.className = 'sedit';
-                bar.appendChild(ni); ni.focus(); ni.select();
-                let closed = false;
-                const done = ok => { if (closed) return; closed = true; if (ok) set(ni.value, A.lod); ni.remove(); };
-                ni.addEventListener('keydown', e2 => { if (e2.key === 'Enter') done(true); else if (e2.key === 'Escape') done(false); e2.stopPropagation(); });
-                ni.addEventListener('blur', () => done(true));
-            });
-            show();
             const lb = document.createElement('label');
             lb.className = 'perlod'; lb.title = 'separate value for each LOD level (key L)';
             lb.innerHTML = '<input type="checkbox"' + (p.lods ? ' checked' : '') + '>per LOD';
@@ -446,9 +441,18 @@ function inspector_build(E)
             vr.type = 'number'; vr.min = 0; vr.step = d.step; vr.value = p.vari; vr.className = 'vari'; vr.title = 'variation by seed (±)';
             vr.addEventListener('change', () => { p.vari = Math.max(0, parseFloat(vr.value) || 0); A.changed(false); });
             const pm = document.createElement('span'); pm.className = 'pm'; pm.textContent = '±';
-            td_val.appendChild(bar); td_val.appendChild(pm); td_val.appendChild(vr); td_val.appendChild(lb);
-            tr.appendChild(td_val); tr.appendChild(td_now); tr.appendChild(lodvals);
-            fill_lods();
+            td_val.appendChild(make_bar(-1, d.name)); td_val.appendChild(pm); td_val.appendChild(vr); td_val.appendChild(lb);
+            tr.appendChild(td_val); tr.appendChild(td_now);
+            if (p.lods) {
+                const sub = document.createElement('div');
+                sub.className = 'lodvals';
+                for (let l = 0; l < 4; l++) {
+                    const b = make_bar(l, 'LOD ' + l);
+                    if (l === A.lod) b.classList.add('cur');
+                    sub.appendChild(b);
+                }
+                tr.appendChild(sub);
+            }
         } else if (d.type === 'e') {
             label();
             const s = document.createElement('select');
@@ -468,6 +472,15 @@ function inspector_build(E)
         group.appendChild(tr);
     });
     el.appendChild(tbl);
+    if (n.op === 'Inputs') {
+        // The instance values (not part of the species): seeds, LOD level, kept seed list; one more group in the columns.
+        const inst = document.createElement('div');
+        inst.className = 'pgroup';
+        inst.innerHTML = '<div class="prow desc">instance values (not stored in the species; a level stores only the seeds)</div><div id="seeds"></div><div id="seed_list" class="prow"></div>';
+        tbl.appendChild(inst);
+        seeds_ui_build();
+        seeds_ui_refresh();
+    }
     // Layout preference, taking the first that fits the panel width without sideways scrolling: (1) every group starts
     // its own column, (2) groups kept together ('magnetic'), (3) groups may split. Re-checked on every panel resize.
     const fit = function () {
@@ -481,15 +494,6 @@ function inspector_build(E)
     if (E.fit_obs) E.fit_obs.disconnect();
     E.fit_obs = new ResizeObserver(fit);
     E.fit_obs.observe(tbl);
-    if (n.op === 'Inputs') {
-        // The instance values themselves (not part of the species): the three seeds and the LOD level.
-        const inst = document.createElement('div');
-        inst.className = 'instance';
-        inst.innerHTML = '<div class="desc">Instance inputs (not stored in the species; a level stores only the seeds):</div><div id="seeds"></div><div id="seed_list"></div>';
-        el.appendChild(inst);
-        seeds_ui_build();
-        seeds_ui_refresh();
-    }
     const ins = OPS[n.op].ins;
     if (ins.length) {
         const d = document.createElement('div');

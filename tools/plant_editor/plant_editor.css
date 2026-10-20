@@ -51,9 +51,6 @@ table.params td.now { color: #9ad08a; font: 11px monospace; }
 #help pre { font: 12px monospace; margin: 0; }
 .hidden { display: none; }
 .perlod { font-size: 11px; color: #9a9ea6; margin-left: 6px; }
-.lodvals input { width: 46px; margin-left: 2px; }
-.lodvals input.cur { border-color: #ffd860; }
-.lodvals span { font-size: 10px; color: #7f8590; margin-left: 4px; }
 .instance { margin-top: 10px; padding-top: 6px; border-top: 1px solid #33363c; }
 table.params input.text { width: 230px; font-family: monospace; }
 
@@ -75,7 +72,10 @@ table.params input.text { width: 230px; font-family: monospace; }
 .pm { color: #7f8590; font-size: 11px; }
 .prow input.vari { width: 46px; }
 .prow .now { width: 52px; text-align: right; color: #9ad08a; font: 11px monospace; }
-.prow .lodvals { flex-basis: 100%; }
+.prow .lodvals { flex-basis: 100%; display: flex; flex-direction: column; gap: 2px; margin: 1px 0 3px 10px; padding-left: 8px; border-left: 2px solid #3d84e6; }
+.lodvals .sbar { flex: none; width: 60%; height: 15px; }
+.lodvals .sbar.cur { border-color: #ffd860; }
+.lodvals .stext { font-size: 11px; }
 .prow input.text { flex: 1; font-family: monospace; }
 .prow .perlod { white-space: nowrap; margin-left: 2px; }
 .prow .perlod input { margin: 0 2px 0 0; vertical-align: middle; }

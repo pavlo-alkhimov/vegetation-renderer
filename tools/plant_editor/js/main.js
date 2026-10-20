@@ -162,7 +162,7 @@ function seeds_ui_build()
     el.innerHTML = '';
     for (const c of SEED_CHANNELS) {
         const row = document.createElement('div');
-        row.className = 'seed-row';
+        row.className = 'prow seed-row';
         row.innerHTML = '<label>' + c + '</label><button data-d="-1">‹</button><input type="number" min="0" step="1"><button data-d="1">›</button>' +
                         '<button data-r="1" title="random">⟳</button><label class="lock"><input type="checkbox"> lock</label>';
         const num = row.querySelector('input[type=number]'), lock = row.querySelector('input[type=checkbox]');
@@ -174,14 +174,14 @@ function seeds_ui_build()
         el.appendChild(row);
     }
     const lodrow = document.createElement('div');
-    lodrow.className = 'seed-row';
+    lodrow.className = 'prow seed-row';
     lodrow.innerHTML = '<label>LOD</label><button data-d="-1">\u2039</button><input type="number" min="0" max="3" step="1" id="lod"><button data-d="1">\u203a</button><span class="hint">network input (0 = full detail)</span>';
     const set_lod = function (v) { A.lod = clamp(v | 0, 0, 3); A.refit = false; A.changed(false); inspector_build(A.E); };
     lodrow.querySelector('#lod').addEventListener('change', e => set_lod(parseInt(e.target.value, 10) || 0));
     lodrow.querySelectorAll('button').forEach(b => b.addEventListener('click', () => set_lod(A.lod + parseInt(b.dataset.d, 10))));
     el.appendChild(lodrow);
     const tools = document.createElement('div');
-    tools.className = 'seed-row';
+    tools.className = 'prow seed-row';
     tools.innerHTML = '<button id="all_next">all ›</button><button id="all_rand">all ⟳</button><button id="keep">+ keep in list</button>';
     el.appendChild(tools);
     $('all_next').addEventListener('click', () => { for (const c of SEED_CHANNELS) if (!A.locks[c]) A.seeds[c] = (A.seeds[c] + 1) >>> 0; A.changed(false); });
