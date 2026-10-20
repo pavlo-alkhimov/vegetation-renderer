@@ -90,6 +90,7 @@ The **Wireframe** node (between Merge and Output in every library species, `enab
 - **Top two thirds:** the node table. Texture nodes show their result in the right third of the cell.
 - **Bottom left:** the selected node (hidden when the cursor is on an empty cell). Selecting the Inputs node also shows the instance values: the three seeds, the LOD level and the kept seed list.
 - **Bottom right:** the preview (1/8 of the width); **Space** shows it full screen.
+- **Border:** drag the line between the table and the bottom part (it turns thick blue under the mouse); the height is remembered.
 - **Bottom edge:** the key bar for the current mode.
 - **Help:** lists all keys and operators. Esc closes it; PgUp/PgDn, Home/End scroll it.
 

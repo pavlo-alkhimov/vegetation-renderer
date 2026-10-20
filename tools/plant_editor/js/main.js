@@ -347,6 +347,25 @@ function help_text()
     return s;
 }
 
+// Splitter between the node table and the bottom part: drag sets the table height (remembered per browser).
+function splitter_init()
+{
+    const sp = $('splitter'), gr = $('graph');
+    const set = function (px) { px = clamp(px, 60, window.innerHeight - 200); gr.style.flex = 'none'; gr.style.height = px + 'px'; };
+    try { const v = parseFloat(localStorage.getItem('plant_editor.split')); if (v > 0) set(v); } catch (e) { /* ignore */ }
+    let y0 = 0, h0 = 0;
+    const move = function (e) { set(h0 + e.clientY - y0); };
+    const up = function () {
+        sp.classList.remove('drag'); window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up);
+        try { localStorage.setItem('plant_editor.split', gr.getBoundingClientRect().height); } catch (e) { /* ignore */ }
+    };
+    sp.addEventListener('mousedown', e => {
+        if (e.button !== 0) return;
+        e.preventDefault(); y0 = e.clientY; h0 = gr.getBoundingClientRect().height;
+        sp.classList.add('drag'); window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+    });
+}
+
 function main()
 {
     A.V = view_init($('view'));
@@ -360,6 +379,7 @@ function main()
     A.E = editor_init(A, $('graph'), $('inspector'));
     $('title').value = A.title;
     ui_init();
+    splitter_init();
     const outn = graph_output(A.g);
     if (outn) A.E.cur = [outn.col, outn.row];
     editor_select_changed(A.E);
