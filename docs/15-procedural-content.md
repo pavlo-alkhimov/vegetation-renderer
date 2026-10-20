@@ -44,6 +44,7 @@ Maker, Tooll3 (MIT). None is used here: the recipes must run inside our own cook
 | Content-hash caching | result key = hash(operator, parameters, input keys); changing one parameter regenerates only the dependent nodes |
 | Live preview | the viewer hot-reloads recipes and shows any node's output in the gallery |
 | Small hand-made input | where control by parameters is not enough: vector overrides inside the recipe (points, polylines, polygons, strokes), kilobytes, never bitmaps |
+| Species vs instance | a recipe (graph + parameter values + per-parameter variation) defines a species once; a plant instance is only a few seeds (one per channel: structure, foliage, texture), so a level stores seeds, not parameters |
 | Real data = import + statistics | `Import*` operators are optional; `Measure*` operators turn real data into a few numbers committed as parameters and targets |
 
 ## 3. Model
@@ -123,6 +124,7 @@ Only derived numbers (and their source and licence) are committed.
 
 | Phase | Editing | Preview |
 |---|---|---|
+| 0 (built) | browser plant editor ([`tools/plant_editor/`](../tools/plant_editor/README.md)): nodes in a table, keyboard and mouse, inspector with value + variation per parameter | live WebGL2 view, variant strip, GLB export |
 | 1 | recipes in any text editor | `vr --recipe <file>` hot-reloads on save; gallery shows the selected node's output (bitmap, mesh, plant); console prints node timings and cache hits |
 | 2 | parameter panel in the viewer: select node, change values with keys/mouse, written back into the recipe text (comments and layout kept) | live |
 | 3 | graph view (Werkkzeug-like stacked operators) | live |

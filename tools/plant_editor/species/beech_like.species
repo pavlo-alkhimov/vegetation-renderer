@@ -1,0 +1,15 @@
+# beech_like - plant editor species (graph + parameters; seeds are separate)
+trunk = Trunk @0,0 height=24~2 radius=0.33~0.04 taper=1.1~0.1 flare=0.5~0.15 lean=3~2 wobble=0.025~0.01 segments=12
+branches1 = Branches @1,0 in=trunk count=18~2 start=0.3~0.03 end=0.97 phyllotaxis=spiral whorl=4 angle=62~5 angle_jitter=10 az_jitter=25 length=0.55~0.05 length_top=0.3~0.05 radius=0.5 curvature=0.25~0.08 droop=0.06~0.03 wobble=0.06 segments=7
+branches2 = Branches @2,0 in=branches1 count=11~1.5 start=0.12 end=0.95 phyllotaxis=distichous whorl=4 angle=52~5 angle_jitter=12 az_jitter=35 length=0.5~0.05 length_top=0.5~0.05 radius=0.55 curvature=0.12~0.05 droop=0.18~0.05 wobble=0.07 segments=5
+branches3 = Branches @3,0 in=branches2 count=8~1 start=0.1 end=0.95 phyllotaxis=distichous whorl=4 angle=42~4 angle_jitter=12 az_jitter=40 length=0.42~0.04 length_top=0.6 radius=0.6 curvature=0.05 droop=0.1~0.05 wobble=0.08 segments=3
+tropism = Tropism @4,0 in=branches3 gravity=0.08~0.02 photo=0.03~0.01 order_scale=0.6
+prune = Prune @5,0 in=tropism shape=ellipsoid crown_base=0.28~0.04 width=0.4~0.04 mode=shrink min_order=1 min_keep=0.2
+wood = Wood @6,0 in=prune sides=10 min_radius=0.003 tile=0.6
+merge = Merge @7,0 in=wood,leafmesh,-
+output = Output @8,0 in=merge,barktexture,leaftexture
+leafshape = LeafShape @4,1 outline=ovate length=0.09~0.008 width=0.055~0.005 petiole=0.01 teeth=7 tooth_depth=0.06 fold=0.25~0.05 curl=0.15~0.05 detail=4 veins=7
+leaves = Leaves @5,1 in=prune,leafshape orders=2 density=9~1.5 start=0.3 arrangement=distichous angle=55~5 droop=0.15~0.05 roll=25 scale=2.2~0.1 size_jitter=0.2
+leafmesh = LeafMesh @6,1 in=leaves,leafshape color_var=0.12 hue_var=0.05
+leaftexture = LeafTexture @6,2 in=leafshape size=256 color=#3f6b1e vein_color=#93b055 vein_width=0.035 vein_angle=45~3 vein_contrast=0.45~0.05 network=18 color_var=0.1 roughness=0.55 normal_strength=0.6
+barktexture = BarkTexture @7,2 size=512 furrows=6~1 stretch=3 furrow_width=0.08~0.02 furrow_depth=0.12~0.03 plates=10~2 plate_depth=0.08 lenticels=18 lenticel_contrast=0.35 octaves=5 moss=0.15~0.05 roughness=0.8 normal_strength=1 color_dark=#5f605b color_light=#a4a59e moss_color=#5b6b2c

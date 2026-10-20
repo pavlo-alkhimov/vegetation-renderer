@@ -6,6 +6,8 @@
 
 **Builds on `procedural-content-core.md`** (docs/15): the generators below are implemented as operators of the recipe system, executed by `vrgen` and previewed live in `vr`; parameters live in recipes, not in a dedicated tool.
 
+Operators and their parameter ranges are first tried in the browser plant editor (`tools/plant_editor/`): species = recipe with values and variations, instance = seeds per channel.
+
 This plan builds the generator for the two extremes, **European beech** (emergent broadleaf crown, smooth bark, distichous leaves) and **Norway spruce** (rule-bound conifer, scaly bark, geometric needles), and shows them in the gallery and the world next to the baseline. Herbs, grasses, the other species, the season LUT and the M1 asset format come later.
 
 ## Decisions

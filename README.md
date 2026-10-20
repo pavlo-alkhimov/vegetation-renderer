@@ -89,6 +89,10 @@ On the Mac the window is sized in points and rendered at 1 pixel per point unles
 
 The window title shows CPU/GPU ms (total and per pass: shadows, terrain, trees, ground cover, sky + TAA), tree candidates and chunks, UTM position and height above ground. `build/vr --frames N [--shot f.ppm]` runs N frames and prints average timings (deterministic camera via `--cam`, `--stance N` to start walking at ground level); `--notrees`, `--nocover`, `--noshadows`, `--notaa`, `--treedist M` for A/B measurements, `--cover FILE` for another cooked ground-cover file. Ground-cover scans: Poly Haven, CC0 (Arma Reforger's assets are not licensed for use outside Reforger); on Windows run `tools/fetch-polyhaven.sh` from Git Bash, and in PowerShell pass the asset directories to `cook_ground_cover` explicitly (`(Get-ChildItem data\external\polyhaven -Directory).FullName`). `cook_terrain` accepts any single-band GeoTIFF tiles sharing one CRS and pixel size (uncompressed/LZW/Deflate, predictors 1–3, strips or tiles); missing tiles and nodata are filled by pull-push interpolation and reported; `--step 2` halves the resolution for smaller GPUs. `build.bat` (Windows: clang + Visual Studio, `VULKAN_SDK`, `SDL3_DIR`) mirrors `build.sh`.
 
+## Plant editor (browser)
+
+[`tools/plant_editor/`](tools/plant_editor/README.md): build plants from a node network in a table, with live preview. Species (graph + parameters) is saved once; seeds (structure, foliage, texture) are the only per-plant data. Exports a textured `.glb` (bark and leaf maps generated). Open `index.html` from disk; no build step.
+
 ## Throughput note
 
 4K60 vs 1080p30 is 8× (4× pixels × 2× frame time). Only per-pixel work gains 8×. Per-frame work — culling, geometry, animation, BVH maintenance, shadow rasterization, i.e. most of the vegetation cost — gains only 2×. Shipping "4K60" titles render ~1080p–1440p internally and upscale, so the practical per-pixel advantage over them is ~2–4×. Details: [03](docs/03-hardware-mapping.md).

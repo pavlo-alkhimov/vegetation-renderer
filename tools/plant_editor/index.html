@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Plant editor</title>
+<link rel="stylesheet" href="plant_editor.css">
+</head>
+<body>
+<div id="toolbar">
+  <b>Plant editor</b>
+  <input id="title" title="species name" size="14">
+  <button id="btn_new">New</button>
+  <button id="btn_default">Default</button>
+  <button id="btn_load">Load species</button>
+  <button id="btn_save">Save species</button>
+  <span class="sep"></span>
+  <button id="btn_load_seeds">Load seeds</button>
+  <button id="btn_save_seeds">Save seeds</button>
+  <span class="sep"></span>
+  <button id="btn_glb">Export GLB</button>
+  <span class="sep"></span>
+  <select id="view_mode" title="view mode"><option value="0">shaded</option><option value="1">albedo</option><option value="2">normals</option></select>
+  <button id="btn_frame" title="frame view (F)">Frame</button>
+  <button id="btn_help">Help</button>
+</div>
+<canvas id="graph"></canvas>
+<div id="main">
+  <div id="inspector"></div>
+  <div id="center">
+    <canvas id="view"></canvas>
+    <div id="variants" title="variants: the species with the next 8 seed combinations"></div>
+  </div>
+  <div id="side">
+    <h3>Instance seeds</h3>
+    <div id="seeds"></div>
+    <div id="seed_list"></div>
+  </div>
+</div>
+<div id="status"></div>
+<div id="help" class="hidden"><pre id="help_text"></pre></div>
+<script src="js/rng.js"></script>
+<script src="js/vec.js"></script>
+<script src="js/plant.js"></script>
+<script src="js/texture.js"></script>
+<script src="js/ops.js"></script>
+<script src="js/graph.js"></script>
+<script src="js/species.js"></script>
+<script src="js/view.js"></script>
+<script src="js/gltf.js"></script>
+<script src="js/editor.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
