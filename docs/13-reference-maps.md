@@ -6,6 +6,8 @@ maps. State: October 2026; licences must be re-checked on the provider's page be
 
 ## Arma Reforger maps and mods: visual reference only
 
+**Project rule:** Arma Reforger (and Arma 2/3) is an example of the target direction — the quality and feel to aim for — not a source. No assets, files, data or extracted information (models, textures, heightmaps, masks, parameters) from these games are used, copied or derived from, regardless of what their licences would permit. What the docs say about them comes from public descriptions (patch notes, wiki, talks) and is used only to understand the target.
+
 | Map | Size | Character |
 |---|---|---|
 | Everon (official) | 12.8 × 12.8 km | Cold War island, Central European look |
@@ -17,7 +19,7 @@ maps. State: October 2026; licences must be re-checked on the provider's page be
 "for use in games other than Arma". Everything produced with the **Arma Reforger Tools** falls under the Tools EULA,
 which limits use to non-commercial content for Bohemia games. Some mods add stricter custom terms (no extraction of
 models or textures). The same applies to Arma 3 terrains (Krayina 14×14 km, Bulakhi 20×20 km). Playing them and
-taking screenshots for look-dev comparison is fine; extracting heightmaps, masks or models is not.
+looking at them (or at screenshots) to judge the target look is the only use; extracting heightmaps, masks or models is not done.
 
 ## What can be used: open national geodata
 

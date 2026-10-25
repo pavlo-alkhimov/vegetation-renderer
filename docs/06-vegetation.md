@@ -307,8 +307,8 @@ assemblies; (7) wind field; (8) grass clumping and statistical occlusion.
 impostors (to 120 m), then the terrain's baked top view. All × the ground-cover distance factor. Prefix `gc_` in code.
 
 Target: Arma 2 / Arma Reforger-class ground cover on the RTX 4060: real stems and leaves around a player lying in
-it, ground cover visible at every distance, realistic from above. Reforger's assets cannot be used outside Reforger
-(Bohemia's Tools EULA / Workshop terms), so the source is **Poly Haven CC0 scans** of species from the target biome:
+it, ground cover visible at every distance, realistic from above. Reforger is the example of the target direction only; none of its assets or data are used
+([13](13-reference-maps.md), project rule), so the source is **Poly Haven CC0 scans** of species from the target biome:
 `grass_medium_01/02`, `dandelion_01`, `nettle_plant` (*Urtica dioica*), `weed_plant_02`, `celandine_01`
 (*Ficaria verna*), `periwinkle_plant` (*Vinca minor*), `fern_02` ([`tools/fetch-polyhaven.sh`](../tools/fetch-polyhaven.sh),
 [`cook_ground_cover`](../src/tools/cook_ground_cover.cpp)). The procedural blades of §5.13 are removed.
