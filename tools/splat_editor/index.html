@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Splat editor</title>
+<link rel="stylesheet" href="splat_editor.css">
+</head>
+<body>
+<div id="toolbar">
+  <b>Splat editor</b>
+  <input id="title" title="model name" size="14">
+  <button id="btn_new">New</button>
+  <button id="btn_default">Example</button>
+  <button id="btn_load" title=".splats or .ply">Load</button>
+  <button id="btn_save">Save .splats</button>
+  <button id="btn_ply">Export .ply</button>
+  <span class="sep"></span>
+  <button id="btn_grid">Grid</button>
+  <button id="btn_help">Help</button>
+</div>
+<div id="main">
+  <canvas id="view" tabindex="0"></canvas>
+  <div id="panel">
+    <div id="selection"></div>
+    <div id="tools"></div>
+  </div>
+</div>
+<div id="keybar"></div>
+<div id="status"></div>
+<div id="help" class="hidden"><pre id="help_text"></pre></div>
+<script src="../plant_editor/js/rng.js"></script>
+<script src="../plant_editor/js/vec.js"></script>
+<script src="js/quat.js"></script>
+<script src="js/splats.js"></script>
+<script src="js/render.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

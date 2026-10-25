@@ -93,6 +93,10 @@ The window title shows CPU/GPU ms (total and per pass: shadows, terrain, trees, 
 
 [`tools/plant_editor/`](tools/plant_editor/README.md): build plants from a node network in a table, with live preview. Species (graph + parameters) is saved once; seeds (structure, foliage, texture) are the only per-plant data. Exports a textured `.glb` (bark and leaf maps generated). Open `index.html` from disk; no build step.
 
+## Splat editor (browser)
+
+[`tools/splat_editor/`](tools/splat_editor/README.md): build Gaussian splat models by hand (no capture data): select, move/rotate/scale (Blender-style keys), construction tools (blade chains, leaves, blobs, radial copies, mirror, colour variation), lit preview, undo. Saves a readable `.splats` text format and exports INRIA 3DGS `.ply`. Open `index.html` from disk.
+
 ## Throughput note
 
 4K60 vs 1080p30 is 8× (4× pixels × 2× frame time). Only per-pixel work gains 8×. Per-frame work — culling, geometry, animation, BVH maintenance, shadow rasterization, i.e. most of the vegetation cost — gains only 2×. Shipping "4K60" titles render ~1080p–1440p internally and upscale, so the practical per-pixel advantage over them is ~2–4×. Details: [03](docs/03-hardware-mapping.md).

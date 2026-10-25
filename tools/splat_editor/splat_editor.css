@@ -1,0 +1,35 @@
+html, body { margin: 0; height: 100%; background: #16171a; color: #d8dade; font: 13px sans-serif; overflow: hidden; }
+body { display: flex; flex-direction: column; }
+button, select, input { background: #2b2e34; color: #e4e6ea; border: 1px solid #44474e; border-radius: 3px; font: 12px sans-serif; padding: 2px 6px; }
+button:hover { background: #363a42; }
+#toolbar { display: flex; align-items: center; gap: 6px; padding: 5px 8px; background: #202226; border-bottom: 1px solid #33363c; flex: none; }
+#toolbar .sep { width: 8px; }
+#main { flex: 1; display: flex; min-height: 0; }
+#view { flex: 1; min-width: 0; display: block; outline: none; cursor: crosshair; }
+#panel { width: 330px; flex: none; overflow-y: auto; padding: 8px; border-left: 1px solid #33363c; background: #1b1c20; }
+#panel h3 { margin: 6px 0; font-size: 13px; }
+#panel select { width: 100%; margin-bottom: 4px; }
+#tools { margin-top: 10px; padding-top: 6px; border-top: 1px solid #44474e; }
+#tools button { margin-top: 6px; width: 100%; }
+.hint { color: #7f8590; font-size: 12px; font-weight: normal; margin: 3px 0; }
+.pgroup { margin: 4px 0 8px; }
+.gtitle { color: #9a9ea6; font-size: 11px; margin-bottom: 2px; }
+.sbar { position: relative; height: 18px; margin: 2px 0; border: 1px solid #5a5e66; cursor: ew-resize; user-select: none; }
+.sbar:hover, .sbar.drag { border-color: #8fb4e8; }
+.sfill { position: absolute; left: 0; top: 0; bottom: 0; background: #2f5f9e; border-right: 2px solid #7fb0f0; box-sizing: border-box; }
+.stext { position: absolute; left: 5px; right: 5px; top: 0; bottom: 0; display: flex; justify-content: space-between; align-items: center; pointer-events: none; font-size: 12px; }
+.stext span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-right: 6px; min-width: 0; }
+.stext b { flex: none; font: 11px monospace; color: #fff; }
+.sedit { position: absolute; inset: 0; width: 100%; box-sizing: border-box; }
+.crow { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+.pname { width: 110px; color: #c8ccd4; }
+#keybar { flex: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 3px 10px; padding: 5px 8px;
+          background: #1b1c20; border-top: 1px solid #33363c; font: 12px monospace; color: #c8ccd4; }
+#keybar .slot { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#keybar .mode { color: #9ad08a; font-weight: bold; }
+#keybar kbd { display: inline-block; min-width: 14px; padding: 0 4px; margin-right: 5px; text-align: center; font: bold 11px monospace;
+              color: #1c1d20; background: #d4ad2a; border: 1px solid; border-color: #ffe27a #8a6d10 #8a6d10 #ffe27a; }
+#status { flex: none; padding: 4px 8px; background: #202226; border-top: 1px solid #33363c; font: 12px monospace; color: #aeb2ba; white-space: nowrap; overflow: hidden; }
+#help { position: fixed; left: 40px; right: 40px; top: 50px; bottom: 40px; background: #1d1f23; border: 1px solid #4a4e56; overflow: auto; padding: 10px; z-index: 10; }
+#help pre { font: 12px monospace; margin: 0; }
+.hidden { display: none; }

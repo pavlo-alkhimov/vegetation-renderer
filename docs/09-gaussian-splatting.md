@@ -195,6 +195,10 @@ history rejection elsewhere.
 Metrics for all: FLIP vs path-traced reference, temporal stability with wind, ms, MB. Shared infrastructure: fitting
 (Slang autodiff), splat rasterizer, resolve — the extra cost of testing Gaussians is small.
 
+## Authoring
+
+No editor exists for building Gaussians by hand; every available tool edits splats reconstructed from photos. The browser [splat editor](../tools/splat_editor/README.md) fills that gap for prototyping: splats are placed and shaped manually or with construction tools (blade chains, leaves, blobs, radial copies), lit as material splats (normal = shortest axis) and exported as INRIA  for cross-checking in SuperSplat. It renders with sorted blending (the reference path); the stochastic runtime path and fitting against mesh renders are the next steps.
+
 ## Watch list
 
 - Relightable outdoor splats that decompose foliage translucency correctly.
