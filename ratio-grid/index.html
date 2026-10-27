@@ -1,4 +1,4 @@
-<title>Fraction Grid</title>
+<title>Bruch-Raster</title>
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -185,40 +185,40 @@ button:focus-visible, .cell:focus-visible { outline: 3px solid var(--marker); ou
 
 <div class="page">
   <header>
-    <h1>Fraction Grid</h1>
-    <p>Each row is a progress bar cut into equal parts. Colour some parts, then add more rows. More rows means more squares, but the coloured share of the grid stays exactly the same.</p>
+    <h1>Bruch-Raster</h1>
+    <p>Jede Reihe ist ein Fortschrittsbalken aus gleich großen Teilen. Färbe ein paar Teile, dann nimm mehr Reihen dazu. Mehr Reihen heißt mehr Kästchen, aber der gefärbte Anteil bleibt genau gleich.</p>
   </header>
 
   <div class="layout">
-    <section class="sheet" aria-label="Grid">
-      <p class="axis-top">parts in each row →</p>
+    <section class="sheet" aria-label="Raster">
+      <p class="axis-top">Teile pro Reihe →</p>
       <div class="board" id="board" role="img"></div>
-      <p class="caption">Tap or drag along a row to choose how many parts are coloured.</p>
+      <p class="caption">Tippe auf ein Kästchen oder wische über eine Reihe, um festzulegen, wie viele Teile gefärbt sind.</p>
     </section>
 
-    <section class="sheet panel" aria-label="Controls">
+    <section class="sheet panel" aria-label="Einstellungen">
       <div class="steppers">
         <div class="stepper">
-          <span class="name"><span class="swatch fill"></span><span><b>Coloured parts</b><small>top number</small></span></span>
-          <button type="button" id="p-dec" aria-label="Fewer coloured parts">−</button>
+          <span class="name"><span class="swatch fill"></span><span><b>Gefärbte Teile</b><small>Zähler (obere Zahl)</small></span></span>
+          <button type="button" id="p-dec" aria-label="Weniger gefärbte Teile">−</button>
           <output id="p-out">3</output>
-          <button type="button" id="p-inc" aria-label="More coloured parts">+</button>
+          <button type="button" id="p-inc" aria-label="Mehr gefärbte Teile">+</button>
         </div>
         <div class="stepper">
-          <span class="name"><span class="swatch"></span><span><b>Parts in a row</b><small>bottom number</small></span></span>
-          <button type="button" id="q-dec" aria-label="Fewer parts in a row">−</button>
+          <span class="name"><span class="swatch"></span><span><b>Teile pro Reihe</b><small>Nenner (untere Zahl)</small></span></span>
+          <button type="button" id="q-dec" aria-label="Weniger Teile pro Reihe">−</button>
           <output id="q-out">4</output>
-          <button type="button" id="q-inc" aria-label="More parts in a row">+</button>
+          <button type="button" id="q-inc" aria-label="Mehr Teile pro Reihe">+</button>
         </div>
         <div class="stepper">
-          <span class="name"><span class="swatch rows"></span><span><b>Rows</b><small>the multiplier</small></span></span>
-          <button type="button" id="k-dec" aria-label="Fewer rows">−</button>
+          <span class="name"><span class="swatch rows"></span><span><b>Reihen</b><small>damit wird erweitert</small></span></span>
+          <button type="button" id="k-dec" aria-label="Weniger Reihen">−</button>
           <output id="k-out">2</output>
-          <button type="button" id="k-inc" aria-label="More rows">+</button>
+          <button type="button" id="k-inc" aria-label="Mehr Reihen">+</button>
         </div>
       </div>
 
-      <button type="button" class="play" id="play" aria-pressed="false">▶ Fill it up</button>
+      <button type="button" class="play" id="play" aria-pressed="false">▶ Auffüllen</button>
 
       <div class="maths">
         <div class="equation" id="equation" aria-live="polite"></div>
@@ -251,7 +251,7 @@ button:focus-visible, .cell:focus-visible { outline: 3px solid var(--marker); ou
     const { q, k } = state;
     board.style.setProperty('--q', q);
     const frag = document.createDocumentFragment();
-    frag.append(el('corner', 'row'));
+    frag.append(el('corner', 'Reihe'));
     for (let c = 1; c <= q; c++) frag.append(el('colnum', c));
     for (let r = 1; r <= k; r++) {
       frag.append(el('rownum', r));
@@ -271,7 +271,7 @@ button:focus-visible, .cell:focus-visible { outline: 3px solid var(--marker); ou
     for (const cell of board.querySelectorAll('.cell')) {
       cell.classList.toggle('on', +cell.dataset.col <= p);
     }
-    board.setAttribute('aria-label', `${k} rows of ${q} squares, ${p} coloured in each row`);
+    board.setAttribute('aria-label', `${k} ${k === 1 ? 'Reihe' : 'Reihen'} mit je ${q} Kästchen, davon je ${p} gefärbt`);
 
     $('p-out').textContent = p;
     $('q-out').textContent = q;
@@ -286,20 +286,21 @@ button:focus-visible, .cell:focus-visible { outline: 3px solid var(--marker); ou
     $('equation').innerHTML =
       frac(p, q) +
       '<span class="eqsign">=</span>' +
-      frac(`${k}×${p}`, `${k}×${q}`, 'step') +
+      frac(`${k}·${p}`, `${k}·${q}`, 'step') +
       '<span class="eqsign">=</span>' +
       frac(k * p, k * q, 'big');
 
     const facts = [
-      `In <strong>one row</strong>, <strong>${p}</strong> of <strong>${q}</strong> parts are coloured.`,
-      `In <strong>${k} ${k === 1 ? 'row' : 'rows'}</strong>, <strong>${k * p}</strong> of <strong>${k * q}</strong> squares are coloured. The same share of the grid!`,
-      `Coloured : white = <strong>${p} : ${q - p}</strong>` +
+      `In <strong>einer Reihe</strong> sind <strong>${p}</strong> von <strong>${q}</strong> Teilen gefärbt.`,
+      `In <strong>${k} ${k === 1 ? 'Reihe' : 'Reihen'}</strong> sind <strong>${k * p}</strong> von <strong>${k * q}</strong> Kästchen gefärbt. Gleich viel vom Ganzen!` +
+        (k > 1 ? ` Das heißt <strong>Erweitern mit ${k}</strong>.` : ''),
+      `Gefärbt : weiß = <strong>${p} : ${q - p}</strong>` +
         (k > 1 ? ` = <strong>${k * p} : ${k * (q - p)}</strong>` : ''),
     ];
     const g = gcd(p, q);
-    if (p === 0) facts.push('Nothing is coloured yet. That is zero.');
-    else if (p === q) facts.push(`Every part is coloured. ${p}/${q} is one whole.`);
-    else if (g > 1) facts.push(`Simplest form: <strong>${p / g}/${q / g}</strong>. Group the columns in ${g}s and you will see it.`);
+    if (p === 0) facts.push('Noch nichts gefärbt. Das ist null.');
+    else if (p === q) facts.push(`Alle Teile sind gefärbt. ${p}/${q} ist ein Ganzes.`);
+    else if (g > 1) facts.push(`Gekürzt: <strong>${p / g}/${q / g}</strong>. Fasse immer ${g} Spalten zusammen, dann siehst du es.`);
     $('facts').innerHTML = facts.map((f) => `<li>${f}</li>`).join('');
   }
 
@@ -307,7 +308,7 @@ button:focus-visible, .cell:focus-visible { outline: 3px solid var(--marker); ou
     clearInterval(timer);
     timer = null;
     $('play').setAttribute('aria-pressed', 'false');
-    $('play').textContent = '▶ Fill it up';
+    $('play').textContent = '▶ Auffüllen';
   }
 
   function change(key, delta) {
@@ -331,13 +332,15 @@ button:focus-visible, .cell:focus-visible { outline: 3px solid var(--marker); ou
     state.p = 0;
     render();
     $('play').setAttribute('aria-pressed', 'true');
-    $('play').textContent = '■ Stop';
+    $('play').textContent = '■ Stopp';
     timer = setInterval(() => {
       if (state.p >= state.q) { stop(); return; }
       state.p++;
       render();
     }, 550);
   });
+
+  document.documentElement.lang = 'de';
 
   // Tap a square to colour up to its column; tap the last coloured column again to undo one.
   let dragging = false;

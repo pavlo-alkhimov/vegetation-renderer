@@ -1,133 +1,133 @@
-# Fractions and Ratios: a Pizza Explanation
+# Brüche und Verhältnisse – mit Pizza erklärt
 
-## 1. What is a fraction?
+## 1. Was ist ein Bruch?
 
-A **fraction** tells you **how much of one whole thing** you have.
+Ein **Bruch** sagt dir, **wie viel von einem Ganzen** du hast.
 
-Imagine a pizza cut into **4 equal slices**. You eat **1** slice.
-
-```
- Whole pizza:   [🍕][🍕][🍕][🍕]     4 slices
- You ate:       [🍕][  ][  ][  ]     1 slice
-```
-
-You ate **1 out of 4** slices. We write that as:
+Stell dir eine Pizza vor, die in **4 gleich große Stücke** geschnitten ist. Du isst **1** Stück.
 
 ```
-   1   ← how many pieces you have   (the top number is called the numerator)
+ Ganze Pizza:   [🍕][🍕][🍕][🍕]     4 Stücke
+ Gegessen:      [🍕][  ][  ][  ]     1 Stück
+```
+
+Du hast **1 von 4** Stücken gegessen. Das schreibt man so:
+
+```
+   1   ← so viele Stücke hast du                    (die obere Zahl heißt Zähler)
   ---
-   4   ← how many pieces the whole thing was cut into   (the bottom one is the denominator)
+   4   ← in so viele Stücke wurde das Ganze geteilt   (die untere Zahl heißt Nenner)
 ```
 
-Say it like this: **"one quarter"** or **"one fourth"**.
+Man sagt: **„ein Viertel“**.
 
-> **Important rule:** the pieces must all be the **same size**.
-> If one slice is huge and the others are tiny, "1 out of 4" doesn't mean anything fair.
+> **Wichtige Regel:** Alle Stücke müssen **gleich groß** sein.
+> Wenn ein Stück riesig ist und die anderen winzig, ist „1 von 4“ nicht gerecht.
 
-### Quick check
-- A chocolate bar has 10 squares. You eat 3. What fraction did you eat? → **3/10**
-- What fraction is **left**? → **7/10** (because 3 + 7 = 10, the whole bar)
+### Kurzer Test
+- Eine Tafel Schokolade hat 10 Stücke. Du isst 3. Welchen Bruch hast du gegessen? → **3/10**
+- Welcher Bruch ist **übrig**? → **7/10** (denn 3 + 7 = 10, die ganze Tafel)
 
 ---
 
-## 2. What is a ratio?
+## 2. Was ist ein Verhältnis?
 
-A **ratio** compares **two amounts with each other**.
+Ein **Verhältnis** vergleicht **zwei Mengen miteinander**.
 
-In a bag there are **2 red** sweets and **3 blue** sweets:
+In einer Tüte sind **2 rote** und **3 blaue** Bonbons:
 
 ```
  🔴 🔴 🔵 🔵 🔵
 ```
 
-The ratio of red to blue is **2 to 3**, written **2 : 3**.
+Das Verhältnis von Rot zu Blau ist **2 zu 3**, geschrieben **2 : 3**.
 
-It means: *for every 2 red ones, there are 3 blue ones.*
+Das heißt: *Auf je 2 rote Bonbons kommen 3 blaue.*
 
 ---
 
-## 3. Fraction vs. ratio: what's the difference?
+## 3. Bruch oder Verhältnis: Was ist der Unterschied?
 
-Same bag: 🔴 🔴 🔵 🔵 🔵 (5 sweets altogether)
+Dieselbe Tüte: 🔴 🔴 🔵 🔵 🔵 (5 Bonbons insgesamt)
 
-| Question | Answer | Type |
+| Frage | Antwort | Art |
 |---|---|---|
-| Red compared to blue? | **2 : 3** | ratio (part to part) |
-| What part of the bag is red? | **2/5** | fraction (part of the whole) |
-| What part of the bag is blue? | **3/5** | fraction (part of the whole) |
+| Rot im Vergleich zu Blau? | **2 : 3** | Verhältnis (Teil zu Teil) |
+| Welcher Teil der Tüte ist rot? | **2/5** | Bruch (Teil vom Ganzen) |
+| Welcher Teil der Tüte ist blau? | **3/5** | Bruch (Teil vom Ganzen) |
 
-- A **fraction** compares a part to the **whole thing**.
-- A **ratio** can compare one part to **another part**.
+- Ein **Bruch** vergleicht einen Teil mit dem **Ganzen**.
+- Ein **Verhältnis** kann einen Teil mit einem **anderen Teil** vergleichen.
 
-They are close cousins: if you know the ratio 2 : 3, you can add 2 + 3 = 5
-to find the whole, and then you get the fractions 2/5 and 3/5.
+Die beiden sind eng verwandt: Wenn du das Verhältnis 2 : 3 kennst, rechnest du
+2 + 3 = 5 und hast das Ganze. Dann bekommst du die Brüche 2/5 und 3/5.
 
 ---
 
-## 4. The magic trick: same ratio, bigger numbers
+## 4. Der Zaubertrick: gleiches Verhältnis, größere Zahlen
 
-A recipe for pink lemonade says: **1 cup of juice : 3 cups of water**.
+Ein Rezept für Limonade: **1 Becher Saft : 3 Becher Wasser**.
 
-Want to make more? Multiply **both** numbers by the same amount:
+Du willst mehr machen? Nimm **beide** Zahlen mal dieselbe Zahl:
 
 ```
- 1 : 3     →  1 jug    🧃 💧💧💧
- 2 : 6     →  2 jugs   🧃🧃 💧💧💧💧💧💧
- 3 : 9     →  3 jugs   🧃🧃🧃 💧💧💧💧💧💧💧💧💧
+ 1 : 3     →  1 Krug    🧃 💧💧💧
+ 2 : 6     →  2 Krüge   🧃🧃 💧💧💧💧💧💧
+ 3 : 9     →  3 Krüge   🧃🧃🧃 💧💧💧💧💧💧💧💧💧
 ```
 
-It tastes **exactly the same**, because the ratio didn't change.
-But if you did 2 : 3 instead, it would be much too sweet!
+Es schmeckt **genau gleich**, weil sich das Verhältnis nicht geändert hat.
+Mit 2 : 3 wäre es dagegen viel zu süß!
 
-The same works for fractions:
+Bei Brüchen klappt das genauso. Das nennt man **Erweitern** (und rückwärts **Kürzen**):
 
 ```
  1/2  =  2/4  =  4/8
 ```
 
 ```
- [🍕][  ]                    half a pizza cut in 2
- [🍕][🍕][  ][  ]            same pizza cut in 4 → still half
- [🍕][🍕][🍕][🍕][  ][  ][  ][  ]   cut in 8 → still half!
+ [🍕][  ]                           halbe Pizza, in 2 Stücke geteilt
+ [🍕][🍕][  ][  ]                   dieselbe Pizza in 4 Stücken → immer noch die Hälfte
+ [🍕][🍕][🍕][🍕][  ][  ][  ][  ]   in 8 Stücken → immer noch die Hälfte!
 ```
 
-More slices, smaller slices, but **the same amount of pizza**.
+Mehr Stücke, kleinere Stücke, aber **gleich viel Pizza**.
 
 ---
 
-## 5. Where you see ratios in real life
+## 5. Wo gibt es Verhältnisse im echten Leben?
 
-- **Maps:** 1 : 1000 means 1 cm on the map is 1000 cm (10 m) in real life.
-- **Screens:** 16 : 9 means the screen is 16 units wide for every 9 units tall.
-- **Games:** win-to-loss ratio 3 : 1 means 3 wins for every 1 loss.
-- **Bikes:** gear ratios decide how many times the back wheel turns for each pedal turn.
+- **Landkarten:** 1 : 1000 heißt: 1 cm auf der Karte sind 1000 cm (10 m) in echt.
+- **Bildschirme:** 16 : 9 heißt: Auf 16 Teile Breite kommen 9 Teile Höhe.
+- **Spiele:** Siege zu Niederlagen 3 : 1 heißt: Auf 3 Siege kommt 1 Niederlage.
+- **Fahrrad:** Die Gangschaltung bestimmt, wie oft sich das Hinterrad bei einer Pedalumdrehung dreht.
 
 ---
 
-## 6. Try it yourself
+## 6. Probier es selbst
 
-1. A class has 12 girls and 8 boys. What is the ratio of girls to boys?
-2. What fraction of the class are boys?
-3. A cake is cut into 8 equal pieces and 6 are eaten. What fraction is left?
-4. Paint mix: 2 cans of yellow : 1 can of blue makes green. How much yellow for 3 cans of blue?
+1. In einer Klasse sind 12 Mädchen und 8 Jungen. Wie ist das Verhältnis von Mädchen zu Jungen?
+2. Welcher Bruchteil der Klasse sind Jungen?
+3. Ein Kuchen ist in 8 gleiche Stücke geschnitten, 6 werden gegessen. Welcher Bruch ist übrig?
+4. Farbe mischen: 2 Dosen Gelb : 1 Dose Blau ergibt Grün. Wie viel Gelb brauchst du für 3 Dosen Blau?
 
 <details>
-<summary>Answers (no peeking!)</summary>
+<summary>Lösungen (nicht schummeln!)</summary>
 
-1. **12 : 8**, which can be simplified (divide both by 4) to **3 : 2**
-2. **8/20**, which simplifies (divide both by 4) to **2/5**
-3. **2/8**, which simplifies to **1/4**
-4. **6 cans** of yellow (multiply both numbers by 3: 6 : 3)
+1. **12 : 8**, gekürzt (beide Zahlen durch 4) **3 : 2**
+2. **8/20**, gekürzt (beide Zahlen durch 4) **2/5**
+3. **2/8**, gekürzt **1/4**
+4. **6 Dosen** Gelb (beide Zahlen mal 3: 6 : 3)
 
 </details>
 
 ---
 
-### One-sentence summary
+### In einem Satz
 
-> A **fraction** says *how much of the whole* you have;
-> a **ratio** says *how much of one thing for every amount of another thing*.
+> Ein **Bruch** sagt, *wie viel vom Ganzen* du hast;
+> ein **Verhältnis** sagt, *wie viel von einer Sache auf eine bestimmte Menge einer anderen Sache kommt*.
 
 ---
 
-**Interactive version:** open [`ratio-grid/index.html`](ratio-grid/index.html) in a browser.
+**Zum Ausprobieren:** Öffne [`ratio-grid/index.html`](ratio-grid/index.html) im Browser.
