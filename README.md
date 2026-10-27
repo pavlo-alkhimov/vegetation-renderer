@@ -127,3 +127,7 @@ More slices, smaller slices, but **the same amount of pizza**.
 
 > A **fraction** says *how much of the whole* you have;
 > a **ratio** says *how much of one thing for every amount of another thing*.
+
+---
+
+**Interactive version:** open [`ratio-grid/index.html`](ratio-grid/index.html) in a browser.

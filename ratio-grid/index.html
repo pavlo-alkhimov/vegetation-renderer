@@ -1,0 +1,367 @@
+<title>Fraction Grid</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&family=Fredoka:wght@500;600&display=swap">
+<style>
+/* Layout: a squared exercise-book sheet. Grid on the left, controls and maths on the right; stacks on phones. */
+:root {
+  --bg: #EAF0F7;
+  --paper: #FFFFFF;
+  --rule: #C3D3E6;
+  --rule-faint: rgba(120, 155, 200, 0.16);
+  --ink: #1A2A44;
+  --muted: #5B6B84;
+  --fill: #2F6FDE;
+  --fill-edge: #1C52B5;
+  --empty: #FFFFFF;
+  --marker: #F2B300;
+  --font-display: "Fredoka", "Trebuchet MS", system-ui, sans-serif;
+  --font-body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0E1624; --paper: #152034; --rule: #2C3E5A; --rule-faint: rgba(120, 155, 200, 0.08);
+    --ink: #E4ECF7; --muted: #9AABC4; --fill: #5B95F5; --fill-edge: #86B2FF; --empty: #1B2A42; --marker: #F5C232;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0E1624; --paper: #152034; --rule: #2C3E5A; --rule-faint: rgba(120, 155, 200, 0.08);
+  --ink: #E4ECF7; --muted: #9AABC4; --fill: #5B95F5; --fill-edge: #86B2FF; --empty: #1B2A42; --marker: #F5C232;
+  color-scheme: dark;
+}
+
+body {
+  background-color: var(--bg);
+  background-image:
+    linear-gradient(var(--rule-faint) 1px, transparent 1px),
+    linear-gradient(90deg, var(--rule-faint) 1px, transparent 1px);
+  background-size: 22px 22px;
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 1.05rem;
+  line-height: 1.5;
+}
+.page {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding-block: 28px 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  display: grid;
+  gap: 24px;
+}
+header h1 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: clamp(1.8rem, 4vw, 2.5rem);
+  line-height: 1.1;
+  margin: 0 0 6px;
+  text-wrap: balance;
+}
+header p { margin: 0; color: var(--muted); max-width: 62ch; }
+
+.layout { display: grid; gap: 24px; align-items: start; }
+@media (min-width: 860px) { .layout { grid-template-columns: minmax(0, 1.45fr) minmax(300px, 1fr); } }
+
+.sheet {
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  padding: 20px;
+  min-width: 0;
+}
+
+/* Board */
+.axis-top {
+  font-family: var(--font-display);
+  font-weight: 500;
+  color: var(--muted);
+  font-size: 0.95rem;
+  margin: 0 0 8px 2.6em;
+}
+.board {
+  --q: 4;
+  display: grid;
+  grid-template-columns: 2.2em repeat(var(--q), minmax(0, 1fr));
+  gap: 7px 4px;
+  width: 100%;
+  max-width: calc(var(--q) * 60px + 2.2em);
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.colnum, .rownum, .corner {
+  font-family: var(--font-display);
+  font-weight: 500;
+  color: var(--muted);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.corner { font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; }
+.cell {
+  aspect-ratio: 1;
+  max-width: 100%;
+  background: var(--empty);
+  border: 2px solid var(--rule);
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+}
+.cell.on { background: var(--fill); border-color: var(--fill-edge); }
+.cell:hover { transform: scale(1.06); }
+.caption { margin: 14px 0 0; color: var(--muted); font-size: 0.95rem; }
+
+/* Controls */
+.panel { display: grid; gap: 18px; min-width: 0; }
+.steppers { display: grid; gap: 12px; }
+.stepper {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 10px;
+}
+.stepper .name { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.stepper .name b { font-weight: 700; display: block; }
+.stepper .name small { color: var(--muted); display: block; font-size: 0.85rem; line-height: 1.3; }
+.swatch { width: 20px; height: 20px; border-radius: 4px; flex: none; border: 2px solid var(--rule); background: var(--empty); }
+.swatch.fill { background: var(--fill); border-color: var(--fill-edge); }
+.swatch.rows { background: linear-gradient(var(--rule) 0 0) center / 100% 2px no-repeat, var(--empty); }
+.stepper button, .play {
+  font-family: var(--font-display);
+  font-weight: 600;
+  color: var(--ink);
+  background: var(--paper);
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.stepper button { width: 44px; height: 44px; font-size: 1.5rem; line-height: 1; }
+.stepper button:disabled { opacity: 0.3; cursor: default; }
+.stepper button:not(:disabled):active, .play:active { transform: translateY(1px); }
+.stepper output {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.7rem;
+  min-width: 1.6em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.play { padding: 10px 16px; font-size: 1.05rem; justify-self: start; }
+.play[aria-pressed="true"] { background: var(--ink); color: var(--paper); }
+button:focus-visible, .cell:focus-visible { outline: 3px solid var(--marker); outline-offset: 2px; }
+
+/* Maths */
+.maths { display: grid; gap: 12px; }
+.equation {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.frac { display: inline-grid; text-align: center; font-size: 2rem; line-height: 1.15; }
+.frac > span:first-child { border-bottom: 3px solid currentColor; padding: 0 6px 2px; }
+.frac > span:last-child { padding-top: 2px; }
+.frac.step { font-size: 1.2rem; color: var(--muted); }
+.frac.step > span:first-child { border-bottom-width: 2px; }
+.frac.big { background: color-mix(in srgb, var(--marker) 35%, transparent); border-radius: 6px; padding: 4px 4px; }
+.eqsign { font-size: 1.6rem; color: var(--muted); }
+.facts { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.facts li { padding-left: 14px; border-left: 3px solid var(--rule); }
+.facts strong { font-variant-numeric: tabular-nums; }
+
+@media (prefers-reduced-motion: reduce) {
+  .cell { transition: none; }
+  .cell:hover { transform: none; }
+}
+</style>
+
+<div class="page">
+  <header>
+    <h1>Fraction Grid</h1>
+    <p>Each row is a progress bar cut into equal parts. Colour some parts, then add more rows. More rows means more squares, but the coloured share of the grid stays exactly the same.</p>
+  </header>
+
+  <div class="layout">
+    <section class="sheet" aria-label="Grid">
+      <p class="axis-top">parts in each row →</p>
+      <div class="board" id="board" role="img"></div>
+      <p class="caption">Tap or drag along a row to choose how many parts are coloured.</p>
+    </section>
+
+    <section class="sheet panel" aria-label="Controls">
+      <div class="steppers">
+        <div class="stepper">
+          <span class="name"><span class="swatch fill"></span><span><b>Coloured parts</b><small>top number</small></span></span>
+          <button type="button" id="p-dec" aria-label="Fewer coloured parts">−</button>
+          <output id="p-out">3</output>
+          <button type="button" id="p-inc" aria-label="More coloured parts">+</button>
+        </div>
+        <div class="stepper">
+          <span class="name"><span class="swatch"></span><span><b>Parts in a row</b><small>bottom number</small></span></span>
+          <button type="button" id="q-dec" aria-label="Fewer parts in a row">−</button>
+          <output id="q-out">4</output>
+          <button type="button" id="q-inc" aria-label="More parts in a row">+</button>
+        </div>
+        <div class="stepper">
+          <span class="name"><span class="swatch rows"></span><span><b>Rows</b><small>the multiplier</small></span></span>
+          <button type="button" id="k-dec" aria-label="Fewer rows">−</button>
+          <output id="k-out">2</output>
+          <button type="button" id="k-inc" aria-label="More rows">+</button>
+        </div>
+      </div>
+
+      <button type="button" class="play" id="play" aria-pressed="false">▶ Fill it up</button>
+
+      <div class="maths">
+        <div class="equation" id="equation" aria-live="polite"></div>
+        <ul class="facts" id="facts"></ul>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+(() => {
+  const state = { p: 3, q: 4, k: 2 };
+  const LIMITS = { q: [1, 12], k: [1, 10] };
+  const $ = (id) => document.getElementById(id);
+  const board = $('board');
+  let builtFor = '';
+  let timer = null;
+
+  const gcd = (a, b) => { while (b) [a, b] = [b, a % b]; return a; };
+  const el = (cls, text) => {
+    const e = document.createElement('span');
+    e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  };
+  const frac = (top, bottom, cls = '') =>
+    `<span class="frac ${cls}"><span>${top}</span><span>${bottom}</span></span>`;
+
+  function build() {
+    const { q, k } = state;
+    board.style.setProperty('--q', q);
+    const frag = document.createDocumentFragment();
+    frag.append(el('corner', 'row'));
+    for (let c = 1; c <= q; c++) frag.append(el('colnum', c));
+    for (let r = 1; r <= k; r++) {
+      frag.append(el('rownum', r));
+      for (let c = 1; c <= q; c++) {
+        const cell = el('cell');
+        cell.dataset.col = c;
+        frag.append(cell);
+      }
+    }
+    board.replaceChildren(frag);
+    builtFor = q + 'x' + k;
+  }
+
+  function render() {
+    const { p, q, k } = state;
+    if (builtFor !== q + 'x' + k) build();
+    for (const cell of board.querySelectorAll('.cell')) {
+      cell.classList.toggle('on', +cell.dataset.col <= p);
+    }
+    board.setAttribute('aria-label', `${k} rows of ${q} squares, ${p} coloured in each row`);
+
+    $('p-out').textContent = p;
+    $('q-out').textContent = q;
+    $('k-out').textContent = k;
+    $('p-dec').disabled = p <= 0;
+    $('p-inc').disabled = p >= q;
+    $('q-dec').disabled = q <= LIMITS.q[0];
+    $('q-inc').disabled = q >= LIMITS.q[1];
+    $('k-dec').disabled = k <= LIMITS.k[0];
+    $('k-inc').disabled = k >= LIMITS.k[1];
+
+    $('equation').innerHTML =
+      frac(p, q) +
+      '<span class="eqsign">=</span>' +
+      frac(`${k}×${p}`, `${k}×${q}`, 'step') +
+      '<span class="eqsign">=</span>' +
+      frac(k * p, k * q, 'big');
+
+    const facts = [
+      `In <strong>one row</strong>, <strong>${p}</strong> of <strong>${q}</strong> parts are coloured.`,
+      `In <strong>${k} ${k === 1 ? 'row' : 'rows'}</strong>, <strong>${k * p}</strong> of <strong>${k * q}</strong> squares are coloured. The same share of the grid!`,
+      `Coloured : white = <strong>${p} : ${q - p}</strong>` +
+        (k > 1 ? ` = <strong>${k * p} : ${k * (q - p)}</strong>` : ''),
+    ];
+    const g = gcd(p, q);
+    if (p === 0) facts.push('Nothing is coloured yet. That is zero.');
+    else if (p === q) facts.push(`Every part is coloured. ${p}/${q} is one whole.`);
+    else if (g > 1) facts.push(`Simplest form: <strong>${p / g}/${q / g}</strong>. Group the columns in ${g}s and you will see it.`);
+    $('facts').innerHTML = facts.map((f) => `<li>${f}</li>`).join('');
+  }
+
+  function stop() {
+    clearInterval(timer);
+    timer = null;
+    $('play').setAttribute('aria-pressed', 'false');
+    $('play').textContent = '▶ Fill it up';
+  }
+
+  function change(key, delta) {
+    stop();
+    if (key === 'p') state.p = Math.min(state.q, Math.max(0, state.p + delta));
+    else {
+      const [lo, hi] = LIMITS[key];
+      state[key] = Math.min(hi, Math.max(lo, state[key] + delta));
+      if (state.p > state.q) state.p = state.q;
+    }
+    render();
+  }
+
+  for (const key of ['p', 'q', 'k']) {
+    $(key + '-dec').addEventListener('click', () => change(key, -1));
+    $(key + '-inc').addEventListener('click', () => change(key, +1));
+  }
+
+  $('play').addEventListener('click', () => {
+    if (timer) { stop(); return; }
+    state.p = 0;
+    render();
+    $('play').setAttribute('aria-pressed', 'true');
+    $('play').textContent = '■ Stop';
+    timer = setInterval(() => {
+      if (state.p >= state.q) { stop(); return; }
+      state.p++;
+      render();
+    }, 550);
+  });
+
+  // Tap a square to colour up to its column; tap the last coloured column again to undo one.
+  let dragging = false;
+  const colAt = (x, y) => {
+    const t = document.elementFromPoint(x, y);
+    return t && t.classList.contains('cell') ? +t.dataset.col : null;
+  };
+  board.addEventListener('pointerdown', (e) => {
+    const c = colAt(e.clientX, e.clientY);
+    if (c === null) return;
+    stop();
+    dragging = true;
+    state.p = c === state.p ? c - 1 : c;
+    render();
+  });
+  board.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const c = colAt(e.clientX, e.clientY);
+    if (c !== null && c !== state.p) { state.p = c; render(); }
+  });
+  for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) {
+    board.addEventListener(ev, () => { dragging = false; });
+  }
+
+  render();
+})();
+</script>
