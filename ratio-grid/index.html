@@ -195,15 +195,6 @@ button:focus-visible, .cell:focus-visible { outline: 3px solid var(--marker); ou
 .card ul { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; }
 .frac.inl { font-size: 1.15rem; vertical-align: middle; margin: 0 2px; }
 .frac.inl > span:first-child { border-bottom-width: 2px; padding: 0 3px 1px; }
-.compare { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; }
-.compare figure { margin: 0; display: grid; gap: 6px; justify-items: center; }
-.compare figcaption { font-family: var(--font-display); font-weight: 600; font-variant-numeric: tabular-nums; }
-.op { font-family: var(--font-display); font-weight: 600; font-size: 1.4rem; color: var(--muted); }
-.mini { display: inline-grid; grid-template-columns: repeat(var(--q), 16px); gap: 3px; }
-.mini span { width: 16px; height: 16px; border: 2px solid var(--rule); border-radius: 3px; background: var(--empty); }
-.mini span.on { background: var(--fill); border-color: var(--fill-edge); }
-.wrong { color: var(--muted); }
-.wrong s { text-decoration-thickness: 2px; }
 
 @media (prefers-reduced-motion: reduce) {
   .cell { transition: none; }
@@ -257,13 +248,19 @@ button:focus-visible, .cell:focus-visible { outline: 3px solid var(--marker); ou
 
   <section class="why" aria-labelledby="why-title">
     <h2 id="why-title">Wozu braucht man Brüche überhaupt?</h2>
-    <p>Und warum schreibt man manchmal 3/6, wenn 1/2 doch einfacher ist? Weil man Brüche nur vergleichen und zusammenzählen kann, wenn die Stücke gleich groß sind. Mit dem Raster oben machst du sie gleich groß.</p>
+    <p>Ganze Zahlen reichen nicht immer. Einen Bruch brauchst du, wenn ein Wert zwischen zwei ganzen Zahlen liegt oder wenn es um einen Teil von etwas geht.</p>
 
     <div class="cards">
       <article class="sheet card">
         <h3>Wenn Teilen nicht aufgeht</h3>
         <p>3 Pizzen für 4 Kinder: Mit ganzen Zahlen klappt das nicht. Jedes Kind bekommt <span class="frac inl"><span>3</span><span>4</span></span> Pizza.</p>
-        <p>1 Pizza für 3 Kinder: Als Kommazahl wäre das 0,333333… und hört nie auf. Der Bruch <span class="frac inl"><span>1</span><span>3</span></span> ist dagegen ganz genau.</p>
+        <p>Ein Bruch ist eigentlich eine Geteilt-Aufgabe: <span class="frac inl"><span>3</span><span>4</span></span> heißt 3 geteilt durch 4. Der Bruchstrich ist das Geteilt-Zeichen.</p>
+      </article>
+
+      <article class="sheet card">
+        <h3>Genau statt ungefähr</h3>
+        <p>1 Pizza für 3 Kinder: Als Kommazahl ist das 0,333333… und hört nie auf. Wenn du auf 0,33 rundest, fehlt etwas: 3 · 0,33 = 0,99, nicht 1.</p>
+        <p>Mit dem Bruch bleibt alles genau: 3 · <span class="frac inl"><span>1</span><span>3</span></span> = 1. Die ganze Pizza ist verteilt.</p>
       </article>
 
       <article class="sheet card">
@@ -277,27 +274,9 @@ button:focus-visible, .cell:focus-visible { outline: 3px solid var(--marker); ou
       </article>
 
       <article class="sheet card">
-        <h3>Vergleichen: Was ist mehr?</h3>
-        <p>Was ist mehr Pizza, <span class="frac inl"><span>2</span><span>3</span></span> oder <span class="frac inl"><span>3</span><span>4</span></span>? Drittel und Viertel sind verschieden groß, das sieht man schlecht. Also erweitern wir beide auf Zwölftel:</p>
-        <div class="compare">
-          <figure><span class="mini" data-p="2" data-q="3" data-k="4"></span><figcaption>2/3 = 8/12</figcaption></figure>
-          <span class="op">&lt;</span>
-          <figure><span class="mini" data-p="3" data-q="4" data-k="3"></span><figcaption>3/4 = 9/12</figcaption></figure>
-        </div>
-        <p>Jetzt hat jedes Raster 12 gleich große Kästchen. Du musst nur noch zählen: 8 ist weniger als 9. Also ist <span class="frac inl"><span>3</span><span>4</span></span> mehr.</p>
-      </article>
-
-      <article class="sheet card">
-        <h3>Zusammenzählen</h3>
-        <p>Eine halbe Pizza und eine Drittel-Pizza: Wie viel ist das zusammen? Halbe und Drittel kann man nicht einfach zählen, genau wie Äpfel und Birnen. Wir erweitern beide auf Sechstel:</p>
-        <div class="compare">
-          <figure><span class="mini" data-p="1" data-q="2" data-k="3"></span><figcaption>1/2 = 3/6</figcaption></figure>
-          <span class="op">+</span>
-          <figure><span class="mini" data-p="1" data-q="3" data-k="2"></span><figcaption>1/3 = 2/6</figcaption></figure>
-          <span class="op">=</span>
-          <figure><span class="mini" data-p="5" data-q="6" data-k="1"></span><figcaption>5/6</figcaption></figure>
-        </div>
-        <p class="wrong">Ein häufiger Fehler: <s>1/2 + 1/3 = 2/5</s>. Zähler plus Zähler und Nenner plus Nenner geht nicht!</p>
+        <h3>Chancen und Anteile</h3>
+        <p>Beim Würfeln gibt es 6 Seiten. Die Chance auf eine Sechs ist 1 von 6, also <span class="frac inl"><span>1</span><span>6</span></span>.</p>
+        <p>Bei einer Umfrage mögen 3 von 10 Kindern Spinat. Das sind <span class="frac inl"><span>3</span><span>10</span></span> der Kinder. Der Bruch sagt sofort, wie viele es von wie vielen sind.</p>
       </article>
     </div>
   </section>
@@ -416,15 +395,6 @@ button:focus-visible, .cell:focus-visible { outline: 3px solid var(--marker); ou
   });
 
   document.documentElement.lang = 'de';
-
-  for (const mini of document.querySelectorAll('.mini')) {
-    const [p, q, k] = ['p', 'q', 'k'].map((a) => +mini.dataset[a]);
-    mini.style.setProperty('--q', q);
-    for (let i = 0; i < q * k; i++) {
-      mini.append(el(i % q < p ? 'on' : ''));
-    }
-  }
-
   // Tap a square to colour up to its column; tap the last coloured column again to undo one.
   let dragging = false;
   const colAt = (x, y) => {

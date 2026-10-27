@@ -125,12 +125,17 @@ Mehr Stücke, kleinere Stücke, aber **gleich viel Pizza**.
 
 ## 7. Wozu braucht man Brüche überhaupt?
 
-Und warum schreibt man manchmal 3/6, wenn 1/2 doch einfacher ist?
-Weil man Brüche nur **vergleichen** und **zusammenzählen** kann, wenn die Stücke **gleich groß** sind.
+Ganze Zahlen reichen nicht immer. Einen Bruch brauchst du, wenn ein Wert **zwischen zwei ganzen Zahlen** liegt
+oder wenn es um **einen Teil von etwas** geht.
 
 ### Wenn Teilen nicht aufgeht
 - 3 Pizzen für 4 Kinder: Mit ganzen Zahlen klappt das nicht. Jedes Kind bekommt **3/4** Pizza.
-- 1 Pizza für 3 Kinder: Als Kommazahl wäre das 0,333333… und hört nie auf. **1/3** ist ganz genau.
+- Ein Bruch ist eigentlich eine Geteilt-Aufgabe: 3/4 heißt **3 geteilt durch 4**. Der Bruchstrich ist das Geteilt-Zeichen.
+
+### Genau statt ungefähr
+- 1 Pizza für 3 Kinder: Als Kommazahl ist das 0,333333… und hört nie auf.
+- Wenn du auf 0,33 rundest, fehlt etwas: 3 · 0,33 = 0,99, nicht 1.
+- Mit dem Bruch bleibt alles genau: 3 · 1/3 = 1. Die ganze Pizza ist verteilt.
 
 ### Im Alltag
 - Eine **Viertelstunde** ist 1/4 Stunde, also 15 Minuten.
@@ -138,28 +143,10 @@ Weil man Brüche nur **vergleichen** und **zusammenzählen** kann, wenn die Stü
 - In der Musik gibt es **Viertelnoten** und **Achtelnoten**.
 - Ein Rezept für 4 Personen, aber ihr seid nur 2? Dann nimmst du von allem die Hälfte.
 
-### Vergleichen: Was ist mehr, 2/3 oder 3/4 Pizza?
-Drittel und Viertel sind verschieden groß. Also **erweitern** wir beide auf Zwölftel:
-
-```
- 2/3 = 8/12          3/4 = 9/12
- [■][■][ ]           [■][■][■][ ]
- [■][■][ ]           [■][■][■][ ]
- [■][■][ ]           [■][■][■][ ]
- [■][■][ ]
-```
-
-Jetzt sind alle Kästchen gleich groß. Du musst nur zählen: 8 < 9, also ist **3/4** mehr.
-
-### Zusammenzählen: 1/2 + 1/3
-Halbe und Drittel kann man nicht einfach zählen, genau wie Äpfel und Birnen.
-Wir erweitern beide auf Sechstel:
-
-```
- 1/2 + 1/3  =  3/6 + 2/6  =  5/6
-```
-
-> **Häufiger Fehler:** ~~1/2 + 1/3 = 2/5~~. Zähler plus Zähler und Nenner plus Nenner geht nicht!
+### Chancen und Anteile
+- Beim Würfeln gibt es 6 Seiten. Die Chance auf eine Sechs ist 1 von 6, also **1/6**.
+- Bei einer Umfrage mögen 3 von 10 Kindern Spinat. Das sind **3/10** der Kinder.
+  Der Bruch sagt sofort, wie viele es von wie vielen sind.
 
 ---
 
