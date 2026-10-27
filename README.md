@@ -125,28 +125,45 @@ Mehr Stücke, kleinere Stücke, aber **gleich viel Pizza**.
 
 ## 7. Wozu braucht man Brüche überhaupt?
 
-Ganze Zahlen reichen nicht immer. Einen Bruch brauchst du, wenn ein Wert **zwischen zwei ganzen Zahlen** liegt
-oder wenn es um **einen Teil von etwas** geht.
+Manchmal kommt **nur mit einem Bruch** das richtige Ergebnis heraus.
+Mit einer Kommazahl geht dieselbe Rechnung schief.
 
-### Wenn Teilen nicht aufgeht
-- 3 Pizzen für 4 Kinder: Mit ganzen Zahlen klappt das nicht. Jedes Kind bekommt **3/4** Pizza.
-- Ein Bruch ist eigentlich eine Geteilt-Aufgabe: 3/4 heißt **3 geteilt durch 4**. Der Bruchstrich ist das Geteilt-Zeichen.
+### Die Zahlen-Maschine
 
-### Genau statt ungefähr
-- 1 Pizza für 3 Kinder: Als Kommazahl ist das 0,333333… und hört nie auf.
-- Wenn du auf 0,33 rundest, fehlt etwas: 3 · 0,33 = 0,99, nicht 1.
-- Mit dem Bruch bleibt alles genau: 3 · 1/3 = 1. Die ganze Pizza ist verteilt.
+> **Regel:** Nimm die Zahl mal 4 und zieh 1 ab. Das Ergebnis steckst du gleich wieder in die Maschine.
 
-### Im Alltag
-- Eine **Viertelstunde** ist 1/4 Stunde, also 15 Minuten.
-- Ein **halber Liter** Milch ist 1/2 Liter.
-- In der Musik gibt es **Viertelnoten** und **Achtelnoten**.
-- Ein Rezept für 4 Personen, aber ihr seid nur 2? Dann nimmst du von allem die Hälfte.
+Wir stecken **1/3** hinein:
 
-### Chancen und Anteile
-- Beim Würfeln gibt es 6 Seiten. Die Chance auf eine Sechs ist 1 von 6, also **1/6**.
-- Bei einer Umfrage mögen 3 von 10 Kindern Spinat. Das sind **3/10** der Kinder.
-  Der Bruch sagt sofort, wie viele es von wie vielen sind.
+```
+ 4 · 1/3 − 1  =  4/3 − 3/3  =  1/3
+```
+
+Es kommt wieder genau 1/3 heraus. Also bleibt es **für immer 1/3**, egal wie oft die Maschine läuft.
+
+Jetzt dasselbe mit **0,333** statt 1/3:
+
+| Runde | mit Bruch | mit Kommazahl (3 Stellen) | mit Kommazahl (6 Stellen) |
+|---:|:---:|---:|---:|
+| 0 | 1/3 | 0,333 | 0,333333 |
+| 1 | 1/3 | 0,332 | 0,333332 |
+| 2 | 1/3 | 0,328 | 0,333328 |
+| 3 | 1/3 | 0,312 | 0,333312 |
+| 4 | 1/3 | 0,248 | 0,333248 |
+| 5 | 1/3 | **−0,008** | 0,332992 |
+| 6 | 1/3 | **−1,032** | 0,331968 |
+| 7 | 1/3 | **−5,128** | 0,327872 |
+| 8 | 1/3 | **−21,512** | 0,311488 |
+| 9 | 1/3 | **−87,048** | 0,245952 |
+| 10 | 1/3 | **−349,192** | **−0,016192** |
+| 11 | 1/3 | **−1397,768** | **−1,064768** |
+
+### Warum geht das schief?
+Eine Kommazahl mit 3, 6 oder 100 Stellen ist immer ein kleines bisschen weniger als 1/3.
+Der Fehler ist winzig. Aber die Maschine nimmt ihn in jeder Runde **mal 4**:
+nach 5 Runden ist er 1024-mal so groß, nach 10 Runden über eine Million Mal.
+
+Mehr Kommastellen helfen nur eine Weile: Mit 6 Stellen geht es erst in Runde 10 schief, aber es geht schief.
+Nur der Bruch 1/3 bleibt für immer richtig, weil er **ganz genau** ist.
 
 ---
 

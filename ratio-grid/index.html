@@ -16,19 +16,20 @@
   --fill-edge: #1C52B5;
   --empty: #FFFFFF;
   --marker: #F2B300;
+  --bad: #C0392B;
   --font-display: "Fredoka", "Trebuchet MS", system-ui, sans-serif;
   --font-body: "Nunito", "Segoe UI", system-ui, sans-serif;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #0E1624; --paper: #152034; --rule: #2C3E5A; --rule-faint: rgba(120, 155, 200, 0.08);
-    --ink: #E4ECF7; --muted: #9AABC4; --fill: #5B95F5; --fill-edge: #86B2FF; --empty: #1B2A42; --marker: #F5C232;
+    --ink: #E4ECF7; --muted: #9AABC4; --fill: #5B95F5; --fill-edge: #86B2FF; --empty: #1B2A42; --marker: #F5C232; --bad: #FF7B6B;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #0E1624; --paper: #152034; --rule: #2C3E5A; --rule-faint: rgba(120, 155, 200, 0.08);
-  --ink: #E4ECF7; --muted: #9AABC4; --fill: #5B95F5; --fill-edge: #86B2FF; --empty: #1B2A42; --marker: #F5C232;
+  --ink: #E4ECF7; --muted: #9AABC4; --fill: #5B95F5; --fill-edge: #86B2FF; --empty: #1B2A42; --marker: #F5C232; --bad: #FF7B6B;
   color-scheme: dark;
 }
 
@@ -177,8 +178,8 @@ button:focus-visible, .cell:focus-visible { outline: 3px solid var(--marker); ou
 .facts li { padding-left: 14px; border-left: 3px solid var(--rule); }
 .facts strong { font-variant-numeric: tabular-nums; }
 
-/* Why section */
-.why { display: grid; gap: 14px; }
+/* Why section: the number machine */
+.why { display: grid; gap: 16px; }
 .why h2 {
   font-family: var(--font-display);
   font-weight: 600;
@@ -186,15 +187,27 @@ button:focus-visible, .cell:focus-visible { outline: 3px solid var(--marker); ou
   margin: 0;
   text-wrap: balance;
 }
-.why > p { margin: 0; color: var(--muted); max-width: 66ch; }
-.cards { display: grid; gap: 16px; }
-@media (min-width: 760px) { .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-.card { display: grid; gap: 10px; align-content: start; }
-.card h3 { font-family: var(--font-display); font-weight: 600; font-size: 1.2rem; margin: 0; }
-.card p { margin: 0; }
-.card ul { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; }
+.why h3 { font-family: var(--font-display); font-weight: 600; font-size: 1.2rem; margin: 0; }
+.why p { margin: 0; }
+.why > p { color: var(--muted); max-width: 66ch; }
+.machine { display: grid; gap: 24px; }
+@media (min-width: 860px) { .machine { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); } }
+.machine > div { display: grid; gap: 12px; align-content: start; min-width: 0; }
+.rulebox { border: 2px dashed var(--rule); border-radius: 8px; padding: 12px 14px; display: grid; gap: 6px; }
+.work { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-family: var(--font-display); font-weight: 600; font-size: 1.15rem; }
 .frac.inl { font-size: 1.15rem; vertical-align: middle; margin: 0 2px; }
 .frac.inl > span:first-child { border-bottom-width: 2px; padding: 0 3px 1px; }
+.buttons { display: flex; flex-wrap: wrap; gap: 10px; }
+.play:disabled { opacity: 0.35; cursor: default; }
+.table-wrap { overflow-x: auto; }
+.runs { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+.runs th { text-align: left; font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); font-weight: 700; padding: 4px 10px; }
+.runs td { padding: 5px 10px; border-top: 1px solid var(--rule); white-space: nowrap; }
+.runs td:first-child { color: var(--muted); }
+.runs .dec { font-family: var(--font-display); font-weight: 500; }
+.runs tr.bad .dec { color: var(--bad); font-weight: 600; }
+#m-summary { font-weight: 700; }
+#m-summary.bad { color: var(--bad); }
 
 @media (prefers-reduced-motion: reduce) {
   .cell { transition: none; }
@@ -248,36 +261,51 @@ button:focus-visible, .cell:focus-visible { outline: 3px solid var(--marker); ou
 
   <section class="why" aria-labelledby="why-title">
     <h2 id="why-title">Wozu braucht man Brüche überhaupt?</h2>
-    <p>Ganze Zahlen reichen nicht immer. Einen Bruch brauchst du, wenn ein Wert zwischen zwei ganzen Zahlen liegt oder wenn es um einen Teil von etwas geht.</p>
+    <p>Manchmal kommt nur mit einem Bruch das richtige Ergebnis heraus. Mit einer Kommazahl geht dieselbe Rechnung schief. Probier es mit dieser Zahlen-Maschine aus.</p>
 
-    <div class="cards">
-      <article class="sheet card">
-        <h3>Wenn Teilen nicht aufgeht</h3>
-        <p>3 Pizzen für 4 Kinder: Mit ganzen Zahlen klappt das nicht. Jedes Kind bekommt <span class="frac inl"><span>3</span><span>4</span></span> Pizza.</p>
-        <p>Ein Bruch ist eigentlich eine Geteilt-Aufgabe: <span class="frac inl"><span>3</span><span>4</span></span> heißt 3 geteilt durch 4. Der Bruchstrich ist das Geteilt-Zeichen.</p>
-      </article>
+    <div class="sheet machine">
+      <div>
+        <h3>Die Zahlen-Maschine</h3>
+        <div class="rulebox">
+          <p><b>Regel:</b> Nimm die Zahl mal 4 und zieh 1 ab.</p>
+          <p>Das Ergebnis steckst du gleich wieder in die Maschine.</p>
+        </div>
+        <p>Wir stecken <span class="frac inl"><span>1</span><span>3</span></span> hinein:</p>
+        <div class="work">4 · <span class="frac inl"><span>1</span><span>3</span></span> − 1 = <span class="frac inl"><span>4</span><span>3</span></span> − <span class="frac inl"><span>3</span><span>3</span></span> = <span class="frac inl"><span>1</span><span>3</span></span></div>
+        <p>Es kommt wieder genau <span class="frac inl"><span>1</span><span>3</span></span> heraus. Also bleibt es für immer <span class="frac inl"><span>1</span><span>3</span></span>, egal wie oft die Maschine läuft.</p>
+        <p>Jetzt dasselbe mit der Kommazahl 0,333 statt <span class="frac inl"><span>1</span><span>3</span></span>. Was passiert?</p>
+      </div>
 
-      <article class="sheet card">
-        <h3>Genau statt ungefähr</h3>
-        <p>1 Pizza für 3 Kinder: Als Kommazahl ist das 0,333333… und hört nie auf. Wenn du auf 0,33 rundest, fehlt etwas: 3 · 0,33 = 0,99, nicht 1.</p>
-        <p>Mit dem Bruch bleibt alles genau: 3 · <span class="frac inl"><span>1</span><span>3</span></span> = 1. Die ganze Pizza ist verteilt.</p>
-      </article>
+      <div>
+        <div class="stepper">
+          <span class="name"><span><b>Kommastellen</b><small>so genau ist die Kommazahl</small></span></span>
+          <button type="button" id="d-dec" aria-label="Weniger Kommastellen">−</button>
+          <output id="d-out">3</output>
+          <button type="button" id="d-inc" aria-label="Mehr Kommastellen">+</button>
+        </div>
+        <div class="buttons">
+          <button type="button" class="play" id="m-step">▶ Noch eine Runde</button>
+          <button type="button" class="play" id="m-reset">↺ Von vorn</button>
+        </div>
+        <div class="table-wrap">
+          <table class="runs">
+            <thead><tr><th>Runde</th><th>mit Bruch</th><th>mit Kommazahl</th></tr></thead>
+            <tbody id="m-rows"></tbody>
+          </table>
+        </div>
+        <p id="m-summary" aria-live="polite"></p>
+      </div>
+    </div>
 
-      <article class="sheet card">
-        <h3>Im Alltag</h3>
-        <ul>
-          <li>Eine <b>Viertelstunde</b> ist <span class="frac inl"><span>1</span><span>4</span></span> Stunde, also 15 Minuten.</li>
-          <li>Ein <b>halber Liter</b> Milch ist <span class="frac inl"><span>1</span><span>2</span></span> Liter.</li>
-          <li>In der Musik gibt es <b>Viertelnoten</b> und <b>Achtelnoten</b>.</li>
-          <li>Ein Rezept für 4 Personen, aber ihr seid nur 2? Dann nimmst du von allem die Hälfte.</li>
-        </ul>
-      </article>
-
-      <article class="sheet card">
-        <h3>Chancen und Anteile</h3>
-        <p>Beim Würfeln gibt es 6 Seiten. Die Chance auf eine Sechs ist 1 von 6, also <span class="frac inl"><span>1</span><span>6</span></span>.</p>
-        <p>Bei einer Umfrage mögen 3 von 10 Kindern Spinat. Das sind <span class="frac inl"><span>3</span><span>10</span></span> der Kinder. Der Bruch sagt sofort, wie viele es von wie vielen sind.</p>
-      </article>
+    <div class="sheet machine">
+      <div>
+        <h3>Warum geht das schief?</h3>
+        <p>Eine Kommazahl mit 3, 6 oder 100 Stellen ist immer ein kleines bisschen weniger als <span class="frac inl"><span>1</span><span>3</span></span>. Der Fehler ist winzig. Aber die Maschine nimmt ihn in jeder Runde mal 4: nach 5 Runden ist er 1024-mal so groß, nach 10 Runden über eine Million Mal.</p>
+      </div>
+      <div>
+        <h3>Helfen mehr Kommastellen?</h3>
+        <p>Nur eine Weile. Stell 6 Stellen ein und schau, in welcher Runde es schiefgeht. Irgendwann geht es immer schief. Nur der Bruch <span class="frac inl"><span>1</span><span>3</span></span> bleibt für immer richtig, weil er ganz genau ist.</p>
+      </div>
     </div>
   </section>
 </div>
@@ -395,6 +423,47 @@ button:focus-visible, .cell:focus-visible { outline: 3px solid var(--marker); ou
   });
 
   document.documentElement.lang = 'de';
+  // Number machine: x -> 4x - 1. Exact for 1/3, explodes for any finite decimal.
+  const machine = { d: 3, rounds: 6 };
+  const MACHINE = { d: [1, 9], rounds: 20 };
+  const fmtDec = (v, d) => {
+    const scale = 10n ** BigInt(d);
+    const a = v < 0n ? -v : v;
+    const whole = (a / scale).toString().replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    return (v < 0n ? '−' : '') + whole + ',' + (a % scale).toString().padStart(d, '0');
+  };
+  function renderMachine() {
+    const { d, rounds } = machine;
+    const scale = 10n ** BigInt(d);
+    let v = (scale - 1n) / 3n;
+    let firstBad = null;
+    const rows = [];
+    for (let n = 0; n <= rounds; n++) {
+      const diff = 3n * v - scale;
+      const bad = (diff < 0n ? -diff : diff) * 20n >= 3n * scale;
+      if (bad && firstBad === null) firstBad = n;
+      rows.push(`<tr class="${bad ? 'bad' : ''}"><td>${n}</td><td>${frac(1, 3, 'inl')}</td><td class="dec">${fmtDec(v, d)}</td></tr>`);
+      v = 4n * v - scale;
+    }
+    $('m-rows').innerHTML = rows.join('');
+    $('d-out').textContent = d;
+    $('d-dec').disabled = d <= MACHINE.d[0];
+    $('d-inc').disabled = d >= MACHINE.d[1];
+    $('m-step').disabled = rounds >= MACHINE.rounds;
+    const summary = $('m-summary');
+    summary.classList.toggle('bad', firstBad !== null);
+    summary.textContent = rounds === 0
+      ? 'Drück auf „Noch eine Runde“.'
+      : firstBad === null
+        ? `Nach ${rounds} ${rounds === 1 ? 'Runde' : 'Runden'} passt die Kommazahl noch ungefähr. Mach weiter!`
+        : `Ab Runde ${firstBad} stimmt die Kommazahl nicht mehr. Richtig wäre immer 1/3.`;
+  }
+  $('m-step').addEventListener('click', () => { machine.rounds++; renderMachine(); });
+  $('m-reset').addEventListener('click', () => { machine.rounds = 0; renderMachine(); });
+  $('d-dec').addEventListener('click', () => { machine.d = Math.max(MACHINE.d[0], machine.d - 1); renderMachine(); });
+  $('d-inc').addEventListener('click', () => { machine.d = Math.min(MACHINE.d[1], machine.d + 1); renderMachine(); });
+  renderMachine();
+
   // Tap a square to colour up to its column; tap the last coloured column again to undo one.
   let dragging = false;
   const colAt = (x, y) => {
