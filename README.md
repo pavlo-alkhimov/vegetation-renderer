@@ -123,6 +123,46 @@ Mehr Stücke, kleinere Stücke, aber **gleich viel Pizza**.
 
 ---
 
+## 7. Wozu braucht man Brüche überhaupt?
+
+Und warum schreibt man manchmal 3/6, wenn 1/2 doch einfacher ist?
+Weil man Brüche nur **vergleichen** und **zusammenzählen** kann, wenn die Stücke **gleich groß** sind.
+
+### Wenn Teilen nicht aufgeht
+- 3 Pizzen für 4 Kinder: Mit ganzen Zahlen klappt das nicht. Jedes Kind bekommt **3/4** Pizza.
+- 1 Pizza für 3 Kinder: Als Kommazahl wäre das 0,333333… und hört nie auf. **1/3** ist ganz genau.
+
+### Im Alltag
+- Eine **Viertelstunde** ist 1/4 Stunde, also 15 Minuten.
+- Ein **halber Liter** Milch ist 1/2 Liter.
+- In der Musik gibt es **Viertelnoten** und **Achtelnoten**.
+- Ein Rezept für 4 Personen, aber ihr seid nur 2? Dann nimmst du von allem die Hälfte.
+
+### Vergleichen: Was ist mehr, 2/3 oder 3/4 Pizza?
+Drittel und Viertel sind verschieden groß. Also **erweitern** wir beide auf Zwölftel:
+
+```
+ 2/3 = 8/12          3/4 = 9/12
+ [■][■][ ]           [■][■][■][ ]
+ [■][■][ ]           [■][■][■][ ]
+ [■][■][ ]           [■][■][■][ ]
+ [■][■][ ]
+```
+
+Jetzt sind alle Kästchen gleich groß. Du musst nur zählen: 8 < 9, also ist **3/4** mehr.
+
+### Zusammenzählen: 1/2 + 1/3
+Halbe und Drittel kann man nicht einfach zählen, genau wie Äpfel und Birnen.
+Wir erweitern beide auf Sechstel:
+
+```
+ 1/2 + 1/3  =  3/6 + 2/6  =  5/6
+```
+
+> **Häufiger Fehler:** ~~1/2 + 1/3 = 2/5~~. Zähler plus Zähler und Nenner plus Nenner geht nicht!
+
+---
+
 ### In einem Satz
 
 > Ein **Bruch** sagt, *wie viel vom Ganzen* du hast;
