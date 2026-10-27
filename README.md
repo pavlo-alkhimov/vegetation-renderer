@@ -167,6 +167,23 @@ Nur der Bruch 1/3 bleibt für immer richtig, weil er **ganz genau** ist.
 
 ---
 
+## 8. Aus der Geschichte: Als der Kalender falsch ging
+
+Einmal um die Sonne dauert ungefähr **365 Tage und knapp 6 Stunden**. Ein Kalender kann aber nur **ganze Tage** haben.
+
+- **Julius Caesar, 45 v. Chr.:** Alle 4 Jahre ein Schalttag (29. Februar). Das ist der Bruch **1/4**:
+  1 Schalttag auf 4 Jahre, also im Schnitt 365 1/4 Tage pro Jahr.
+- **Der kleine Fehler:** Das echte Jahr ist etwa 11 Minuten kürzer. Das zählt sich zusammen:
+  alle 128 Jahre ein ganzer Tag. 1582 lag der Kalender schon **10 Tage** daneben.
+- **Papst Gregor XIII., 1582:** 10 Tage wurden gestrichen. Auf Donnerstag, 4. Oktober 1582, folgte Freitag, 15. Oktober.
+  Neuer Bruch: **97/400**, also 97 Schalttage auf 400 Jahre. Darum war 2000 ein Schaltjahr, 1900 aber nicht.
+  Jetzt dauert es über 3000 Jahre, bis der Kalender einen Tag daneben liegt.
+
+**Warum ein Bruch?** Man kann nicht jedes Jahr 0,2425 Tage anhängen, Tage gibt es nur ganz.
+Also braucht der Kalender einen Bruch aus ganzen Zahlen: so viele Schalttage auf so viele Jahre.
+
+---
+
 ### In einem Satz
 
 > Ein **Bruch** sagt, *wie viel vom Ganzen* du hast;
