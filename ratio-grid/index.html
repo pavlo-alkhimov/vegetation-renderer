@@ -84,16 +84,20 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
 }
 .board {
   --q: 4;
+  --k: 2;
   display: grid;
-  grid-template-columns: 2.2em repeat(var(--q), minmax(0, 1fr));
-  gap: 7px 4px;
+  grid-template-columns: 2.2em minmax(0, 1fr);
+  gap: 6px;
   width: 100%;
-  max-width: calc(var(--q) * 60px + 2.2em);
+  max-width: calc(var(--q) * 68px + 2.2em + 6px);
   touch-action: pan-y;
   user-select: none;
   -webkit-user-select: none;
 }
-.colnum, .rownum, .corner {
+.colnums, .cells { display: grid; grid-template-columns: repeat(var(--q), minmax(0, 1fr)); }
+.colnums { padding: 0 2px; }
+.rownums { display: grid; grid-template-rows: repeat(var(--k), minmax(0, 1fr)); padding-block: 2px; }
+.colnums span, .rownums span, .corner {
   font-family: var(--font-display);
   font-weight: 500;
   color: var(--muted);
@@ -104,17 +108,16 @@ header p { margin: 0; color: var(--muted); max-width: 62ch; }
   justify-content: center;
 }
 .corner { font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; }
+/* One connected grid: the 2px gaps show the backing colour as grid lines. */
+.cells { gap: 2px; padding: 2px; background: var(--rule); border-radius: 5px; }
 .cell {
   aspect-ratio: 1;
-  max-width: 100%;
   background: var(--empty);
-  border: 2px solid var(--rule);
-  border-radius: 5px;
   cursor: pointer;
-  transition: background-color 0.18s ease, border-color 0.18s ease, transform 0.18s ease;
+  transition: background-color 0.15s ease;
 }
-.cell.on { background: var(--fill); border-color: var(--fill-edge); }
-.cell:hover { transform: scale(1.06); }
+.cell.on { background: var(--fill); }
+.cell:hover { box-shadow: inset 0 0 0 3px var(--marker); }
 .caption { margin: 14px 0 0; color: var(--muted); font-size: 0.95rem; }
 
 /* Controls */
@@ -218,23 +221,23 @@ button:focus-visible, .cell:focus-visible { outline: 3px solid var(--marker); ou
 <div class="page">
   <header>
     <h1>Bruch-Raster</h1>
-    <p>Jede Reihe ist ein Fortschrittsbalken aus gleich großen Teilen. Färbe ein paar Teile, dann nimm mehr Reihen dazu. Mehr Reihen heißt mehr Kästchen, aber der gefärbte Anteil bleibt genau gleich.</p>
+    <p>Das Raster ist ein Fortschrittsbalken: Es füllt sich Spalte für Spalte, jede Spalte von oben nach unten. Mehr Reihen machen die Kästchen feiner. Ganze Spalten bleiben dabei immer derselbe Anteil.</p>
   </header>
 
   <div class="layout">
     <section class="sheet" aria-label="Raster">
       <p class="axis-top">Teile pro Reihe →</p>
       <div class="board" id="board" role="img"></div>
-      <p class="caption">Tippe auf ein Kästchen oder wische über eine Reihe, um festzulegen, wie viele Teile gefärbt sind.</p>
+      <p class="caption">Tippe auf ein Kästchen oder wische über das Raster, um festzulegen, wie viele Kästchen gefärbt sind.</p>
     </section>
 
     <section class="sheet panel" aria-label="Einstellungen">
       <div class="steppers">
         <div class="stepper">
-          <span class="name"><span class="swatch fill"></span><span><b>Gefärbte Teile</b><small>Zähler (obere Zahl)</small></span></span>
-          <button type="button" id="p-dec" aria-label="Weniger gefärbte Teile">−</button>
+          <span class="name"><span class="swatch fill"></span><span><b>Gefärbte Kästchen</b><small>füllen sich Spalte für Spalte</small></span></span>
+          <button type="button" id="p-dec" aria-label="Weniger gefärbte Kästchen">−</button>
           <output id="p-out">3</output>
-          <button type="button" id="p-inc" aria-label="Mehr gefärbte Teile">+</button>
+          <button type="button" id="p-inc" aria-label="Mehr gefärbte Kästchen">+</button>
         </div>
         <div class="stepper">
           <span class="name"><span class="swatch"></span><span><b>Teile pro Reihe</b><small>Nenner (untere Zahl)</small></span></span>
@@ -342,7 +345,8 @@ button:focus-visible, .cell:focus-visible { outline: 3px solid var(--marker); ou
 
 <script>
 (() => {
-  const state = { p: 3, q: 4, k: 2 };
+  // n = coloured squares, filled column by column, each column top to bottom.
+  const state = { n: 6, q: 4, k: 2 };
   const LIMITS = { q: [1, 12], k: [1, 10] };
   const $ = (id) => document.getElementById(id);
   const board = $('board');
@@ -362,57 +366,77 @@ button:focus-visible, .cell:focus-visible { outline: 3px solid var(--marker); ou
   function build() {
     const { q, k } = state;
     board.style.setProperty('--q', q);
-    const frag = document.createDocumentFragment();
-    frag.append(el('corner', 'Reihe'));
-    for (let c = 1; c <= q; c++) frag.append(el('colnum', c));
+    board.style.setProperty('--k', k);
+    const colnums = el('colnums');
+    for (let c = 1; c <= q; c++) colnums.append(el('', c));
+    const rownums = el('rownums');
+    for (let r = 1; r <= k; r++) rownums.append(el('', r));
+    const cells = el('cells');
     for (let r = 1; r <= k; r++) {
-      frag.append(el('rownum', r));
       for (let c = 1; c <= q; c++) {
         const cell = el('cell');
-        cell.dataset.col = c;
-        frag.append(cell);
+        cell.dataset.index = (c - 1) * k + r;
+        cells.append(cell);
       }
     }
-    board.replaceChildren(frag);
+    board.replaceChildren(el('corner', 'Reihe'), colnums, rownums, cells);
     builtFor = q + 'x' + k;
   }
 
   function render() {
-    const { p, q, k } = state;
+    const { n, q, k } = state;
+    const total = k * q;
     if (builtFor !== q + 'x' + k) build();
     for (const cell of board.querySelectorAll('.cell')) {
-      cell.classList.toggle('on', +cell.dataset.col <= p);
+      cell.classList.toggle('on', +cell.dataset.index <= n);
     }
-    board.setAttribute('aria-label', `${k} ${k === 1 ? 'Reihe' : 'Reihen'} mit je ${q} Kästchen, davon je ${p} gefärbt`);
+    board.setAttribute('aria-label', `${k} ${k === 1 ? 'Reihe' : 'Reihen'} mit je ${q} Kästchen, ${n} von ${total} gefärbt`);
 
-    $('p-out').textContent = p;
+    $('p-out').textContent = n;
     $('q-out').textContent = q;
     $('k-out').textContent = k;
-    $('p-dec').disabled = p <= 0;
-    $('p-inc').disabled = p >= q;
+    $('p-dec').disabled = n <= 0;
+    $('p-inc').disabled = n >= total;
     $('q-dec').disabled = q <= LIMITS.q[0];
     $('q-inc').disabled = q >= LIMITS.q[1];
     $('k-dec').disabled = k <= LIMITS.k[0];
     $('k-inc').disabled = k >= LIMITS.k[1];
 
-    $('equation').innerHTML =
-      frac(p, q) +
-      '<span class="eqsign">=</span>' +
-      frac(`${k}·${p}`, `${k}·${q}`, 'step') +
-      '<span class="eqsign">=</span>' +
-      frac(k * p, k * q, 'big');
-
-    const facts = [
-      `In <strong>einer Reihe</strong> sind <strong>${p}</strong> von <strong>${q}</strong> Teilen gefärbt.`,
-      `In <strong>${k} ${k === 1 ? 'Reihe' : 'Reihen'}</strong> sind <strong>${k * p}</strong> von <strong>${k * q}</strong> Kästchen gefärbt. Gleich viel vom Ganzen!` +
-        (k > 1 ? ` Das heißt <strong>Erweitern mit ${k}</strong>.` : ''),
-      `Gefärbt : weiß = <strong>${p} : ${q - p}</strong>` +
-        (k > 1 ? ` = <strong>${k * p} : ${k * (q - p)}</strong>` : ''),
-    ];
-    const g = gcd(p, q);
-    if (p === 0) facts.push('Noch nichts gefärbt. Das ist null.');
-    else if (p === q) facts.push(`Alle Teile sind gefärbt. ${p}/${q} ist ein Ganzes.`);
-    else if (g > 1) facts.push(`Gekürzt: <strong>${p / g}/${q / g}</strong>. Fasse immer ${g} Spalten zusammen, dann siehst du es.`);
+    const p = Math.floor(n / k);
+    let facts;
+    if (n % k === 0) {
+      $('equation').innerHTML =
+        frac(p, q) +
+        '<span class="eqsign">=</span>' +
+        frac(`${k}·${p}`, `${k}·${q}`, 'step') +
+        '<span class="eqsign">=</span>' +
+        frac(n, total, 'big');
+      facts = [
+        `In <strong>einer Reihe</strong> sind <strong>${p}</strong> von <strong>${q}</strong> Teilen gefärbt.`,
+        `In <strong>${k} ${k === 1 ? 'Reihe' : 'Reihen'}</strong> sind <strong>${n}</strong> von <strong>${total}</strong> Kästchen gefärbt. Gleich viel vom Ganzen!` +
+          (k > 1 ? ` Das heißt <strong>Erweitern mit ${k}</strong>.` : ''),
+        `Gefärbt : weiß = <strong>${p} : ${q - p}</strong>` +
+          (k > 1 ? ` = <strong>${n} : ${total - n}</strong>` : ''),
+      ];
+      const g = gcd(p, q);
+      if (p === 0) facts.push('Noch nichts gefärbt. Das ist null.');
+      else if (p === q) facts.push(`Alle Teile sind gefärbt. ${p}/${q} ist ein Ganzes.`);
+      else if (g > 1) facts.push(`Gekürzt: <strong>${p / g}/${q / g}</strong>. Fasse immer ${g} Spalten zusammen, dann siehst du es.`);
+    } else {
+      $('equation').innerHTML =
+        frac(p, q, 'step') +
+        '<span class="eqsign">&lt;</span>' +
+        frac(n, total, 'big') +
+        '<span class="eqsign">&lt;</span>' +
+        frac(p + 1, q, 'step');
+      facts = [
+        `<strong>${n}</strong> von <strong>${total}</strong> Kästchen sind gefärbt.`,
+        `Mit nur einer Reihe aus ${q} Teilen geht das nicht: Es ist mehr als <strong>${p}/${q}</strong>, aber weniger als <strong>${p + 1}/${q}</strong>. Mehr Reihen machen die Kästchen feiner.`,
+        `Gefärbt : weiß = <strong>${n} : ${total - n}</strong>`,
+      ];
+      const g = gcd(n, total);
+      if (g > 1) facts.push(`Gekürzt: <strong>${n / g}/${total / g}</strong>.`);
+    }
     $('facts').innerHTML = facts.map((f) => `<li>${f}</li>`).join('');
   }
 
@@ -425,11 +449,15 @@ button:focus-visible, .cell:focus-visible { outline: 3px solid var(--marker); ou
 
   function change(key, delta) {
     stop();
-    if (key === 'p') state.p = Math.min(state.q, Math.max(0, state.p + delta));
-    else {
+    const { n, q, k } = state;
+    if (key === 'p') {
+      state.n = Math.min(k * q, Math.max(0, n + delta));
+    } else {
       const [lo, hi] = LIMITS[key];
       state[key] = Math.min(hi, Math.max(lo, state[key] + delta));
-      if (state.p > state.q) state.p = state.q;
+      // More or fewer rows: keep the coloured share (exact for whole columns).
+      if (key === 'k') state.n = Math.round(n * state.k / k);
+      state.n = Math.min(state.n, state.k * state.q);
     }
     render();
   }
@@ -441,15 +469,16 @@ button:focus-visible, .cell:focus-visible { outline: 3px solid var(--marker); ou
 
   $('play').addEventListener('click', () => {
     if (timer) { stop(); return; }
-    state.p = 0;
+    const total = state.k * state.q;
+    state.n = 0;
     render();
     $('play').setAttribute('aria-pressed', 'true');
     $('play').textContent = '■ Stopp';
     timer = setInterval(() => {
-      if (state.p >= state.q) { stop(); return; }
-      state.p++;
+      if (state.n >= total) { stop(); return; }
+      state.n++;
       render();
-    }, 550);
+    }, Math.max(120, Math.min(550, Math.round(5000 / total))));
   });
 
   document.documentElement.lang = 'de';
@@ -494,24 +523,24 @@ button:focus-visible, .cell:focus-visible { outline: 3px solid var(--marker); ou
   $('d-inc').addEventListener('click', () => { machine.d = Math.min(MACHINE.d[1], machine.d + 1); renderMachine(); });
   renderMachine();
 
-  // Tap a square to colour up to its column; tap the last coloured column again to undo one.
+  // Tap a square to colour everything up to it; tap the last coloured square again to undo one.
   let dragging = false;
-  const colAt = (x, y) => {
+  const indexAt = (x, y) => {
     const t = document.elementFromPoint(x, y);
-    return t && t.classList.contains('cell') ? +t.dataset.col : null;
+    return t && t.classList.contains('cell') ? +t.dataset.index : null;
   };
   board.addEventListener('pointerdown', (e) => {
-    const c = colAt(e.clientX, e.clientY);
-    if (c === null) return;
+    const i = indexAt(e.clientX, e.clientY);
+    if (i === null) return;
     stop();
     dragging = true;
-    state.p = c === state.p ? c - 1 : c;
+    state.n = i === state.n ? i - 1 : i;
     render();
   });
   board.addEventListener('pointermove', (e) => {
     if (!dragging) return;
-    const c = colAt(e.clientX, e.clientY);
-    if (c !== null && c !== state.p) { state.p = c; render(); }
+    const i = indexAt(e.clientX, e.clientY);
+    if (i !== null && i !== state.n) { state.n = i; render(); }
   });
   for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) {
     board.addEventListener(ev, () => { dragging = false; });
