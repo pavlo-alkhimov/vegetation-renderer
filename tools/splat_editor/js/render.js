@@ -159,6 +159,60 @@ void main() {
     v_col = vec4(f == 0.0 ? col : col * 0.6, alpha);
 }`;
 
+// Selection outline (metaballs). Every selected splat adds its screen-space Gaussian with peak 1, exp(-r^2 / 2) with r
+// in sigma units (the EWA covariance, as drawn), to an offscreen field; the outline is the iso-line field = e^-2, which
+// for a lone splat is exactly its 2-sigma ellipse (the contour rings). Splats that overlap or nearly touch add up and
+// merge into one smooth shape. Quads go to 3.5 sigma so neighbours reach each other.
+const VS_FIELD = `#version 300 es
+layout(location=0) in vec2 a_corner;
+layout(location=1) in vec3 i_pos; layout(location=2) in vec3 i_scale; layout(location=3) in vec4 i_rot;
+layout(location=5) in float i_sel;
+uniform mat4 u_view, u_proj; uniform vec2 u_vp; uniform float u_focal;
+out vec2 v_uv;
+mat3 qmat(vec4 q) {
+    float w = q.x, x = q.y, y = q.z, z = q.w;
+    return mat3(1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y + w * z), 2.0 * (x * z - w * y),
+                2.0 * (x * y - w * z), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z + w * x),
+                2.0 * (x * z + w * y), 2.0 * (y * z - w * x), 1.0 - 2.0 * (x * x + y * y));
+}
+void main() {
+    gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+    if (i_sel < 0.5) return;
+    vec4 vc = u_view * vec4(i_pos, 1.0);
+    if (vc.z > -0.005) return;
+    mat3 M = qmat(normalize(i_rot)) * mat3(i_scale.x, 0.0, 0.0, 0.0, i_scale.y, 0.0, 0.0, 0.0, i_scale.z);
+    float tz = -vc.z;
+    vec2 lim = 1.3 * 0.5 * u_vp / u_focal, txy = clamp(vc.xy / tz, -lim, lim) * tz;
+    mat3 J = mat3(u_focal / tz, 0.0, 0.0, 0.0, u_focal / tz, 0.0, u_focal * txy.x / (tz * tz), u_focal * txy.y / (tz * tz), 0.0);
+    mat3 T = J * mat3(u_view) * M, cov = T * transpose(T);
+    float a = cov[0][0] + 0.3, b = cov[0][1], c = cov[1][1] + 0.3;
+    float mid = 0.5 * (a + c), r = sqrt(max(0.25 * (a - c) * (a - c) + b * b, 1e-12));
+    float l1 = mid + r, l2 = max(mid - r, 0.05);
+    vec2 e1 = abs(b) > 1e-9 ? normalize(vec2(b, l1 - a)) : (a >= c ? vec2(1.0, 0.0) : vec2(0.0, 1.0)), e2 = vec2(-e1.y, e1.x);
+    vec4 clip = u_proj * vc;
+    clip.xy += (a_corner.x * sqrt(l1) * e1 + a_corner.y * sqrt(l2) * e2) * 3.5 * 2.0 / u_vp * clip.w;
+    gl_Position = clip;
+    v_uv = a_corner * 3.5;
+}`;
+const FS_FIELD = `#version 300 es
+precision highp float;
+in vec2 v_uv; out vec4 o;
+void main() { o = vec4(exp(-0.5 * dot(v_uv, v_uv)), 0.0, 0.0, 1.0); }`;
+const VS_FULL = `#version 300 es
+void main() { vec2 p = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0); gl_Position = vec4(p, 0.0, 1.0); }`;
+// Outline: ~2 px anti-aliased line on the iso-line, plus a faint fill inside.
+const FS_OUTLINE = `#version 300 es
+precision highp float;
+uniform sampler2D u_field; uniform vec3 u_col; out vec4 o;
+void main() {
+    float f = texelFetch(u_field, ivec2(gl_FragCoord.xy), 0).r, t = exp(-2.0);
+    float d = abs(f - t) / max(fwidth(f), 1e-6);                   // distance to the iso-line in pixels
+    float line = 1.0 - clamp(d - 0.6, 0.0, 1.0), fill = f > t ? 0.08 : 0.0;
+    float a = max(line, fill);
+    if (a < 0.004) discard;
+    o = vec4(u_col, a);
+}`;
+
 const VS_LINE = `#version 300 es
 layout(location=0) in vec3 a_pos; layout(location=1) in vec4 a_col;
 uniform mat4 u_vp; uniform float u_psize; out vec4 v_col;
@@ -204,6 +258,9 @@ function render_init(canvas)
     R.pe = gl_prog(gl, VS_ELL, FS_ELL);
     R.pl = gl_prog(gl, VS_LINE, FS_LINE);
     R.pr = gl_prog(gl, VS_RING, FS_LINE);
+    R.pfield = gl_prog(gl, VS_FIELD, FS_FIELD);
+    R.pout = gl_prog(gl, VS_FULL, FS_OUTLINE);
+    R.half = !!gl.getExtension('EXT_color_buffer_float');            // half-float field if possible (smoother iso-line)
     R.inst = gl.createBuffer();
     const mesh = sphere_mesh();
     const vao_for = function (verts, comps, inst_sel) {
@@ -317,6 +374,44 @@ function rings_build(list, cam, h, minpx, only_sel, space, flag)
     return new Float32Array(out);
 }
 
+// Field texture / framebuffer at canvas size (recreated on resize).
+function field_target(R, w, h)
+{
+    const gl = R.gl;
+    if (R.field && R.field.w === w && R.field.h === h) return R.field;
+    if (R.field) { gl.deleteTexture(R.field.tex); gl.deleteFramebuffer(R.field.fbo); }
+    const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
+    if (R.half) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+    else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    const fbo = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return (R.field = { tex: tex, fbo: fbo, w: w, h: h });
+}
+
+// Metaball outline of the selected splats (see VS_FIELD).
+function outline_draw(R, cam, w, h)
+{
+    const gl = R.gl, F = field_target(R, w, h);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, F.fbo); gl.viewport(0, 0, w, h);
+    gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.disable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+    gl.useProgram(R.pfield.p);
+    gl.uniformMatrix4fv(R.pfield.u.u_view, false, cam.view); gl.uniformMatrix4fv(R.pfield.u.u_proj, false, cam.proj);
+    gl.uniform2f(R.pfield.u.u_vp, w, h); gl.uniform1f(R.pfield.u.u_focal, cam.focal * h);
+    gl.bindVertexArray(R.vao_splat);
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, R.n);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, w, h);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.useProgram(R.pout.p);
+    gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, F.tex); gl.uniform1i(R.pout.u.u_field, 0);
+    gl.uniform3f(R.pout.u.u_col, 1.0, 0.62, 0.15);
+    gl.bindVertexArray(null);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.disable(gl.BLEND); gl.enable(gl.DEPTH_TEST);
+}
+
 // flag / hover_col: draw all rings of the list in hover_col (the splat a click would pick).
 function rings_draw(R, cam, vp, h, minpx, only_sel, space, list, flag, hover_col, hover_a)
 {
@@ -360,12 +455,15 @@ function render_frame(R, cam, opts)
             lines_draw(R, pts, gl.POINTS, vp, opts.mode === 2 ? 5 * dpr : 3 * dpr);
             gl.enable(gl.DEPTH_TEST);
         }
-        // Selection: drawn as in the contour view (sections), in orange, always on top.
-        if (opts.nsel) {
+        // Selection, always on top: per splat as in the contour view (sections), and/or one metaball outline around all
+        // selected splats. opts.sel_style: 0 sections, 1 outline, 2 both.
+        const ss = opts.sel_style === undefined ? 0 : opts.sel_style;
+        if (opts.nsel && ss !== 1) {
             gl.disable(gl.DEPTH_TEST);
             rings_draw(R, cam, vp, h, 0, true, (opts.slice_px || 20) * dpr, opts.list);
             gl.enable(gl.DEPTH_TEST);
         }
+        if (opts.nsel && ss !== 0) outline_draw(R, cam, w, h);
         // Hover: the splat a click would pick, in a colour telling what the click would do, on top of everything.
         // opts.hover: [{ t: splat, col, a }], the current one (a = 1) and ones fading out after the mouse left them.
         if (opts.hover && opts.hover.length) {
