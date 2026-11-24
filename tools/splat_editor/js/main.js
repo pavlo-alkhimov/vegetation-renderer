@@ -453,6 +453,12 @@ function main()
         render_frame(E.R, cam, { mode: E.mode, lit: E.lit, grid: E.grid, cursor: E.cursor, list: E.list, nsel: nsel, bg: [0.16, 0.17, 0.19] });
         let s = E.list.length + ' splats · ' + nsel + ' selected · sort ' + E.R.sort_ms.toFixed(1) + ' ms · view ' + ['splats', 'contours', 'centres'][E.mode] +
                 (E.lit ? ' (lit)' : '') + ' · cursor ' + E.cursor.map(v => v.toFixed(3)).join(' ');
+        if (E.mode === 1) {
+            // Contour grid cell at the camera target distance (the same 1-2-5 rule as the shader).
+            const x = 20 * E.cam.dist / (camera().focal * E.R.canvas.clientHeight), b = Math.pow(10, Math.floor(Math.log10(x))), m = x / b;
+            const c = b * (m < 1.41 ? 1 : m < 3.16 ? 2 : m < 7.07 ? 5 : 10);
+            s += ' \u00b7 grid ' + (c >= 0.01 ? +(c * 100).toFixed(2) + ' cm' : +(c * 1000).toFixed(2) + ' mm');
+        }
         if (E.xf) s += ' · ' + E.xf.mode + (E.xf.axis >= 0 ? ' ' + 'XYZ'[E.xf.axis] : '') + (E.xf.factor ? ' ×' + E.xf.factor.toFixed(3) : '') + (E.xf.angle ? ' ' + E.xf.angle.toFixed(1) + '°' : '');
         if (E.msg && performance.now() - E.msg_t < 4000) s += ' · ' + E.msg;
         $('status').textContent = s;

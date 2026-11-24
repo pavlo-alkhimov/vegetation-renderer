@@ -37,7 +37,7 @@ Splats are sorted back to front and alpha-blended, the correctness reference of 
 | Del (or X) | delete |
 | C | put the 3D cursor where the mouse points (on a splat, else on the ground) |
 | T | apply the current tool |
-| 1 / 2 / 3 | view splats / contours / centres. Contours: the 2-sigma ellipse in each of the splat's three local planes, in the splat's colour; a plane is hidden when one of its two axes is under 3 px across, so a flat splat shows only its outline and tiny splats disappear |
+| 1 / 2 / 3 | view splats / contours / centres. Contours: the 2-sigma ellipse in each of the splat's three local planes, in the splat's colour; a plane is hidden when one of its two axes is under 3 px across, so a flat splat shows only its outline and tiny splats disappear. Inside each contour a grid in the same colour at 50 % opacity, cells about 20 px wide in 1-2-5 steps (1 mm, 2 mm, 5 mm, 1 cm, ?); the status bar shows the cell size at the view centre |
 | L | lighting on/off |
 | F | frame the selection (or everything) |
 | Ctrl+Z, Ctrl+Y | undo, redo |
