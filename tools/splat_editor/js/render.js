@@ -161,7 +161,7 @@ void main() {
 
 // Selection outline (metaballs). Every selected splat adds its screen-space Gaussian with peak 1, exp(-r^2 / 2) with r
 // in sigma units (the EWA covariance, as drawn), to an offscreen field; the outline is the iso-line field = exp(-k^2/2),
-// which for a lone splat is exactly its k-sigma ellipse (k = 2: the contour rings; set in the toolbar, 1..3). Splats
+// which for a lone splat is exactly its k-sigma ellipse (k = 2 would match the contour rings; set in the toolbar, 1..3, default 1.2). Splats
 // that overlap or nearly touch add up and merge into one smooth shape. Quads go to 4 sigma so neighbours reach each other.
 const VS_FIELD = `#version 300 es
 layout(location=0) in vec2 a_corner;
