@@ -22,7 +22,12 @@ void main() {
     mat3 J = mat3(u_focal / tz, 0.0, 0.0, 0.0, u_focal / tz, 0.0, u_focal * vc.x / (tz * tz), u_focal * vc.y / (tz * tz), 0.0);
     mat3 T = J * mat3(u_view) * M;
     mat3 cov = T * transpose(T);
-    float a = cov[0][0] + 0.3, b = cov[0][1], c = cov[1][1] + 0.3;     // + 0.3 px^2: no splat thinner than ~a pixel
+    // + 0.3 px^2: no splat thinner than ~a pixel. The widening keeps the splat's total coverage: opacity is scaled by
+    // the area ratio sqrt(det before / det after) (Mip-Splatting 2D filter), so a thin splat seen edge-on fades instead
+    // of drawing a solid line.
+    float a0 = cov[0][0], c0 = cov[1][1], b = cov[0][1];
+    float a = a0 + 0.3, c = c0 + 0.3;
+    float keep = sqrt(max(a0 * c0 - b * b, 0.0) / max(a * c - b * b, 1e-12));
     float mid = 0.5 * (a + c), r = sqrt(max(0.25 * (a - c) * (a - c) + b * b, 1e-12));
     float l1 = mid + r, l2 = max(mid - r, 0.05);
     vec2 e1 = abs(b) > 1e-9 ? normalize(vec2(b, l1 - a)) : (a >= c ? vec2(1.0, 0.0) : vec2(0.0, 1.0));
@@ -42,7 +47,7 @@ void main() {
         float lit = mix(0.95, 0.42 + 0.85 * d + 0.25 * back, flat_);
         col *= lit;
     }
-    v_col = vec4(col, i_col.a);
+    v_col = vec4(col, i_col.a * keep);
 }`;
 
 const FS_SPLAT = `#version 300 es

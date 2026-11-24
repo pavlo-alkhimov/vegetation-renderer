@@ -12,6 +12,8 @@ A 3D Gaussian with:
 
 It is drawn as a soft ellipse facing the camera, using EWA projection. The visible edge is at about 2 sigma, and the quad is cut at 3 sigma.
 
+Splats thinner than about a pixel are widened to one pixel, and their opacity is lowered by the same area ratio (Mip-Splatting). A blade-thin splat seen edge-on therefore fades instead of drawing a solid line.
+
 Splats are sorted back to front and alpha-blended, the correctness reference of docs/09. Typical shapes:
 
 | Sigmas | Looks like | Use |
