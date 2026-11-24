@@ -24,14 +24,80 @@ function splat_adapt(t, m)
     return c;
 }
 
+// Splits the segments of chains (blades, stems: elongated splats lined up along their long axes) into n shorter splats
+// on a smooth curve. Each segment becomes the quadratic Bezier from the midpoint with its previous neighbour, through its
+// own centre as control point, to the midpoint with its next neighbour (corner cutting: tangent-continuous across the
+// chain). A chain end uses its own half segment instead. Hard edges show the kinks between straight segments that soft
+// Gaussians hide; shorter splats along the curve remove them. Widths and colour follow the curve too (averages with the
+// neighbours at the segment ends, narrowing at chain ends). Long sigma = ov x piece length: ov 1.2 overlaps the pieces
+// enough that the outline shows no notches. Other splats are copied unchanged.
+function chains_resample(list, n, ov)
+{
+    const info = list.map(function (t) {
+        const k = t.s[0] >= t.s[1] ? (t.s[0] >= t.s[2] ? 0 : 2) : (t.s[1] >= t.s[2] ? 1 : 2);
+        const mid = Math.max(...t.s.filter((_, i) => i !== k));
+        return { k: k, u: q_axes(t.q)[k], L: t.s[k], el: t.s[k] > 2 * mid, mid: mid };
+    });
+    const neighbour = function (i, sgn) {
+        const A = list[i], a = info[i];
+        let best = -1, bd = Infinity;
+        list.forEach(function (B, j) {
+            const b = info[j];
+            if (j === i || !b.el || b.mid > 2 * a.mid || b.mid < 0.5 * a.mid || Math.abs(vdot(a.u, b.u)) < 0.7) return;
+            const d = vsub(B.p, A.p), l = vlen(d);
+            if (l < 1e-9 || l > 2.5 * a.L || sgn * vdot(d, a.u) < 0.7 * l || l >= bd) return;
+            best = j; bd = l;
+        });
+        return best;
+    };
+    const out = [];
+    list.forEach(function (A, i) {
+        const a = info[i];
+        if (!a.el) { out.push(splat_clone(A)); return; }
+        const jp = neighbour(i, -1), jn = neighbour(i, 1), half = a.L / 0.6 / 2;        // chain spacing ~ L / 0.6
+        const p0 = jp >= 0 ? vscale(vadd(A.p, list[jp].p), 0.5) : vmad(A.p, a.u, -half);
+        const p2 = jn >= 0 ? vscale(vadd(A.p, list[jn].p), 0.5) : vmad(A.p, a.u, half);
+        const bez = s => vadd(vadd(vscale(p0, (1 - s) * (1 - s)), vscale(A.p, 2 * s * (1 - s))), vscale(p2, s * s));
+        let len = 0;
+        for (let s = 0; s < 8; s++) len += vlen(vsub(bez((s + 1) / 8), bez(s / 8)));
+        const ax = q_axes(A.q);
+        // sigmas (other than the long one) and colour at the segment ends: averages with the neighbours, matched by axis
+        const end_val = function (j) {
+            if (j < 0) return { s: A.s.map((v, k) => k === a.k ? v : 0.4 * v), c: A.c };     // chain end: narrow, like the tip of the ellipse
+            const B = list[j], bx = q_axes(B.q);
+            const s = ax.map((v, k) => { let bi = 0; for (let m = 1; m < 3; m++) if (Math.abs(vdot(v, bx[m])) > Math.abs(vdot(v, bx[bi]))) bi = m; return 0.5 * (A.s[k] + B.s[bi]); });
+            return { s: s, c: vlerp(A.c, B.c, 0.5) };
+        };
+        const e0 = end_val(jp), e2 = end_val(jn);
+        const q3 = (x0, x1, x2, s) => (1 - s) * (1 - s) * x0 + 2 * s * (1 - s) * x1 + s * s * x2;
+        for (let s = 0; s < n; s++) {
+            const tt = (s + 0.5) / n, p = bez(tt);
+            let tg = vnorm(vadd(vscale(vsub(A.p, p0), 2 * (1 - tt)), vscale(vsub(p2, A.p), 2 * tt)));
+            if (vdot(tg, a.u) < 0) tg = vscale(tg, -1);
+            // rotate the splat's frame by the minimal rotation taking its long axis to the curve tangent (Rodrigues)
+            const k = vcross(a.u, tg), sn = vlen(k), cs = vdot(a.u, tg);
+            const rot = v => { if (sn < 1e-9) return v; const kk = vscale(k, 1 / sn);
+                return vadd(vadd(vscale(v, cs), vscale(vcross(kk, v), sn)), vscale(kk, vdot(kk, v) * (1 - cs))); };
+            const c = splat_clone(A);
+            c.p = p; c.q = q_from_axes(rot(ax[0]), rot(ax[1]), rot(ax[2]));
+            c.s = A.s.map((v, k) => q3(e0.s[k], v, e2.s[k], tt)); c.s[a.k] = ov * len / n;
+            c.c = [0, 1, 2].map(k => q3(e0.c[k], A.c[k], e2.c[k], tt));
+            out.push(c);
+        }
+    });
+    return out;
+}
+
 // Four copies of a model side by side along x (Gaussian, saturated, generalized, cut-off), each adapted to its mode.
+// The hard-edged copies get their chains re-sampled into shorter splats (chains_resample).
 function compare_layout(list)
 {
     let lo = Infinity, hi = -Infinity;
     for (const t of list) { lo = Math.min(lo, t.p[0] - 2 * Math.max(...t.s)); hi = Math.max(hi, t.p[0] + 2 * Math.max(...t.s)); }
     const step = (hi - lo) * 1.25, out = [];
+    const fine = chains_resample(list, 4, 1.2);
     for (let m = 0; m < 4; m++)
-        for (const t of list) { const c = splat_adapt(t, m); c.p = [t.p[0] + (m - 1.5) * step, t.p[1], t.p[2]]; out.push(c); }
+        for (const t of (m === 0 ? list : fine)) { const c = splat_adapt(t, m); c.p = [t.p[0] + (m - 1.5) * step, t.p[1], t.p[2]]; out.push(c); }
     return out;
 }
 

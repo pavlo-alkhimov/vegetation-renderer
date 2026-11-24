@@ -24,7 +24,7 @@ Splats are sorted back to front and alpha-blended, the correctness reference of 
 
 Each splat has an **edge mode** and a **hardness** from 0 to 1 (both in the panel; defaults Gaussian and 0.5): a model is made for a renderer. The toolbar list (or **E**) shows every splat in its own mode (**per splat**, the default) or forces one mode on all splats for checking.
 
-**Compare** replaces the model with four copies side by side, left to right Gaussian, saturated, generalized, cut-off, each adapted to its mode. Flat and thin splats (leaves, blades, stems) get hard edges, round ones (flower heads) softer ones. In the saturated copy the sigmas shrink by 2 / sqrt(4 + 2 ln g) for gain g, so the visible size stays the same. It is one undo step.
+**Compare** replaces the model with four copies side by side, left to right Gaussian, saturated, generalized, cut-off, each adapted to its mode. Flat and thin splats (leaves, blades, stems) get hard edges, round ones (flower heads) softer ones. In the saturated copy the sigmas shrink by 2 / sqrt(4 + 2 ln g) for gain g, so the visible size stays the same. In the three hard copies every chain (blade, stem) is re-sampled: each segment becomes 4 shorter, overlapping splats on a smooth curve through its neighbours, with width and colour following the curve and narrowing at the chain ends. Hard edges would otherwise show the kinks between straight segments that soft Gaussians hide. This costs splats: the example grows from 209 to 659 per hard copy. It is one undo step.
 
 | Mode | Falloff | Hardness | Cost |
 |---|---|---|---|
