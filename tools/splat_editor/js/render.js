@@ -4,7 +4,7 @@
 // Sun direction (towards the sun), world space, y up.
 const SUN = vnorm([0.45, 0.8, 0.35]);
 
-// Opacity factor of selected splats in the splat view (their sections and grid are drawn on top).
+// Opacity factor of selected splats in the splat view (their sections are drawn on top).
 const SEL_FADE = 0.2;
 
 const VS_SPLAT = `#version 300 es
@@ -169,54 +169,6 @@ void main() {
     v_col = vec4(j == 0 ? col : col * 0.6, 1.0);
 }`;
 
-// Contour fills: a grid inside each visible contour ellipse (same planes and hiding rule as the rings), lines in the
-// splat's colour at 50 % opacity. Cell size = the 1-2-5 step (1 mm, 2 mm, 5 mm, 1 cm, ...) closest to u_cellpx pixels
-// at the splat's depth: real sizes to read off, and the grid stays put while zooming.
-const VS_FILL = `#version 300 es
-layout(location=0) in vec4 a_pos;                                    // xy = corner (+-1), z unused, w = plane
-layout(location=1) in vec3 i_pos; layout(location=2) in vec3 i_scale; layout(location=3) in vec4 i_rot; layout(location=4) in vec4 i_col;
-layout(location=5) in float i_sel;
-uniform mat4 u_vp, u_view; uniform float u_focal, u_minpx, u_cellpx; uniform int u_only_sel;
-out vec2 v_uv; out vec2 v_m; flat out float v_cell; flat out vec4 v_col;
-mat3 qmat(vec4 q) {
-    float w = q.x, x = q.y, y = q.z, z = q.w;
-    return mat3(1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y + w * z), 2.0 * (x * z - w * y),
-                2.0 * (x * y - w * z), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z + w * x),
-                2.0 * (x * z + w * y), 2.0 * (y * z - w * x), 1.0 - 2.0 * (x * x + y * y));
-}
-// Closest value of the 1-2-5 series to x (log scale).
-float step125(float x) {
-    float e = floor(log(x) / log(10.0)), b = pow(10.0, e), m = x / b;
-    return b * (m < 1.41 ? 1.0 : m < 3.16 ? 2.0 : m < 7.07 ? 5.0 : 10.0);
-}
-void main() {
-    gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
-    if (u_only_sel == 1 && i_sel < 0.5) return;
-    float depth = max(-(u_view * vec4(i_pos, 1.0)).z, 1e-4);
-    vec3 px = 4.0 * i_scale * u_focal / depth;
-    int r = int(a_pos.w + 0.5);
-    vec2 ax = r == 0 ? px.xy : r == 1 ? px.yz : px.xz;
-    if (min(ax.x, ax.y) < u_minpx) return;
-    mat3 R = qmat(normalize(i_rot));
-    vec3 a = r == 0 ? R[0] : r == 1 ? R[1] : R[0], b = r == 0 ? R[1] : r == 1 ? R[2] : R[2];
-    vec2 s = 2.0 * (r == 0 ? i_scale.xy : r == 1 ? i_scale.yz : i_scale.xz);   // 2-sigma half axes (m)
-    v_uv = a_pos.xy;
-    v_m = a_pos.xy * s;
-    v_cell = step125(u_cellpx * depth / u_focal);
-    v_col = i_sel > 0.5 && u_only_sel == 1 ? vec4(1.0, 0.62, 0.15, 0.5) : vec4(min(i_col.rgb * 1.25 + 0.08, vec3(1.0)), 0.5);
-    gl_Position = u_vp * vec4(i_pos + a * v_m.x + b * v_m.y, 1.0);
-}`;
-const FS_FILL = `#version 300 es
-precision highp float;
-in vec2 v_uv; in vec2 v_m; flat in float v_cell; flat in vec4 v_col; out vec4 o;
-void main() {
-    if (dot(v_uv, v_uv) > 1.0) discard;
-    vec2 g = v_m / v_cell, d = abs(fract(g - 0.5) - 0.5) / max(fwidth(g), vec2(1e-6));   // distance to a line, px
-    float line = 1.0 - clamp(min(d.x, d.y), 0.0, 1.0);
-    if (line < 0.02) discard;
-    o = vec4(v_col.rgb, v_col.a * line);
-}`;
-
 const VS_LINE = `#version 300 es
 layout(location=0) in vec3 a_pos; layout(location=1) in vec4 a_col;
 uniform mat4 u_vp; uniform float u_psize; out vec4 v_col;
@@ -255,9 +207,7 @@ function sphere_mesh()
                     const c = Math.cos(a / 32 * 2 * Math.PI), s = Math.sin(a / 32 * 2 * Math.PI);
                     ring.push(...(k === 0 ? [c, s, 0] : k === 1 ? [0, c, s] : [c, 0, s]), k + 3 * j);
                 }
-    const fill = [];                                                  // one quad per local plane (corner xy, plane w)
-    for (let k = 0; k < 3; k++) for (const c of [[-1, -1], [1, -1], [1, 1], [-1, -1], [1, 1], [-1, 1]]) fill.push(c[0], c[1], 0, k);
-    return { tri: new Float32Array(tri), ring: new Float32Array(ring), fill: new Float32Array(fill) };
+    return { tri: new Float32Array(tri), ring: new Float32Array(ring) };
 }
 
 function render_init(canvas)
@@ -269,7 +219,6 @@ function render_init(canvas)
     R.pe = gl_prog(gl, VS_ELL, FS_ELL);
     R.pl = gl_prog(gl, VS_LINE, FS_LINE);
     R.pr = gl_prog(gl, VS_RING, FS_LINE);
-    R.pf = gl_prog(gl, VS_FILL, FS_FILL);
     R.inst = gl.createBuffer();
     const mesh = sphere_mesh();
     const vao_for = function (verts, comps, inst_sel) {
@@ -287,7 +236,6 @@ function render_init(canvas)
     R.vao_splat = vao_for(new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), 2, false);
     R.vao_ell = vao_for(mesh.tri, 3, true); R.ell_count = mesh.tri.length / 3;
     R.vao_ring = vao_for(mesh.ring, 4, true); R.ring_count = mesh.ring.length / 4;
-    R.vao_fill = vao_for(mesh.fill, 4, true); R.fill_count = mesh.fill.length / 4;
     R.vao_line = gl.createVertexArray(); gl.bindVertexArray(R.vao_line);
     R.line_vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, R.line_vb);
     gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 28, 0);
@@ -358,21 +306,6 @@ function rings_draw(R, cam, vp, h, minpx, only_sel, space)
     gl.drawArraysInstanced(gl.LINES, 0, R.ring_count, R.n);
 }
 
-// Grid fills inside the central contour of each plane (blended, no depth writes); only_sel: selected splats, in orange.
-function fills_draw(R, cam, vp, h, minpx, only_sel, cellpx)
-{
-    const gl = R.gl, u = R.pf.u;
-    gl.depthMask(false); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    gl.useProgram(R.pf.p);
-    gl.uniformMatrix4fv(u.u_vp, false, vp); gl.uniformMatrix4fv(u.u_view, false, cam.view);
-    gl.uniform1f(u.u_focal, cam.focal * h); gl.uniform1f(u.u_minpx, minpx); gl.uniform1f(u.u_cellpx, cellpx);
-    gl.uniform1i(u.u_only_sel, only_sel ? 1 : 0);
-    gl.bindVertexArray(R.vao_fill);
-    gl.drawArraysInstanced(gl.TRIANGLES, 0, R.fill_count, R.n);
-    gl.disable(gl.BLEND); gl.depthMask(true);
-}
-
-// mode: 0 splats, 1 contours (2-sigma ellipses in the local planes), 2 centres. view: camera {view, proj, eye, focal}.
 function render_frame(R, cam, opts)
 {
     const gl = R.gl, c = R.canvas, dpr = window.devicePixelRatio || 1;
@@ -394,8 +327,6 @@ function render_frame(R, cam, opts)
             gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, R.n);
             gl.disable(gl.BLEND); gl.depthMask(true);
         } else if (opts.mode === 1) {
-            // Grid fills first, then the outlines.
-            fills_draw(R, cam, vp, h, 3 * dpr, false, (opts.cell_px || 20) * dpr);
             rings_draw(R, cam, vp, h, 3 * dpr, false, (opts.slice_px || 20) * dpr);
         }
         if (opts.mode === 2 || opts.centres) {
@@ -405,10 +336,9 @@ function render_frame(R, cam, opts)
             lines_draw(R, pts, gl.POINTS, vp, opts.mode === 2 ? 5 * dpr : 3 * dpr);
             gl.enable(gl.DEPTH_TEST);
         }
-        // Selection: drawn as in the contour view (sections and grid), in orange, always on top.
+        // Selection: drawn as in the contour view (sections), in orange, always on top.
         if (opts.nsel) {
             gl.disable(gl.DEPTH_TEST);
-            fills_draw(R, cam, vp, h, 0, true, (opts.cell_px || 20) * dpr);
             rings_draw(R, cam, vp, h, 0, true, (opts.slice_px || 20) * dpr);
             gl.enable(gl.DEPTH_TEST);
         }

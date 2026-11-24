@@ -52,9 +52,9 @@ r is in sigma units. Rims stay at least about 1–2 px wide: the generalized β 
 | Del (or X) | delete |
 | C | put the 3D cursor where the mouse points (on a splat, else on the ground) |
 | T | apply the current tool |
-| 1 / 2 / 3 | view splats / contours / centres. Contours: sections of the 2-sigma ellipsoid parallel to each of the splat's three local planes, in the splat's colour. Along each axis the sections are spread evenly from edge to edge, at least the toolbar **Slices** distance apart on screen (default 20 px): the central one always, then pairs up to 9, so long axes get more sections than short ones, and off-centre ones are dimmer. A plane is hidden when one of its two axes is under 3 px across, so a flat splat shows only its outline and tiny splats disappear. Inside each central contour a grid in the same colour at 50 % opacity, cells about 20 px wide in 1-2-5 steps (1 mm, 2 mm, 5 mm, 1 cm, ?); the status bar shows the cell size at the view centre |
+| 1 / 2 / 3 | view splats / contours / centres. Contours: sections of the 2-sigma ellipsoid parallel to each of the splat's three local planes, in the splat's colour. Along each axis the sections are spread evenly from edge to edge, at least the toolbar **Slices** distance apart on screen (default 20 px): the central one always, then pairs up to 9, so long axes get more sections than short ones, and off-centre ones are dimmer. A plane is hidden when one of its two axes is under 3 px across, so a flat splat shows only its outline and tiny splats disappear. |
 | E | next edge display: per splat, then all Gaussian / saturated / generalized / cut-off (also the toolbar list) |
-| (selection) | selected splats are always drawn as in view 2, in orange and on top; in view 1 the splat itself is faded to 20 % opacity so the grid reads |
+| (selection) | selected splats are always drawn as in view 2, in orange and on top; in view 1 the splat itself is faded to 20 % opacity so the sections read |
 | L | lighting on/off (on by default; also the **Lighting** button) |
 | F | frame the selection (or everything) |
 | Ctrl+Z, Ctrl+Y | undo, redo |
