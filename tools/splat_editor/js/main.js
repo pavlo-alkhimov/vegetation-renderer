@@ -6,7 +6,7 @@ const FOV = 45 * Math.PI / 180;
 
 const E = {
     list: [], title: 'meadow_plant', cursor: [0, 0, 0], mode: 0, edge: -1, slice_px: 20, lit: true, grid: true, centres: false,
-    tool: 'chain', tool_P: {}, undo: [], redo: [], xf: null, editing: false, mouse: [0, 0],
+    tool: 'chain', tool_P: {}, box: null, mods: { shift: false, ctrl: false, alt: false }, undo: [], redo: [], xf: null, editing: false, mouse: [0, 0],
     cam: { az: 0.7, el: 0.35, dist: 1.2, target: [0, 0.12, 0] }, R: null, view_key: '', data_dirty: true, msg: '', msg_t: 0,
 };
 
@@ -153,6 +153,82 @@ function xf_end(ok)
 
 function select_only(list) { for (const t of E.list) t.sel = false; for (const t of list) t.sel = true; }
 
+// ---------------------------------------------------------------------------------------------------------------
+// Box selection. LMB drag draws a rectangle. Modifiers, read live while dragging: Shift add, Ctrl remove (else replace);
+// Alt: only splats completely inside the box (else every splat the box touches). A splat is its 2-sigma ellipse on
+// screen (the EWA projection, as drawn). The same modifiers apply to a click: Shift toggles, Ctrl removes.
+
+function sel_op(m) { return m.ctrl ? 'remove' : m.shift ? 'add' : 'replace'; }
+
+// Screen ellipse of a splat in CSS pixels: centre and 2-sigma covariance (xx, xy, yy), or null when behind the camera.
+function splat_ellipse(t, cam, F, rc)
+{
+    const v = cam.view, p = t.p;
+    const vx = v[0] * p[0] + v[4] * p[1] + v[8] * p[2] + v[12], vy = v[1] * p[0] + v[5] * p[1] + v[9] * p[2] + v[13];
+    const tz = -(v[2] * p[0] + v[6] * p[1] + v[10] * p[2] + v[14]);
+    if (tz < 1e-3) return null;
+    const ax = q_axes(t.q);
+    let xx = 0.3, xy = 0, yy = 0.3;
+    for (let k = 0; k < 3; k++) {
+        const w = vscale(ax[k], t.s[k]), wx = v[0] * w[0] + v[4] * w[1] + v[8] * w[2], wy = v[1] * w[0] + v[5] * w[1] + v[9] * w[2];
+        const wz = -(v[2] * w[0] + v[6] * w[1] + v[10] * w[2]);
+        const jx = F / tz * wx + F * vx / (tz * tz) * wz, jy = -(F / tz * wy + F * vy / (tz * tz) * wz);   // screen y down
+        xx += jx * jx; xy += jx * jy; yy += jy * jy;
+    }
+    const s = to_screen(p);
+    return { x: s[0], y: s[1], xx: 4 * xx, xy: 4 * xy, yy: 4 * yy };
+}
+
+// Does the ellipse touch the box / lie completely inside it?
+function ellipse_touches(e, b)
+{
+    if (e.x >= b.x0 && e.x <= b.x1 && e.y >= b.y0 && e.y <= b.y1) return true;
+    const det = e.xx * e.yy - e.xy * e.xy; if (det <= 0) return false;
+    const a = e.yy / det, c = e.xx / det, h = -e.xy / det;          // inverse covariance [[a, h], [h, c]]
+    const q = (dx, dy) => a * dx * dx + 2 * h * dx * dy + c * dy * dy;
+    // minimum of the quadratic form along each edge of the box (1D quadratic, clamped)
+    for (const X of [b.x0, b.x1]) { const dx = X - e.x, dy = clamp(-h * dx / c, b.y0 - e.y, b.y1 - e.y); if (q(dx, dy) <= 1) return true; }
+    for (const Y of [b.y0, b.y1]) { const dy = Y - e.y, dx = clamp(-h * dy / a, b.x0 - e.x, b.x1 - e.x); if (q(dx, dy) <= 1) return true; }
+    return false;
+}
+function ellipse_inside(e, b)
+{
+    const ex = Math.sqrt(e.xx), ey = Math.sqrt(e.yy);
+    return e.x - ex >= b.x0 && e.x + ex <= b.x1 && e.y - ey >= b.y0 && e.y + ey <= b.y1;
+}
+
+function box_apply(B, m)
+{
+    const cam = camera(), rc = E.R.canvas.getBoundingClientRect(), F = cam.focal * rc.height;
+    const b = { x0: Math.min(B.x0, B.x1), x1: Math.max(B.x0, B.x1), y0: Math.min(B.y0, B.y1), y1: Math.max(B.y0, B.y1) };
+    const hit = E.list.filter(function (t) { const e = splat_ellipse(t, cam, F, rc); return e && (m.alt ? ellipse_inside(e, b) : ellipse_touches(e, b)); });
+    const op = sel_op(m);
+    if (op === 'replace') select_only(hit);
+    else for (const t of hit) t.sel = op === 'add';
+    msg('box: ' + hit.length + ' splats ' + (op === 'remove' ? 'removed' : op === 'add' ? 'added' : 'selected') + (m.alt ? ' (enclosed)' : ' (touching)'));
+    changed(true);
+}
+
+function box_overlay(B, m)
+{
+    const d = $('box');
+    if (!B || !B.active) { d.classList.add('hidden'); return; }
+    const rc = E.R.canvas.getBoundingClientRect();
+    const x0 = clamp(Math.min(B.x0, B.x1), rc.left, rc.right), x1 = clamp(Math.max(B.x0, B.x1), rc.left, rc.right);
+    const y0 = clamp(Math.min(B.y0, B.y1), rc.top, rc.bottom), y1 = clamp(Math.max(B.y0, B.y1), rc.top, rc.bottom);
+    d.style.left = x0 + 'px'; d.style.top = y0 + 'px'; d.style.width = (x1 - x0) + 'px'; d.style.height = (y1 - y0) + 'px';
+    d.className = 'box ' + sel_op(m) + (m.alt ? ' enclosed' : '');
+}
+
+// Status line part describing selection: mode and the modifier keys with their effect (held ones highlighted).
+function sel_status()
+{
+    const m = E.mods, on = (b, s) => b ? '<b class="on">' + s + '</b>' : s;
+    const head = E.box && E.box.active ? 'BOX SELECT' : 'select: click / drag box';
+    return '<b>' + head + '</b> ' + sel_op(m) + ', ' + (m.alt ? 'enclosed only' : 'touching') +
+           ' [' + on(m.shift, 'Shift add') + ' · ' + on(m.ctrl, 'Ctrl remove') + ' · ' + on(m.alt, 'Alt enclosed only') + ']';
+}
+
 function add_splat()
 {
     push_undo();
@@ -279,16 +355,17 @@ function tools_build()
 const EDGE_NAMES = ['Gaussian', 'saturated', 'generalized', 'cut-off'];
 
 const KEYBAR = {
-    edit: ['EDIT', ['LMB', 'select (Shift: add)'], ['G R S', 'move / rotate / scale'], ['N', 'new splat'], ['Shift+D', 'duplicate'], ['Del', 'delete'],
+    edit: ['EDIT', ['LMB', 'select / drag box'], ['G R S', 'move / rotate / scale'], ['N', 'new splat'], ['Shift+D', 'duplicate'], ['Del', 'delete'],
            ['A', 'select all'], ['Alt+A', 'none'], ['C', 'cursor to mouse'], ['T', 'apply tool'], ['1 2 3', 'splats / contours / centres'],
            ['L', 'lighting'], ['E', 'edge mode'], ['F', 'frame'], ['Ctrl+Z / Y', 'undo / redo'], ['RMB', 'orbit'], ['MMB', 'pan'], ['Wheel', 'zoom'], ['H', 'help']],
     xf: ['TRANSFORM', ['X Y Z', 'axis (scale: local axis)'], ['Shift', 'fine'], ['LMB / Enter', 'confirm'], ['RMB / Esc', 'cancel']],
     help: ['HELP', ['PgUp/PgDn', 'scroll'], ['Esc', 'close']],
+    box: ['BOX SELECT', ['Shift', 'add'], ['Ctrl', 'remove'], ['Alt', 'only enclosed splats'], ['release', 'apply'], ['Esc', 'cancel']],
 };
 
 function keybar_update()
 {
-    const mode = !$('help').classList.contains('hidden') ? 'help' : E.xf ? 'xf' : 'edit';
+    const mode = !$('help').classList.contains('hidden') ? 'help' : E.xf ? 'xf' : E.box && E.box.active ? 'box' : 'edit';
     const key = mode + (E.xf ? E.xf.mode + E.xf.axis : '');
     if (E.keybar_key === key) return;
     E.keybar_key = key;
@@ -304,7 +381,9 @@ function help_text()
         'A splat is a 3D Gaussian: position, three standard deviations (sigma) along its own axes, a rotation, colour and opacity.\n' +
         'It is drawn as a soft ellipse facing the camera; the visible edge is at about 2 sigma. A flat splat (one sigma small)\n' +
         'is a leaf patch, a long thin one a blade or needle segment, a round one a blob.\n\n' +
-        'SELECT   LMB on a splat (Shift: toggle); LMB on empty space: none; A all, Alt+A none\n' +
+        'SELECT   LMB on a splat (Shift: toggle, Ctrl: remove); LMB on empty space: none; A all, Alt+A none\n' +
+        '         LMB drag: box. Every splat the box touches (its 2-sigma ellipse); hold Alt: only splats completely\n' +
+        '         inside. Shift adds, Ctrl removes, otherwise the box replaces the selection. Esc cancels.\n' +
         'MOVE     G, then mouse; X/Y/Z lock to a world axis; Shift fine; LMB/Enter confirm, RMB/Esc cancel\n' +
         'ROTATE   R, then mouse around the selection centre; X/Y/Z: around a world axis, else the view axis\n' +
         'SCALE    S, then mouse away from / towards the centre; X/Y/Z: only that local sigma, else all (and positions)\n' +
@@ -335,24 +414,42 @@ function view_input()
     const c = E.R.canvas;
     let drag = null;
     c.addEventListener('contextmenu', e => e.preventDefault());
+    const mods = e => { E.mods = { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey, alt: e.altKey }; if (E.box) box_overlay(E.box, E.mods); };
+    window.addEventListener('keydown', e => { mods(e); if (e.key === 'Alt') e.preventDefault(); });
+    window.addEventListener('keyup', e => { mods(e); if (e.key === 'Alt') e.preventDefault(); });
+    window.addEventListener('blur', () => { E.mods = { shift: false, ctrl: false, alt: false }; });
     c.addEventListener('mousedown', e => {
-        c.focus();
+        c.focus(); mods(e);
         E.mouse = [e.clientX, e.clientY];
         if (E.xf) { xf_end(e.button === 0); e.preventDefault(); return; }
-        if (e.button === 0) {
-            const h = pick(e.clientX, e.clientY);
-            if (h.i >= 0) { const t = E.list[h.i]; if (e.shiftKey) t.sel = !t.sel; else select_only([t]); }
-            else if (!e.shiftKey) select_only([]);
-            changed(true);
+        if (e.button === 0) {                                         // click selects on release; a drag draws a box
+            E.box = { x0: e.clientX, y0: e.clientY, x1: e.clientX, y1: e.clientY, active: false };
+            e.preventDefault();
             return;
         }
         drag = { x: e.clientX, y: e.clientY, pan: e.button === 1 || e.shiftKey };
         e.preventDefault();
     });
-    window.addEventListener('mouseup', () => { drag = null; });
+    window.addEventListener('mouseup', e => {
+        drag = null;
+        if (e.button !== 0 || !E.box) return;
+        mods(e);
+        const B = E.box; E.box = null; box_overlay(null);
+        if (B.active) { box_apply(B, E.mods); return; }
+        const h = pick(B.x0, B.y0), m = E.mods;
+        if (h.i >= 0) { const t = E.list[h.i]; if (m.ctrl) t.sel = false; else if (m.shift) t.sel = !t.sel; else select_only([t]); }
+        else if (!m.shift && !m.ctrl) select_only([]);
+        changed(true);
+    });
     window.addEventListener('mousemove', e => {
-        E.mouse = [e.clientX, e.clientY];
+        E.mouse = [e.clientX, e.clientY]; mods(e);
         if (E.xf) { xf_update(); return; }
+        if (E.box) {
+            E.box.x1 = e.clientX; E.box.y1 = e.clientY;
+            if (Math.abs(E.box.x1 - E.box.x0) + Math.abs(E.box.y1 - E.box.y0) > 4) E.box.active = true;
+            box_overlay(E.box, E.mods);
+            return;
+        }
         if (!drag) return;
         const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
         drag.x = e.clientX; drag.y = e.clientY;
@@ -368,6 +465,7 @@ function view_input()
 function on_key(e)
 {
     const k = e.key, ae = document.activeElement, tag = ae ? ae.tagName : '';
+    if (E.box && k === 'Escape') { E.box = null; box_overlay(null); msg('box select cancelled'); e.preventDefault(); return; }
     const help = $('help');
     if (!help.classList.contains('hidden')) {
         if (k === 'Escape' || k === 'h' || k === 'H') help.classList.add('hidden');
@@ -492,7 +590,8 @@ function main()
                 (E.lit ? ' (lit)' : '') + ' · edge ' + (E.edge < 0 ? 'per splat' : EDGE_NAMES[E.edge] + ' (all)') + ' · cursor ' + E.cursor.map(v => v.toFixed(3)).join(' ');
         if (E.xf) s += ' · ' + E.xf.mode + (E.xf.axis >= 0 ? ' ' + 'XYZ'[E.xf.axis] : '') + (E.xf.factor ? ' ×' + E.xf.factor.toFixed(3) : '') + (E.xf.angle ? ' ' + E.xf.angle.toFixed(1) + '°' : '');
         if (E.msg && performance.now() - E.msg_t < 4000) s += ' · ' + E.msg;
-        $('status').textContent = s;
+        const esc = x => x.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+        $('status').innerHTML = sel_status() + ' · ' + esc(s);
         keybar_update();
         requestAnimationFrame(frame);
     };

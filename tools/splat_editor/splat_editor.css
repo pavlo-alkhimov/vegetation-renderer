@@ -38,4 +38,10 @@ button.on { background: #2f5f9e; border-color: #7fb0f0; }
 #status { flex: none; padding: 4px 8px; background: #202226; border-top: 1px solid #33363c; font: 12px monospace; color: #aeb2ba; white-space: nowrap; overflow: hidden; }
 #help { position: fixed; left: 40px; right: 40px; top: 50px; bottom: 40px; background: #1d1f23; border: 1px solid #4a4e56; overflow: auto; padding: 10px; z-index: 10; }
 #help pre { font: 12px monospace; margin: 0; }
-.hidden { display: none; }
+.hidden { display: none !important; }
+#box { position: fixed; pointer-events: none; z-index: 5; border: 1px dashed #e8e8e8; background: rgba(255, 255, 255, 0.05); }
+#box.enclosed { border-style: solid; }
+#box.add { border-color: #8fe08a; background: rgba(120, 220, 110, 0.07); }
+#box.remove { border-color: #f08a7a; background: rgba(240, 120, 100, 0.07); }
+#status b { color: #d8dade; font-weight: normal; }
+#status b.on { color: #1c1d20; background: #d4ad2a; padding: 0 3px; }

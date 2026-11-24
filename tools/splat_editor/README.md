@@ -41,7 +41,8 @@ r is in sigma units. Rims stay at least about 1–2 px wide: the generalized β 
 
 | Keys | Action |
 |---|---|
-| LMB | select a splat (Shift: toggle); on empty space: select none |
+| LMB | select a splat (Shift: toggle, Ctrl: remove); on empty space: select none |
+| LMB drag | box select: every splat the box touches (its 2σ ellipse on screen); **Alt** held: only splats completely inside. **Shift** adds, **Ctrl** removes, otherwise the box replaces the selection. Dashed box = touching, solid = enclosed; green = add, red = remove. Esc cancels. The status line shows the current selection mode and highlights held modifiers |
 | A / Alt+A | select all / none |
 | G, R, S | move / rotate / scale the selection with the mouse (Blender-style) |
 | … then X, Y, Z | lock to an axis: move and rotate use world axes; scale changes only that **local** sigma (without an axis: all sigmas and the spacing) |
