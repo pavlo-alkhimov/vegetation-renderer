@@ -4,10 +4,36 @@
 //           c: [r, g, b] (sRGB 0..1), a: opacity 0..1, sel: bool }.
 // The Gaussian is G(x) = a * exp(-1/2 (x-p)^T (R S S^T R^T)^-1 (x-p)); the visible edge is at ~2 sigma.
 
-// h = edge hardness 0..1 (0 = plain Gaussian); how it is used depends on the edge mode of the renderer.
+// h = edge hardness 0..1 (0 = plain Gaussian); m = edge mode the splat is made for (0 Gaussian, 1 saturated,
+// 2 generalized, 3 cut-off). How h is used depends on the mode.
 const HARD_DEFAULT = 0.5;
-function splat_make(p, s, q, c, a, h) { return { p: p.slice(), s: s.slice(), q: q.slice(), c: c.slice(), a: a, h: h === undefined ? HARD_DEFAULT : h, sel: false }; }
-function splat_clone(t) { return splat_make(t.p, t.s, t.q, t.c, t.a, t.h); }
+function splat_make(p, s, q, c, a, h, m) { return { p: p.slice(), s: s.slice(), q: q.slice(), c: c.slice(), a: a, h: h === undefined ? HARD_DEFAULT : h, m: m | 0, sel: false }; }
+function splat_clone(t) { return splat_make(t.p, t.s, t.q, t.c, t.a, t.h, t.m); }
+
+// A copy of a Gaussian splat adapted to an edge mode. Flat and thin splats (leaves, blades, stems) get hard edges, round
+// ones (flower heads, blobs) stay softer. Saturated: the opacity gain g pushes the e^-2 edge from 2 sigma out to
+// sqrt(4 + 2 ln g) sigma, so the sigmas shrink by 2 / sqrt(4 + 2 ln g) to keep the visible size.
+function splat_adapt(t, m)
+{
+    const c = splat_clone(t), flat = Math.min(...t.s) / Math.max(...t.s) < 0.3;
+    c.m = m;
+    if (m === 0) c.h = 0;
+    else if (m === 1) { c.h = flat ? 0.45 : 0.2; const g = 1 + 7 * c.h, k = 2 / Math.sqrt(4 + 2 * Math.log(g)); c.s = c.s.map(x => x * k); }
+    else if (m === 2) c.h = flat ? 0.8 : 0.35;
+    else c.h = flat ? 0.85 : 0.3;
+    return c;
+}
+
+// Four copies of a model side by side along x (Gaussian, saturated, generalized, cut-off), each adapted to its mode.
+function compare_layout(list)
+{
+    let lo = Infinity, hi = -Infinity;
+    for (const t of list) { lo = Math.min(lo, t.p[0] - 2 * Math.max(...t.s)); hi = Math.max(hi, t.p[0] + 2 * Math.max(...t.s)); }
+    const step = (hi - lo) * 1.25, out = [];
+    for (let m = 0; m < 4; m++)
+        for (const t of list) { const c = splat_adapt(t, m); c.p = [t.p[0] + (m - 1.5) * step, t.p[1], t.p[2]]; out.push(c); }
+    return out;
+}
 
 function hex_rgb(h) { const v = parseInt(h.slice(1), 16); return [(v >> 16 & 255) / 255, (v >> 8 & 255) / 255, (v & 255) / 255]; }
 function rgb_hex(c) { return '#' + c.map(x => ('0' + Math.round(clamp(x, 0, 1) * 255).toString(16)).slice(-2)).join(''); }
@@ -151,15 +177,16 @@ function tool_defaults(id)
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Files. .splats text: one splat per line "x y z  sx sy sz  qw qx qy qz  #rrggbb  opacity  [hardness]"; '#' comments.
+// Files. .splats text: one splat per line "x y z  sx sy sz  qw qx qy qz  #rrggbb  opacity  [hardness  [edge mode]]";
+// '#' comments.
 
 function fmt(x) { return (Math.round(x * 1e5) / 1e5).toString(); }
 
 function splats_write(list, title)
 {
     const L = ['# ' + (title || 'model') + ' - splat editor model (hand-made Gaussian splats)',
-               '# x y z  sx sy sz (sigma, m)  qw qx qy qz  colour  opacity  hardness'];
-    for (const t of list) L.push([t.p.map(fmt).join(' '), t.s.map(fmt).join(' '), t.q.map(fmt).join(' '), rgb_hex(t.c), fmt(t.a), fmt(t.h)].join('  '));
+               '# x y z  sx sy sz (sigma, m)  qw qx qy qz  colour  opacity  hardness  edge mode (0 Gaussian, 1 saturated, 2 generalized, 3 cut-off)'];
+    for (const t of list) L.push([t.p.map(fmt).join(' '), t.s.map(fmt).join(' '), t.q.map(fmt).join(' '), rgb_hex(t.c), fmt(t.a), fmt(t.h), t.m].join('  '));
     return L.join('\n') + '\n';
 }
 
@@ -170,29 +197,29 @@ function splats_read(text)
         line = line.replace(/^\s*#(?![0-9a-fA-F]{6}\b).*$/, '').trim();
         if (!line) return;
         const tok = line.split(/\s+/);
-        if (tok.length !== 12 && tok.length !== 13) { errors.push('line ' + (i + 1) + ': expected 12 or 13 fields'); return; }
+        if (tok.length < 12 || tok.length > 14) { errors.push('line ' + (i + 1) + ': expected 12 to 14 fields'); return; }
         const v = tok.map((x, k) => k === 10 ? x : parseFloat(x));
         if (!/^#[0-9a-fA-F]{6}$/.test(tok[10]) || v.some((x, k) => k !== 10 && isNaN(x))) { errors.push('line ' + (i + 1) + ': bad value'); return; }
         out.push(splat_make(v.slice(0, 3), v.slice(3, 6).map(x => Math.max(x, 1e-5)), q_norm(v.slice(6, 10)), hex_rgb(tok[10]), clamp(v[11], 0, 1),
-                          tok.length === 13 ? clamp(v[12], 0, 1) : HARD_DEFAULT));
+                          tok.length >= 13 ? clamp(v[12], 0, 1) : HARD_DEFAULT, tok.length === 14 ? clamp(Math.round(v[13]), 0, 3) : 0));
     });
     return { splats: out, errors: errors };
 }
 
 // INRIA 3DGS .ply (binary little endian): position, normal (unused, 0), SH degree 0 colour, opacity as logit,
-// scales as log, rotation (w, x, y, z), plus our own 'hardness' property (other viewers ignore it). Opens in SuperSplat, SIBR and the usual 3DGS viewers.
+// scales as log, rotation (w, x, y, z), plus our own 'hardness' and 'edge_mode' properties (other viewers ignore them). Opens in SuperSplat, SIBR and the usual 3DGS viewers.
 const SH_C0 = 0.28209479177387814;
 
 function ply_write(list)
 {
-    const props = ['x', 'y', 'z', 'nx', 'ny', 'nz', 'f_dc_0', 'f_dc_1', 'f_dc_2', 'opacity', 'scale_0', 'scale_1', 'scale_2', 'rot_0', 'rot_1', 'rot_2', 'rot_3', 'hardness'];
+    const props = ['x', 'y', 'z', 'nx', 'ny', 'nz', 'f_dc_0', 'f_dc_1', 'f_dc_2', 'opacity', 'scale_0', 'scale_1', 'scale_2', 'rot_0', 'rot_1', 'rot_2', 'rot_3', 'hardness', 'edge_mode'];
     const head = 'ply\nformat binary_little_endian 1.0\ncomment hand-made splats (plant editor project, splat editor)\nelement vertex ' + list.length + '\n' +
                  props.map(p => 'property float ' + p).join('\n') + '\nend_header\n';
     const hb = new TextEncoder().encode(head), body = new Float32Array(list.length * props.length);
     list.forEach(function (t, i) {
         const a = clamp(t.a, 1e-4, 1 - 1e-4);
         body.set([t.p[0], t.p[1], t.p[2], 0, 0, 0, (t.c[0] - 0.5) / SH_C0, (t.c[1] - 0.5) / SH_C0, (t.c[2] - 0.5) / SH_C0,
-                  Math.log(a / (1 - a)), Math.log(t.s[0]), Math.log(t.s[1]), Math.log(t.s[2]), t.q[0], t.q[1], t.q[2], t.q[3], t.h], i * props.length);
+                  Math.log(a / (1 - a)), Math.log(t.s[0]), Math.log(t.s[1]), Math.log(t.s[2]), t.q[0], t.q[1], t.q[2], t.q[3], t.h, t.m], i * props.length);
     });
     const out = new Uint8Array(hb.length + body.byteLength);
     out.set(hb); out.set(new Uint8Array(body.buffer), hb.length);
@@ -226,7 +253,8 @@ function ply_read(bytes)
         const op = off.opacity ? 1 / (1 + Math.exp(-get(i, 'opacity'))) : 1;
         const s = off.scale_0 ? [Math.exp(get(i, 'scale_0')), Math.exp(get(i, 'scale_1')), Math.exp(get(i, 'scale_2'))] : [0.01, 0.01, 0.01];
         const q = off.rot_0 ? q_norm([get(i, 'rot_0'), get(i, 'rot_1'), get(i, 'rot_2'), get(i, 'rot_3')]) : q_ident();
-        out.push(splat_make([get(i, 'x'), get(i, 'y'), get(i, 'z')], s, q, c.map(x => clamp(x, 0, 1)), op, off.hardness ? clamp(get(i, 'hardness'), 0, 1) : HARD_DEFAULT));
+        out.push(splat_make([get(i, 'x'), get(i, 'y'), get(i, 'z')], s, q, c.map(x => clamp(x, 0, 1)), op, off.hardness ? clamp(get(i, 'hardness'), 0, 1) : HARD_DEFAULT,
+                      off.edge_mode ? clamp(Math.round(get(i, 'edge_mode')), 0, 3) : 0));
     }
     return out;
 }

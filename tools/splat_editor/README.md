@@ -22,7 +22,9 @@ Splats are sorted back to front and alpha-blended, the correctness reference of 
 
 ## Edge modes
 
-Each splat has a **hardness** from 0 to 1 (panel; default 0.5). The edge mode, chosen in the toolbar list or with **E**, decides how hardness shapes the edge. It is a viewing choice, not stored in the model.
+Each splat has an **edge mode** and a **hardness** from 0 to 1 (both in the panel; defaults Gaussian and 0.5): a model is made for a renderer. The toolbar list (or **E**) shows every splat in its own mode (**per splat**, the default) or forces one mode on all splats for checking.
+
+**Compare** replaces the model with four copies side by side, left to right Gaussian, saturated, generalized, cut-off, each adapted to its mode. Flat and thin splats (leaves, blades, stems) get hard edges, round ones (flower heads) softer ones. In the saturated copy the sigmas shrink by 2 / sqrt(4 + 2 ln g) for gain g, so the visible size stays the same. It is one undo step.
 
 | Mode | Falloff | Hardness | Cost |
 |---|---|---|---|
@@ -51,14 +53,14 @@ r is in sigma units. Rims stay at least about 1–2 px wide: the generalized β 
 | C | put the 3D cursor where the mouse points (on a splat, else on the ground) |
 | T | apply the current tool |
 | 1 / 2 / 3 | view splats / contours / centres. Contours: the 2-sigma ellipse in each of the splat's three local planes, in the splat's colour; a plane is hidden when one of its two axes is under 3 px across, so a flat splat shows only its outline and tiny splats disappear. Inside each contour a grid in the same colour at 50 % opacity, cells about 20 px wide in 1-2-5 steps (1 mm, 2 mm, 5 mm, 1 cm, ?); the status bar shows the cell size at the view centre |
-| E | next edge mode (also the toolbar list) |
+| E | next edge display: per splat, then all Gaussian / saturated / generalized / cut-off (also the toolbar list) |
 | L | lighting on/off (on by default; also the **Lighting** button) |
 | F | frame the selection (or everything) |
 | Ctrl+Z, Ctrl+Y | undo, redo |
 | RMB drag, MMB (Shift+RMB) drag, wheel | orbit, pan, zoom |
 | H | help (Esc closes, PgUp/PgDn scroll) |
 
-The right panel shows the selection. With one splat selected: position, sigma (logarithmic bars), rotation as Euler angles, colour, opacity and hardness. With several: colour, opacity and hardness for all of them. Bars work as in the plant editor: drag inside the frame (Ctrl: fine), double-click to type a value.
+The right panel shows the selection. With one splat selected: position, sigma (logarithmic bars), rotation as Euler angles, colour, opacity, hardness and edge mode. With several: colour, opacity, hardness and edge mode for all of them. Bars work as in the plant editor: drag inside the frame (Ctrl: fine), double-click to type a value.
 
 ## Construction tools
 
@@ -77,8 +79,8 @@ The **Example** model (a grass tuft, a leaf rosette and a flower on a stalk, 209
 
 ## Files
 
-- **.splats:** text, one splat per line: `x y z  sx sy sz  qw qx qy qz  #rrggbb  opacity  hardness` (metres, sigma; files without hardness load with 0.5). It is readable and diffable, the editor's own format.
-- **.ply export:** the INRIA 3D Gaussian Splatting format, with SH degree 0 colour, logit opacity, log scales and rotation `w x y z`, plus an extra `hardness` property that other viewers ignore. It opens in SuperSplat, SIBR and other 3DGS viewers. **Load** reads such files back too.
+- **.splats:** text, one splat per line: `x y z  sx sy sz  qw qx qy qz  #rrggbb  opacity  hardness  mode` (metres, sigma; mode 0 Gaussian, 1 saturated, 2 generalized, 3 cut-off; files without hardness load with 0.5, without mode as Gaussian). It is readable and diffable, the editor's own format.
+- **.ply export:** the INRIA 3D Gaussian Splatting format, with SH degree 0 colour, logit opacity, log scales and rotation `w x y z`, plus extra `hardness` and `edge_mode` properties that other viewers ignore. It opens in SuperSplat, SIBR and other 3DGS viewers. **Load** reads such files back too.
 
 ## Limits (v1)
 

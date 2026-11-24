@@ -7,9 +7,9 @@ const SUN = vnorm([0.45, 0.8, 0.35]);
 const VS_SPLAT = `#version 300 es
 layout(location=0) in vec2 a_corner;
 layout(location=1) in vec3 i_pos; layout(location=2) in vec3 i_scale; layout(location=3) in vec4 i_rot; layout(location=4) in vec4 i_col;
-layout(location=6) in float i_hard;
+layout(location=6) in float i_hard; layout(location=7) in float i_mode;
 uniform mat4 u_view, u_proj; uniform vec2 u_vp; uniform float u_focal; uniform int u_lit, u_edge; uniform vec3 u_sun, u_eye;
-out vec4 v_col; out vec2 v_uv; flat out vec2 v_edge;                  // edge parameter per mode (see FS_SPLAT), hardness
+out vec4 v_col; out vec2 v_uv; flat out vec2 v_edge; flat out int v_mode;    // edge parameter per mode (see FS_SPLAT), hardness
 mat3 qmat(vec4 q) {
     float w = q.x, x = q.y, y = q.z, z = q.w;
     return mat3(1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y + w * z), 2.0 * (x * z - w * y),
@@ -36,17 +36,19 @@ void main() {
     float l1 = mid + r, l2 = max(mid - r, 0.05);
     vec2 e1 = abs(b) > 1e-9 ? normalize(vec2(b, l1 - a)) : (a >= c ? vec2(1.0, 0.0) : vec2(0.0, 1.0));
     vec2 e2 = vec2(-e1.y, e1.x);
-    // Edge modes (u_edge): 0 Gaussian; 1 saturated (opacity gain, clamped); 2 generalized Gaussian exp(-2 (r/2)^(2 beta)),
+    // Edge modes (the splat's own, or u_edge when >= 0): 0 Gaussian; 1 saturated (opacity gain, clamped); 2 generalized Gaussian exp(-2 (r/2)^(2 beta)),
     // which equals the Gaussian for beta = 1 and keeps its value e^-2 at the 2-sigma contour for any beta; 3 cut-off at
     // the 2-sigma contour. The quad is cut where alpha falls under 1/255, so hard splats get smaller quads.
     float h = clamp(i_hard, 0.0, 1.0), op = max(i_col.a, 1e-3), cut = 3.0, par = 0.0;
-    if (u_edge == 1) { par = 1.0 + 7.0 * h; cut = sqrt(2.0 * max(log(255.0 * op * par), 0.01)); }
-    else if (u_edge == 2) {
+    int mode = u_edge >= 0 ? u_edge : int(i_mode + 0.5);
+    v_mode = mode;
+    if (mode == 1) { par = 1.0 + 7.0 * h; cut = sqrt(2.0 * max(log(255.0 * op * par), 0.01)); }
+    else if (mode == 2) {
         // beta = 2^(4h): 1..16. The rim is about 3.9 sigma / beta wide; beta is limited by the minor axis in pixels so the
         // rim stays >= ~2 px (anti-aliasing).
         par = clamp(1.5 * sqrt(l2), 1.0, exp2(4.0 * h));
         cut = min(3.0, 2.0 * pow(0.5 * max(log(255.0 * op), 0.01), 0.5 / par));
-    } else if (u_edge == 3) {
+    } else if (mode == 3) {
         float lo = h * exp(-2.0);                                     // smoothstep lower end (FS), as Gaussian value
         if (lo > exp(-4.5)) cut = min(3.0, sqrt(-2.0 * log(lo)) + 1.5 / sqrt(l2));
     }
@@ -78,12 +80,12 @@ void main() {
 
 const FS_SPLAT = `#version 300 es
 precision highp float;
-in vec4 v_col; in vec2 v_uv; flat in vec2 v_edge; uniform highp int u_edge; out vec4 o;
+in vec4 v_col; in vec2 v_uv; flat in vec2 v_edge; flat in int v_mode; out vec4 o;
 void main() {
     float q = dot(v_uv, v_uv), g = exp(-0.5 * q), alpha;
-    if (u_edge == 1) alpha = v_col.a * min(1.0, v_edge.x * g);                       // saturated: flat top, steeper rim
-    else if (u_edge == 2) alpha = v_col.a * exp(-2.0 * pow(0.25 * q, v_edge.x));    // generalized Gaussian
-    else if (u_edge == 3) {                                                          // cut-off at the 2-sigma contour
+    if (v_mode == 1) alpha = v_col.a * min(1.0, v_edge.x * g);                       // saturated: flat top, steeper rim
+    else if (v_mode == 2) alpha = v_col.a * exp(-2.0 * pow(0.25 * q, v_edge.x));    // generalized Gaussian
+    else if (v_mode == 3) {                                                          // cut-off at the 2-sigma contour
         float t = exp(-2.0), w = max((1.0 - v_edge.y) * t, fwidth(g));               // edge width: hardness, >= ~1 px
         alpha = v_col.a * smoothstep(t - w, t + w, g);
     } else alpha = v_col.a * g;
@@ -257,8 +259,8 @@ function render_init(canvas)
         const vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vb); gl.bufferData(gl.ARRAY_BUFFER, verts, gl.STATIC_DRAW);
         gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, comps, gl.FLOAT, false, 0, 0);
         gl.bindBuffer(gl.ARRAY_BUFFER, R.inst);
-        const st = 16 * 4, sz = [3, 3, 4, 4, 1, 1], of = [0, 3, 6, 10, 14, 15];       // pos, sigma, rot, rgba, sel, hardness
-        for (let k = 0; k < 6; k++) {
+        const st = 17 * 4, sz = [3, 3, 4, 4, 1, 1, 1], of = [0, 3, 6, 10, 14, 15, 16];   // pos, sigma, rot, rgba, sel, hardness, mode
+        for (let k = 0; k < 7; k++) {
             gl.enableVertexAttribArray(1 + k); gl.vertexAttribPointer(1 + k, sz[k], gl.FLOAT, false, st, of[k] * 4); gl.vertexAttribDivisor(1 + k, 1);
         }
         gl.bindVertexArray(null);
@@ -287,13 +289,13 @@ function render_upload(R, list, view)
         idx[i] = i;
     }
     idx.sort((a, b) => depth[a] - depth[b]);                                          // farthest (most negative) first
-    const f = new Float32Array(n * 16);
+    const f = new Float32Array(n * 17);
     for (let k = 0; k < n; k++) {
-        const t = list[idx[k]], o = k * 16;
+        const t = list[idx[k]], o = k * 17;
         f[o] = t.p[0]; f[o + 1] = t.p[1]; f[o + 2] = t.p[2];
         f[o + 3] = t.s[0]; f[o + 4] = t.s[1]; f[o + 5] = t.s[2];
         f[o + 6] = t.q[0]; f[o + 7] = t.q[1]; f[o + 8] = t.q[2]; f[o + 9] = t.q[3];
-        f[o + 10] = t.c[0]; f[o + 11] = t.c[1]; f[o + 12] = t.c[2]; f[o + 13] = t.a; f[o + 14] = t.sel ? 1 : 0; f[o + 15] = t.h;
+        f[o + 10] = t.c[0]; f[o + 11] = t.c[1]; f[o + 12] = t.c[2]; f[o + 13] = t.a; f[o + 14] = t.sel ? 1 : 0; f[o + 15] = t.h; f[o + 16] = t.m;
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, R.inst); gl.bufferData(gl.ARRAY_BUFFER, f, gl.DYNAMIC_DRAW);
     R.n = n;
@@ -354,7 +356,7 @@ function render_frame(R, cam, opts)
             gl.useProgram(R.ps.p);
             gl.uniformMatrix4fv(R.ps.u.u_view, false, cam.view); gl.uniformMatrix4fv(R.ps.u.u_proj, false, cam.proj);
             gl.uniform2f(R.ps.u.u_vp, w, h); gl.uniform1f(R.ps.u.u_focal, cam.focal * h);
-            gl.uniform1i(R.ps.u.u_lit, opts.lit ? 1 : 0); gl.uniform1i(R.ps.u.u_edge, opts.edge | 0); gl.uniform3fv(R.ps.u.u_sun, sun); gl.uniform3fv(R.ps.u.u_eye, cam.eye);
+            gl.uniform1i(R.ps.u.u_lit, opts.lit ? 1 : 0); gl.uniform1i(R.ps.u.u_edge, opts.edge === undefined ? -1 : opts.edge); gl.uniform3fv(R.ps.u.u_sun, sun); gl.uniform3fv(R.ps.u.u_eye, cam.eye);
             gl.bindVertexArray(R.vao_splat);
             gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, R.n);
             gl.disable(gl.BLEND); gl.depthMask(true);
