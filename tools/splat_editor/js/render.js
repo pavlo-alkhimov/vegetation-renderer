@@ -130,18 +130,17 @@ void main() {
     o = vec4(c, 1.0);
 }`;
 
-// Contour rings: sections of the 2-sigma ellipsoid by planes parallel to the splat's three local planes
-// (a_pos.w = plane + 3 * slot; plane 0 xy, 1 yz, 2 zx). A plane family is dropped when either of its two in-plane axes is
-// under u_minpx pixels across (diameter at 2 sigma): flat splats show only their outline, tiny splats nothing. Along the
-// normal axis the sections are spread evenly from edge to edge, at least u_space pixels apart: an odd count (the central
-// section always, then pairs), up to SLICES_MAX, so long axes get more sections than short ones. Off-centre sections
-// are drawn dimmer.
-const SLICES_MAX = 9;
+// Contour rings: sections of the 2-sigma ellipsoid by planes parallel to the splat's three local planes. The sections
+// are worked out on the CPU (rings_build), one instance per ring: splat data plus (plane, offset). Plane 0 = xy,
+// 1 = yz, 2 = zx; offset f along the plane's normal axis in units of 2 sigma (0 = central section).
+const SLICES_MAX = 200;           // sections per axis
+const RINGS_MAX = 150000;         // per frame, a safety limit (camera inside large splats)
 const VS_RING = `#version 300 es
-layout(location=0) in vec4 a_pos;
-layout(location=1) in vec3 i_pos; layout(location=2) in vec3 i_scale; layout(location=3) in vec4 i_rot; layout(location=4) in vec4 i_col;
-layout(location=5) in float i_sel;
-uniform mat4 u_vp, u_view; uniform float u_focal, u_minpx, u_space; uniform int u_only_sel;
+layout(location=0) in vec3 a_pos;                                     // unit circle in xy
+layout(location=1) in vec3 i_pos; layout(location=2) in vec3 i_scale; layout(location=3) in vec4 i_rot;
+layout(location=4) in vec4 i_col;                                     // rgb, selected
+layout(location=5) in vec2 i_ring;                                    // plane, offset
+uniform mat4 u_vp;
 out vec4 v_col;
 mat3 qmat(vec4 q) {
     float w = q.x, x = q.y, y = q.z, z = q.w;
@@ -150,23 +149,12 @@ mat3 qmat(vec4 q) {
                 2.0 * (x * z + w * y), 2.0 * (y * z - w * x), 1.0 - 2.0 * (x * x + y * y));
 }
 void main() {
-    gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
-    if (u_only_sel == 1 && i_sel < 0.5) return;
-    float depth = max(-(u_view * vec4(i_pos, 1.0)).z, 1e-4);
-    vec3 px = 4.0 * i_scale * u_focal / depth;                       // 2-sigma diameter of each axis in pixels
-    int code = int(a_pos.w + 0.5), r = code % 3, j = code / 3;
-    vec2 ax = r == 0 ? px.xy : r == 1 ? px.yz : px.xz;
-    if (min(ax.x, ax.y) < u_minpx) return;
-    float len = r == 0 ? px.z : r == 1 ? px.x : px.y;                 // normal axis, 2-sigma diameter in pixels
-    int n = 1 + 2 * int(clamp(floor((len / max(u_space, 1.0) - 1.0) * 0.5), 0.0, float(${SLICES_MAX - 1}) * 0.5));
-    if (j >= n) return;
-    int m = j == 0 ? 0 : (j % 2 == 1 ? (j + 1) / 2 : -(j + 1) / 2);
-    float f = 2.0 * float(m) / float(n + 1);                          // offset along the normal, in units of 2 sigma
-    vec3 nrm = r == 0 ? vec3(0.0, 0.0, 1.0) : r == 1 ? vec3(1.0, 0.0, 0.0) : vec3(0.0, 1.0, 0.0);
-    vec3 loc = a_pos.xyz * sqrt(max(1.0 - f * f, 0.0)) + nrm * f;
+    int r = int(i_ring.x + 0.5); float f = i_ring.y;
+    vec2 c = a_pos.xy * sqrt(max(1.0 - f * f, 0.0));
+    vec3 loc = r == 0 ? vec3(c.x, c.y, f) : r == 1 ? vec3(f, c.x, c.y) : vec3(c.x, f, c.y);
     gl_Position = u_vp * vec4(i_pos + qmat(normalize(i_rot)) * (loc * i_scale * 2.0), 1.0);
-    vec3 col = i_sel > 0.5 ? vec3(1.0, 0.62, 0.15) : min(i_col.rgb * 1.25 + 0.08, vec3(1.0));
-    v_col = vec4(j == 0 ? col : col * 0.6, 1.0);
+    vec3 col = i_col.a > 0.5 ? vec3(1.0, 0.62, 0.15) : min(i_col.rgb * 1.25 + 0.08, vec3(1.0));
+    v_col = vec4(f == 0.0 ? col : col * 0.6, 1.0);
 }`;
 
 const VS_LINE = `#version 300 es
@@ -200,13 +188,8 @@ function sphere_mesh()
     const P = (i, j) => { const th = j / nv * Math.PI, ph = i / nu * 2 * Math.PI; return [Math.sin(th) * Math.cos(ph), Math.cos(th), Math.sin(th) * Math.sin(ph)]; };
     for (let j = 0; j < nv; j++)
         for (let i = 0; i < nu; i++) tri.push(...P(i, j), ...P(i + 1, j), ...P(i + 1, j + 1), ...P(i, j), ...P(i + 1, j + 1), ...P(i, j + 1));
-    for (let j = 0; j < SLICES_MAX; j++)                              // slice slot j, plane k: w = k + 3 j
-        for (let k = 0; k < 3; k++)
-            for (let i = 0; i < 32; i++)
-                for (const a of [i, i + 1]) {
-                    const c = Math.cos(a / 32 * 2 * Math.PI), s = Math.sin(a / 32 * 2 * Math.PI);
-                    ring.push(...(k === 0 ? [c, s, 0] : k === 1 ? [0, c, s] : [c, 0, s]), k + 3 * j);
-                }
+    for (let i = 0; i < 48; i++)
+        for (const a of [i, i + 1]) ring.push(Math.cos(a / 48 * 2 * Math.PI), Math.sin(a / 48 * 2 * Math.PI), 0);
     return { tri: new Float32Array(tri), ring: new Float32Array(ring) };
 }
 
@@ -235,7 +218,16 @@ function render_init(canvas)
     };
     R.vao_splat = vao_for(new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), 2, false);
     R.vao_ell = vao_for(mesh.tri, 3, true); R.ell_count = mesh.tri.length / 3;
-    R.vao_ring = vao_for(mesh.ring, 4, true); R.ring_count = mesh.ring.length / 4;
+    // rings: circle (location 0) + ring instances (16 floats: pos, sigma, rot, rgb+sel, plane, offset)
+    R.ring_inst = gl.createBuffer(); R.ring_count = mesh.ring.length / 3;
+    R.vao_ring = gl.createVertexArray(); gl.bindVertexArray(R.vao_ring);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer()); gl.bufferData(gl.ARRAY_BUFFER, mesh.ring, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, R.ring_inst);
+    [[3, 0], [3, 3], [4, 6], [4, 10], [2, 14]].forEach(function (a, k) {
+        gl.enableVertexAttribArray(1 + k); gl.vertexAttribPointer(1 + k, a[0], gl.FLOAT, false, 64, a[1] * 4); gl.vertexAttribDivisor(1 + k, 1);
+    });
+    gl.bindVertexArray(null);
     R.vao_line = gl.createVertexArray(); gl.bindVertexArray(R.vao_line);
     R.line_vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, R.line_vb);
     gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 28, 0);
@@ -295,15 +287,44 @@ function grid_lines()
     return d;
 }
 
-function rings_draw(R, cam, vp, h, minpx, only_sel, space)
+// Ring instances for the splats (only_sel: selected ones). Per splat and local plane: skipped when either in-plane axis
+// is under minpx pixels across (2-sigma diameter); otherwise sections spread evenly from edge to edge along the normal
+// axis, at least space pixels apart: an odd count n (the central one always, then pairs), up to SLICES_MAX, at offsets
+// 2 m / (n + 1) of 2 sigma, m = -(n-1)/2 .. (n-1)/2.
+function rings_build(list, cam, h, minpx, only_sel, space)
 {
-    const gl = R.gl, u = R.pr.u;
+    const v = cam.view, F = cam.focal * h, out = [];
+    let count = 0;
+    for (const t of list) {
+        if (only_sel && !t.sel) continue;
+        const z = -(v[2] * t.p[0] + v[6] * t.p[1] + v[10] * t.p[2] + v[14]), ext = 2 * Math.max(t.s[0], t.s[1], t.s[2]);
+        if (z + ext <= 0) continue;                                   // entirely behind the camera
+        const depth = Math.max(z, 1e-3), px = t.s.map(s => 4 * s * F / depth);
+        for (let r = 0; r < 3; r++) {
+            const a = r === 0 ? [0, 1] : r === 1 ? [1, 2] : [0, 2], nk = r === 0 ? 2 : r === 1 ? 0 : 1;
+            if (Math.min(px[a[0]], px[a[1]]) < minpx) continue;
+            const pairs = Math.max(0, Math.min((SLICES_MAX - 1) >> 1, Math.floor((px[nk] / Math.max(space, 1) - 1) / 2)));
+            const n = 1 + 2 * pairs;
+            for (let m = -pairs; m <= pairs; m++) {
+                if (count >= RINGS_MAX) break;
+                out.push(t.p[0], t.p[1], t.p[2], t.s[0], t.s[1], t.s[2], t.q[0], t.q[1], t.q[2], t.q[3], t.c[0], t.c[1], t.c[2], t.sel ? 1 : 0, r, 2 * m / (n + 1));
+                count++;
+            }
+        }
+    }
+    return new Float32Array(out);
+}
+
+function rings_draw(R, cam, vp, h, minpx, only_sel, space, list)
+{
+    const gl = R.gl, data = rings_build(list, cam, h, minpx, only_sel, space), n = data.length / 16;
+    R.rings = n;
+    if (!n) return;
+    gl.bindBuffer(gl.ARRAY_BUFFER, R.ring_inst); gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
     gl.useProgram(R.pr.p);
-    gl.uniformMatrix4fv(u.u_vp, false, vp); gl.uniformMatrix4fv(u.u_view, false, cam.view);
-    gl.uniform1f(u.u_focal, cam.focal * h); gl.uniform1f(u.u_minpx, minpx); gl.uniform1i(u.u_only_sel, only_sel ? 1 : 0);
-    gl.uniform1f(u.u_space, space);
+    gl.uniformMatrix4fv(R.pr.u.u_vp, false, vp);
     gl.bindVertexArray(R.vao_ring);
-    gl.drawArraysInstanced(gl.LINES, 0, R.ring_count, R.n);
+    gl.drawArraysInstanced(gl.LINES, 0, R.ring_count, n);
 }
 
 function render_frame(R, cam, opts)
@@ -327,7 +348,7 @@ function render_frame(R, cam, opts)
             gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, R.n);
             gl.disable(gl.BLEND); gl.depthMask(true);
         } else if (opts.mode === 1) {
-            rings_draw(R, cam, vp, h, 3 * dpr, false, (opts.slice_px || 20) * dpr);
+            rings_draw(R, cam, vp, h, 3 * dpr, false, (opts.slice_px || 20) * dpr, opts.list);
         }
         if (opts.mode === 2 || opts.centres) {
             const pts = [];
@@ -339,7 +360,7 @@ function render_frame(R, cam, opts)
         // Selection: drawn as in the contour view (sections), in orange, always on top.
         if (opts.nsel) {
             gl.disable(gl.DEPTH_TEST);
-            rings_draw(R, cam, vp, h, 0, true, (opts.slice_px || 20) * dpr);
+            rings_draw(R, cam, vp, h, 0, true, (opts.slice_px || 20) * dpr, opts.list);
             gl.enable(gl.DEPTH_TEST);
         }
     }
