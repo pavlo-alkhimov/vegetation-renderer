@@ -14,6 +14,16 @@ function $(id) { return document.getElementById(id); }
 function sel_list() { return E.list.filter(t => t.sel); }
 function msg(s) { E.msg = s; E.msg_t = performance.now(); }
 
+// Large note at the bottom middle of the viewport that fades out over 2 s (e.g. the new splats presentation).
+function toast(s)
+{
+    const d = $('toast'), c = E.R.canvas;
+    d.textContent = s; d.style.left = (c.offsetLeft + c.offsetWidth / 2) + 'px';
+    d.style.transition = 'none'; d.style.opacity = '1';
+    void d.offsetWidth;                                                // restart the transition
+    d.style.transition = 'opacity 2s linear'; d.style.opacity = '0';
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Undo, change notification, autosave
 
@@ -298,7 +308,7 @@ function frame_view()
 function mode_select(value, set)
 {
     const row = el('div', 'crow'), sel = el('select');
-    row.appendChild(el('span', 'pname', 'edge mode'));
+    row.appendChild(el('span', 'pname', 'edge rendering mode'));
     EDGE_NAMES.forEach((n, i) => { const o = el('option', null, n); o.value = i; sel.appendChild(o); });
     sel.value = value;
     sel.addEventListener('change', () => { set(parseInt(sel.value, 10)); sel.blur(); });
@@ -362,8 +372,8 @@ const EDGE_NAMES = ['Gaussian', 'saturated', 'generalized', 'cut-off'];
 
 const KEYBAR = {
     edit: ['EDIT', ['LMB', 'select / drag box'], ['G R S', 'move / rotate / scale'], ['N', 'new splat'], ['Shift+D', 'duplicate'], ['Del', 'delete'],
-           ['A', 'select all'], ['Alt+A', 'none'], ['C', 'cursor to mouse'], ['T', 'apply tool'], ['1 2 3', 'splats / contours / centres'],
-           ['L', 'lighting'], ['E', 'edge mode'], ['V', 'view settings'], ['F', 'frame'], ['Ctrl+Z / Y', 'undo / redo'], ['RMB', 'orbit'], ['MMB', 'pan'], ['Wheel', 'zoom'], ['H', 'help']],
+           ['A', 'select all'], ['Alt+A', 'none'], ['C', 'cursor to mouse'], ['T', 'apply tool'], ['1 2 3', 'splats presentation'],
+           ['L', 'lighting'], ['E', 'edge rendering mode'], ['V', 'view settings'], ['F', 'frame'], ['Ctrl+Z / Y', 'undo / redo'], ['RMB', 'orbit'], ['MMB', 'pan'], ['Wheel', 'zoom'], ['H', 'help']],
     xf: ['TRANSFORM', ['X Y Z', 'axis (scale: local axis)'], ['Shift', 'fine'], ['LMB / Enter', 'confirm'], ['RMB / Esc', 'cancel']],
     help: ['HELP', ['PgUp/PgDn', 'scroll'], ['Esc', 'close']],
     box: ['BOX SELECT', ['Shift', 'add'], ['Ctrl', 'remove'], ['Alt', 'only enclosed splats'], ['release', 'apply'], ['Esc', 'cancel']],
@@ -523,7 +533,7 @@ function on_key(e)
     else if (k === 'a' || k === 'A') { select_only(E.list); changed(true); }
     else if (k === 'c' || k === 'C') { const h = pick(E.mouse[0], E.mouse[1]); E.cursor = h.p || ground_hit(); msg('cursor ' + E.cursor.map(v => v.toFixed(3)).join(' ')); }
     else if (k === 't' || k === 'T') apply_tool();
-    else if (k === '1' || k === '2' || k === '3') { E.mode = parseInt(k, 10) - 1; }
+    else if (k === '1' || k === '2' || k === '3') { E.mode = parseInt(k, 10) - 1; toast(k + ' · ' + ['splats', 'contours', 'centres'][E.mode]); }
     else if (k === 'v' || k === 'V') $('viewset').classList.toggle('hidden');
     else if (k === 'l' || k === 'L') E.lit = !E.lit;
     else if (k === 'e' || k === 'E') { E.edge = E.edge >= 3 ? -1 : E.edge + 1; $('edge').value = E.edge; }

@@ -34,7 +34,7 @@ button.on { background: #2f5f9e; border-color: #7fb0f0; }
 .stext b { flex: none; font: 11px monospace; color: #fff; }
 .sedit { position: absolute; inset: 0; width: 100%; box-sizing: border-box; }
 .crow { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
-.pname { width: 110px; color: #c8ccd4; }
+.pname { min-width: 110px; color: #c8ccd4; }
 #keybar { flex: none; box-sizing: border-box; align-content: start; overflow: hidden; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 3px 10px; padding: 5px 8px;
           background: #1b1c20; border-top: 1px solid #33363c; font: 12px monospace; color: #c8ccd4; }
 #keybar .slot { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -51,3 +51,6 @@ button.on { background: #2f5f9e; border-color: #7fb0f0; }
 #box.remove { border-color: #f08a7a; background: rgba(240, 120, 100, 0.07); }
 #status b { color: #d8dade; font-weight: normal; }
 #status b.on { color: #1c1d20; background: #d4ad2a; padding: 0 3px; }
+#toast { position: absolute; bottom: 24px; transform: translateX(-50%); z-index: 3; pointer-events: none; opacity: 0; white-space: nowrap;
+         font: bold 26px sans-serif; color: #a01c1c; }
+.vs_row .pname { width: 150px; min-width: 150px; flex: none; }
