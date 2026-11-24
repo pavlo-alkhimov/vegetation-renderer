@@ -431,7 +431,7 @@ function help_text()
         'VIEW     RMB drag orbit, MMB (or Shift+RMB) drag pan, wheel zoom, F frame selection (or all)\n' +
         '         1 splats, 2 contours (sections of the 2-sigma ellipsoid parallel to the splat\'s own planes: the central one,\n' +
         '         then every "Slice distance" pixels (view settings, V) out to the edge; planes with an axis under 3 px hidden). The selection\n' +
-        '         is always drawn this way, in its own colour, brightened.\n         3 centres, 4 lines (longest axis of each splat, +-2 sigma); L lighting (normal = shortest axis); grid in the view settings (V)\n' +
+        '         is always drawn this way, in its own colour, brightened.\n         3 centres, 4 lines (longest axis of each splat, out to the "outline close" level); L lighting (normal = shortest axis); grid in the view settings (V)\n' +
         'EDGE     each splat has an edge mode and a "hardness" (0..1), both in the panel. The view settings list (V) or E shows\n' +
         '         each splat in its own mode ("per splat") or forces one mode on all. Compare: four copies of the model\n' +
         '         side by side (Gaussian, saturated, generalized, cut-off), each adapted to its mode.\n' +

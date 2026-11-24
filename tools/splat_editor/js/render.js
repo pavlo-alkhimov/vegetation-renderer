@@ -198,13 +198,14 @@ void main() {
     o = vec4(min(c * 0.95 + 0.05, vec3(1.0)), a);
 }`;
 
-// Presentation 4 (lines): one segment per splat along its longest axis, +-2 sigma (the visible extent), in the splat's
-// colour (selected ones brighter).
+// Presentation 4 (lines): one segment per splat along its longest axis, out to where the splat's alpha (its edge mode,
+// hardness and opacity, as drawn) falls to u_level, the "outline close" coverage level; no segment if the splat never
+// reaches it. In the splat's colour (selected ones brighter).
 const VS_AXIS = `#version 300 es
 layout(location=0) in float a_t;                                      // -1 / +1: the two ends
 layout(location=1) in vec3 i_pos; layout(location=2) in vec3 i_scale; layout(location=3) in vec4 i_rot; layout(location=4) in vec4 i_col;
-layout(location=5) in float i_sel;
-uniform mat4 u_vp; out vec4 v_col;
+layout(location=5) in float i_sel; layout(location=6) in float i_hard; layout(location=7) in float i_mode;
+uniform mat4 u_vp; uniform float u_level; uniform int u_edge; out vec4 v_col;
 mat3 qmat(vec4 q) {
     float w = q.x, x = q.y, y = q.z, z = q.w;
     return mat3(1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y + w * z), 2.0 * (x * z - w * y),
@@ -213,7 +214,19 @@ mat3 qmat(vec4 q) {
 }
 void main() {
     int k = i_scale.x >= i_scale.y ? (i_scale.x >= i_scale.z ? 0 : 2) : (i_scale.y >= i_scale.z ? 1 : 2);
-    vec3 ax = qmat(normalize(i_rot))[k] * (2.0 * i_scale[k]);
+    // r: distance along the axis (in sigma) where the splat's profile gives alpha = u_level (inverse of FS_SPLAT's alpha)
+    float op = i_col.a, h = clamp(i_hard, 0.0, 1.0), s = u_level / max(op, 1e-4), r;
+    int mode = u_edge >= 0 ? u_edge : int(i_mode + 0.5);
+    gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+    if (s >= 1.0) return;                                             // never that opaque: no line
+    if (mode == 1) r = sqrt(2.0 * max(log((1.0 + 7.0 * h) / s), 0.0));
+    else if (mode == 2) r = 2.0 * pow(0.5 * log(1.0 / s), 0.5 / exp2(4.0 * h));
+    else if (mode == 3) {
+        float t = exp(-2.0), w = max((1.0 - h) * t, 1e-4);
+        float x = 0.5 - sin(asin(1.0 - 2.0 * s) / 3.0);               // inverse smoothstep
+        r = sqrt(-2.0 * log(max(t - w + 2.0 * w * x, 1e-6)));
+    } else r = sqrt(2.0 * log(1.0 / s));
+    vec3 ax = qmat(normalize(i_rot))[k] * (r * i_scale[k]);
     gl_Position = u_vp * vec4(i_pos + ax * a_t, 1.0);
     vec3 c = i_col.rgb;
     v_col = vec4(i_sel > 0.5 ? min(c * max(1.25, 0.95 / max(max(c.r, c.g), max(c.b, 1e-3))) + 0.05, vec3(1.0)) : min(c * 1.25 + 0.08, vec3(1.0)), 1.0);
@@ -462,6 +475,7 @@ function render_frame(R, cam, opts)
         }
         if (opts.mode === 3) {                                       // lines: longest axis per splat
             gl.useProgram(R.pax.p); gl.uniformMatrix4fv(R.pax.u.u_vp, false, vp);
+            gl.uniform1f(R.pax.u.u_level, opts.outline_lv ? opts.outline_lv[0] : 0.45); gl.uniform1i(R.pax.u.u_edge, opts.edge === undefined ? -1 : opts.edge);
             gl.bindVertexArray(R.vao_axis);
             gl.drawArraysInstanced(gl.LINES, 0, 2, R.n);
         }
