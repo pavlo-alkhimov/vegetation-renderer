@@ -607,12 +607,13 @@ function main()
         // hover: the splat a click at the mouse would pick (not while transforming, box selecting or orbiting)
         E.hover = E.mouse_in && !E.xf && !E.box && !E.dragging && $('help').classList.contains('hidden') ? pick(E.mouse[0], E.mouse[1]).i : -1;
         const hv = E.hover >= 0 ? E.list[E.hover] : null;
-        // The highlight is constant while the mouse is over the splat; when the mouse leaves it (or a modifier changes the
-        // click's effect), the old highlight fades out over HOVER_FADE ms.
+        // The highlight is constant while the mouse is over the splat; when the mouse leaves an unselected splat (or a
+        // modifier changes the click's effect), its highlight fades out over HOVER_FADE ms. Selected splats go straight
+        // back to orange.
         const now = performance.now(), hcol = hv ? HOVER_COL[click_op(hv)] : null;
-        if (E.hover_cur && (E.hover_cur.t !== hv || E.hover_cur.col !== hcol)) E.fading.push({ t: E.hover_cur.t, col: E.hover_cur.col, t0: now });
+        if (E.hover_cur && !E.hover_cur.t.sel && (E.hover_cur.t !== hv || E.hover_cur.col !== hcol)) E.fading.push({ t: E.hover_cur.t, col: E.hover_cur.col, t0: now });
         E.hover_cur = hv ? { t: hv, col: hcol } : null;
-        E.fading = E.fading.filter(f => now - f.t0 < HOVER_FADE && f.t !== hv && E.list.indexOf(f.t) >= 0);
+        E.fading = E.fading.filter(f => now - f.t0 < HOVER_FADE && f.t !== hv && !f.t.sel && E.list.indexOf(f.t) >= 0);
         const hover = E.fading.map(f => ({ t: f.t, col: f.col, a: 1 - (now - f.t0) / HOVER_FADE }));
         if (hv) hover.push({ t: hv, col: hcol, a: 1 });
         $('btn_grid').classList.toggle('on', E.grid); $('btn_lit').classList.toggle('on', E.lit);   // toggle state (also changed by keys)

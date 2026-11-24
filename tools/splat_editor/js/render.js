@@ -138,7 +138,7 @@ const RINGS_MAX = 150000;         // per frame, a safety limit (camera inside la
 const VS_RING = `#version 300 es
 layout(location=0) in vec3 a_pos;                                     // unit circle in xy
 layout(location=1) in vec3 i_pos; layout(location=2) in vec3 i_scale; layout(location=3) in vec4 i_rot;
-layout(location=4) in vec4 i_col;                                     // rgb, flag: 0 normal, 1 selected, 2 hover, 3 hover on a selected splat
+layout(location=4) in vec4 i_col;                                     // rgb, flag: 0 normal, 1 selected, 2 hover
 layout(location=5) in vec2 i_ring;                                    // plane, offset
 uniform mat4 u_vp; uniform vec3 u_hover; uniform float u_hover_a;
 out vec4 v_col;
@@ -156,9 +156,6 @@ void main() {
     const vec3 SEL = vec3(1.0, 0.62, 0.15);
     vec3 col = i_col.a > 1.5 ? u_hover : i_col.a > 0.5 ? SEL : min(i_col.rgb * 1.25 + 0.08, vec3(1.0));
     float alpha = i_col.a > 1.5 ? u_hover_a : 1.0;
-    // Hover on a selected splat: opaque, its colour mixed from orange to the hover colour in linear light (a plain alpha
-    // blend over the orange rings passes through a dull grey and looks switched off long before the fade ends).
-    if (i_col.a > 2.5) { col = pow(mix(pow(SEL, vec3(2.2)), pow(u_hover, vec3(2.2)), u_hover_a), vec3(1.0 / 2.2)); alpha = 1.0; }
     v_col = vec4(f == 0.0 ? col : col * 0.6, alpha);
 }`;
 
@@ -373,7 +370,7 @@ function render_frame(R, cam, opts)
         // opts.hover: [{ t: splat, col, a }], the current one (a = 1) and ones fading out after the mouse left them.
         if (opts.hover && opts.hover.length) {
             gl.disable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-            for (const hv of opts.hover) rings_draw(R, cam, vp, h, 0, false, (opts.slice_px || 20) * dpr, [hv.t], hv.t.sel ? 3 : 2, hv.col, hv.a);
+            for (const hv of opts.hover) rings_draw(R, cam, vp, h, 0, false, (opts.slice_px || 20) * dpr, [hv.t], 2, hv.col, hv.a);
             gl.disable(gl.BLEND); gl.enable(gl.DEPTH_TEST);
         }
     }
