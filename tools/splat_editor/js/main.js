@@ -37,8 +37,8 @@ function note_sel() { toast('selection: ' + ['sections', 'outline', 'sections + 
 function snapshot() { return JSON.stringify(E.list); }
 function restore(s) { E.list = JSON.parse(s); }
 function push_undo() { E.undo.push(snapshot()); if (E.undo.length > 200) E.undo.shift(); E.redo.length = 0; }
-function do_undo() { if (!E.undo.length) return msg('nothing to undo'); E.redo.push(snapshot()); restore(E.undo.pop()); changed(true); }
-function do_redo() { if (!E.redo.length) return msg('nothing to redo'); E.undo.push(snapshot()); restore(E.redo.pop()); changed(true); }
+function do_undo() { if (!E.undo.length) { msg('nothing to undo'); return toast('Ctrl+Z · nothing to undo'); } E.redo.push(snapshot()); restore(E.undo.pop()); changed(true); toast('Ctrl+Z · undo (' + E.undo.length + ' more)'); }
+function do_redo() { if (!E.redo.length) { msg('nothing to redo'); return toast('Ctrl+Y · nothing to redo'); } E.undo.push(snapshot()); restore(E.redo.pop()); changed(true); toast('Ctrl+Y · redo (' + E.redo.length + ' more)'); }
 
 // Starts an edit (undo step) once per drag; 'final' ends it.
 function edit(final) { if (!E.editing) { push_undo(); E.editing = true; } if (final) E.editing = false; }
