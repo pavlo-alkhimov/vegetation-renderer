@@ -1,4 +1,5 @@
 // WebGL2 renderer: Gaussian splats (EWA projection, sorted back to front, premultiplied alpha), contour rings, centres,
+// axis lines,
 // ground grid, 3D cursor, selection rings.
 
 // Sun direction (towards the sun), world space, y up.
@@ -197,6 +198,27 @@ void main() {
     o = vec4(min(c * 0.95 + 0.05, vec3(1.0)), a);
 }`;
 
+// Presentation 4 (lines): one segment per splat along its longest axis, +-2 sigma (the visible extent), in the splat's
+// colour (selected ones brighter).
+const VS_AXIS = `#version 300 es
+layout(location=0) in float a_t;                                      // -1 / +1: the two ends
+layout(location=1) in vec3 i_pos; layout(location=2) in vec3 i_scale; layout(location=3) in vec4 i_rot; layout(location=4) in vec4 i_col;
+layout(location=5) in float i_sel;
+uniform mat4 u_vp; out vec4 v_col;
+mat3 qmat(vec4 q) {
+    float w = q.x, x = q.y, y = q.z, z = q.w;
+    return mat3(1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y + w * z), 2.0 * (x * z - w * y),
+                2.0 * (x * y - w * z), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z + w * x),
+                2.0 * (x * z + w * y), 2.0 * (y * z - w * x), 1.0 - 2.0 * (x * x + y * y));
+}
+void main() {
+    int k = i_scale.x >= i_scale.y ? (i_scale.x >= i_scale.z ? 0 : 2) : (i_scale.y >= i_scale.z ? 1 : 2);
+    vec3 ax = qmat(normalize(i_rot))[k] * (2.0 * i_scale[k]);
+    gl_Position = u_vp * vec4(i_pos + ax * a_t, 1.0);
+    vec3 c = i_col.rgb;
+    v_col = vec4(i_sel > 0.5 ? min(c * max(1.25, 0.95 / max(max(c.r, c.g), max(c.b, 1e-3))) + 0.05, vec3(1.0)) : min(c * 1.25 + 0.08, vec3(1.0)), 1.0);
+}`;
+
 const VS_LINE = `#version 300 es
 layout(location=0) in vec3 a_pos; layout(location=1) in vec4 a_col;
 uniform mat4 u_vp; uniform float u_psize; out vec4 v_col;
@@ -242,6 +264,7 @@ function render_init(canvas)
     R.pe = gl_prog(gl, VS_ELL, FS_ELL);
     R.pl = gl_prog(gl, VS_LINE, FS_LINE);
     R.pr = gl_prog(gl, VS_RING, FS_LINE);
+    R.pax = gl_prog(gl, VS_AXIS, FS_LINE);
     R.pfield = gl_prog(gl, VS_SPLAT, FS_ALPHA_FIELD);
     R.pout = gl_prog(gl, VS_FULL, FS_OUTLINE);
     R.half = !!gl.getExtension('EXT_color_buffer_float');            // half-float field if possible (smoother iso-line)
@@ -261,6 +284,7 @@ function render_init(canvas)
     };
     R.vao_splat = vao_for(new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), 2, false);
     R.vao_ell = vao_for(mesh.tri, 3, true); R.ell_count = mesh.tri.length / 3;
+    R.vao_axis = vao_for(new Float32Array([-1, 1]), 1, true);
     // rings: circle (location 0) + ring instances (16 floats: pos, sigma, rot, rgb+sel, plane, offset)
     R.ring_inst = gl.createBuffer(); R.ring_count = mesh.ring.length / 3;
     R.vao_ring = gl.createVertexArray(); gl.bindVertexArray(R.vao_ring);
@@ -435,6 +459,11 @@ function render_frame(R, cam, opts)
             gl.disable(gl.BLEND); gl.depthMask(true);
         } else if (opts.mode === 1) {
             rings_draw(R, cam, vp, h, 3 * dpr, false, (opts.slice_px || 20) * dpr, opts.list);
+        }
+        if (opts.mode === 3) {                                       // lines: longest axis per splat
+            gl.useProgram(R.pax.p); gl.uniformMatrix4fv(R.pax.u.u_vp, false, vp);
+            gl.bindVertexArray(R.vao_axis);
+            gl.drawArraysInstanced(gl.LINES, 0, 2, R.n);
         }
         if (opts.mode === 2 || opts.centres) {
             const pts = [];

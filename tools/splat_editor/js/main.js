@@ -25,7 +25,8 @@ function toast(s)
 }
 
 // Notes for the view toggles (keys and the view settings panel).
-function note_mode() { toast((E.mode + 1) + ' · ' + ['splats', 'contours', 'centres'][E.mode]); }
+const MODE_NAMES = ['splats', 'contours', 'centres', 'lines'];
+function note_mode() { toast((E.mode + 1) + ' · ' + MODE_NAMES[E.mode]); }
 function note_edge() { toast('E · edge: ' + (E.edge < 0 ? 'per splat' : 'all ' + EDGE_NAMES[E.edge])); }
 function note_lit() { toast('L · lighting ' + (E.lit ? 'on' : 'off')); }
 function note_grid() { toast('ground grid ' + (E.grid ? 'on' : 'off')); }
@@ -380,7 +381,7 @@ const EDGE_NAMES = ['Gaussian', 'saturated', 'generalized', 'cut-off'];
 
 const KEYBAR = {
     edit: ['EDIT', ['LMB', 'select / drag box'], ['G R S', 'move / rotate / scale'], ['N', 'new splat'], ['Shift+D', 'duplicate'], ['Del', 'delete'],
-           ['A', 'select all'], ['Alt+A', 'none'], ['C', 'cursor to mouse'], ['T', 'apply tool'], ['1 2 3', 'splats presentation'],
+           ['A', 'select all'], ['Alt+A', 'none'], ['C', 'cursor to mouse'], ['T', 'apply tool'], ['1 2 3 4', 'splats presentation'],
            ['L', 'lighting'], ['E', 'edge rendering mode'], ['V', 'view settings'], ['I', 'ellipses'], ['O', 'contours'], ['F', 'frame'], ['Ctrl+Z / Y', 'undo / redo'], ['RMB', 'orbit'], ['MMB', 'pan'], ['Wheel', 'zoom'], ['H', 'help']],
     xf: ['TRANSFORM', ['X Y Z', 'axis (scale: local axis)'], ['Shift', 'fine'], ['LMB / Enter', 'confirm'], ['RMB / Esc', 'cancel']],
     help: ['HELP', ['PgUp/PgDn', 'scroll'], ['Esc', 'close']],
@@ -430,7 +431,7 @@ function help_text()
         'VIEW     RMB drag orbit, MMB (or Shift+RMB) drag pan, wheel zoom, F frame selection (or all)\n' +
         '         1 splats, 2 contours (sections of the 2-sigma ellipsoid parallel to the splat\'s own planes: the central one,\n' +
         '         then every "Slice distance" pixels (view settings, V) out to the edge; planes with an axis under 3 px hidden). The selection\n' +
-        '         is always drawn this way, in its own colour, brightened.\n         3 centres; L lighting (normal = shortest axis); grid in the view settings (V)\n' +
+        '         is always drawn this way, in its own colour, brightened.\n         3 centres, 4 lines (longest axis of each splat, +-2 sigma); L lighting (normal = shortest axis); grid in the view settings (V)\n' +
         'EDGE     each splat has an edge mode and a "hardness" (0..1), both in the panel. The view settings list (V) or E shows\n' +
         '         each splat in its own mode ("per splat") or forces one mode on all. Compare: four copies of the model\n' +
         '         side by side (Gaussian, saturated, generalized, cut-off), each adapted to its mode.\n' +
@@ -541,7 +542,7 @@ function on_key(e)
     else if (k === 'a' || k === 'A') { select_only(E.list); changed(true); }
     else if (k === 'c' || k === 'C') { const h = pick(E.mouse[0], E.mouse[1]); E.cursor = h.p || ground_hit(); msg('cursor ' + E.cursor.map(v => v.toFixed(3)).join(' ')); }
     else if (k === 't' || k === 'T') apply_tool();
-    else if (k === '1' || k === '2' || k === '3') { E.mode = parseInt(k, 10) - 1; note_mode(); }
+    else if (k === '1' || k === '2' || k === '3' || k === '4') { E.mode = parseInt(k, 10) - 1; note_mode(); }
     else if (k === 'v' || k === 'V') $('viewset').classList.toggle('hidden');
     else if (k === 'i' || k === 'I') { E.show_ell = !E.show_ell; note_ell(); }
     else if (k === 'o' || k === 'O') { E.show_outline = !E.show_outline; note_outline(); }
@@ -660,7 +661,7 @@ function main()
         $('btn_ell').classList.toggle('on', E.show_ell); $('btn_outline').classList.toggle('on', E.show_outline);   // toggle state (also changed by keys)
         if ($('view_mode').value !== '' + E.mode && document.activeElement !== $('view_mode')) $('view_mode').value = E.mode;
         render_frame(E.R, cam, { mode: E.mode, edge: E.edge, slice_px: E.slice_px, show_ell: E.show_ell, show_outline: E.show_outline, tuning: E.tuning, outline_lv: [E.outline_close, Math.sqrt(E.outline_close * E.outline_far), E.outline_far], lit: E.lit, grid: E.grid, cursor: E.cursor, list: E.list, nsel: nsel, hover: hover, bg: [0.16, 0.17, 0.19] });
-        let s = E.list.length + ' splats · ' + nsel + ' selected · sort ' + E.R.sort_ms.toFixed(1) + ' ms · view ' + ['splats', 'contours', 'centres'][E.mode] +
+        let s = E.list.length + ' splats · ' + nsel + ' selected · sort ' + E.R.sort_ms.toFixed(1) + ' ms · view ' + MODE_NAMES[E.mode] +
                 (E.lit ? ' (lit)' : '') + ' · edge ' + (E.edge < 0 ? 'per splat' : EDGE_NAMES[E.edge] + ' (all)') + ' · cursor ' + E.cursor.map(v => v.toFixed(3)).join(' ');
         if (E.xf) s += ' · ' + E.xf.mode + (E.xf.axis >= 0 ? ' ' + 'XYZ'[E.xf.axis] : '') + (E.xf.factor ? ' ×' + E.xf.factor.toFixed(3) : '') + (E.xf.angle ? ' ' + E.xf.angle.toFixed(1) + '°' : '');
         if (E.msg && performance.now() - E.msg_t < 4000) s += ' · ' + E.msg;
