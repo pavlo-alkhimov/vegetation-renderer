@@ -4,10 +4,14 @@
 // Sun direction (towards the sun), world space, y up.
 const SUN = vnorm([0.45, 0.8, 0.35]);
 
+// Opacity factor of selected splats in the splat view (their sections and grid are drawn on top).
+const SEL_FADE = 0.2;
+
 const VS_SPLAT = `#version 300 es
+#define SEL_FADE ${SEL_FADE.toFixed(3)}
 layout(location=0) in vec2 a_corner;
 layout(location=1) in vec3 i_pos; layout(location=2) in vec3 i_scale; layout(location=3) in vec4 i_rot; layout(location=4) in vec4 i_col;
-layout(location=6) in float i_hard; layout(location=7) in float i_mode;
+layout(location=5) in float i_sel; layout(location=6) in float i_hard; layout(location=7) in float i_mode;
 uniform mat4 u_view, u_proj; uniform vec2 u_vp; uniform float u_focal; uniform int u_lit, u_edge; uniform vec3 u_sun, u_eye;
 out vec4 v_col; out vec2 v_uv; flat out vec2 v_edge; flat out int v_mode;    // edge parameter per mode (see FS_SPLAT), hardness
 mat3 qmat(vec4 q) {
@@ -75,7 +79,7 @@ void main() {
         float lit = mix(0.95, mix(face_b, face_a, front), flat_);
         col *= lit;
     }
-    v_col = vec4(col, i_col.a);
+    v_col = vec4(col, i_col.a * (i_sel > 0.5 ? SEL_FADE : 1.0));     // selected: faded, so its grid overlay reads
 }`;
 
 const FS_SPLAT = `#version 300 es
