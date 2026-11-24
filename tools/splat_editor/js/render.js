@@ -79,7 +79,7 @@ void main() {
         float lit = mix(0.95, mix(face_b, face_a, front), flat_);
         col *= lit;
     }
-    v_col = vec4(col, i_col.a * (i_sel > 0.5 ? u_selfade : 1.0));    // selected: faded (SEL_FADE) so its sections read
+    v_col = vec4(col, i_col.a * (i_sel > 0.5 ? u_selfade : 1.0));    // selected: faded (SEL_FADE) while its ellipses are shown
 }`;
 
 // A splat's alpha at a fragment for its edge mode (shared by the splat pass and the selection outline field).
@@ -429,7 +429,7 @@ function render_frame(R, cam, opts)
             gl.useProgram(R.ps.p);
             gl.uniformMatrix4fv(R.ps.u.u_view, false, cam.view); gl.uniformMatrix4fv(R.ps.u.u_proj, false, cam.proj);
             gl.uniform2f(R.ps.u.u_vp, w, h); gl.uniform1f(R.ps.u.u_focal, cam.focal * h);
-            gl.uniform1i(R.ps.u.u_lit, opts.lit ? 1 : 0); gl.uniform1f(R.ps.u.u_selfade, opts.tuning ? 1.0 : SEL_FADE); gl.uniform1i(R.ps.u.u_only_sel, 0); gl.uniform1i(R.ps.u.u_edge, opts.edge === undefined ? -1 : opts.edge); gl.uniform3fv(R.ps.u.u_sun, sun); gl.uniform3fv(R.ps.u.u_eye, cam.eye);
+            gl.uniform1i(R.ps.u.u_lit, opts.lit ? 1 : 0); gl.uniform1f(R.ps.u.u_selfade, opts.tuning || opts.show_ell === false ? 1.0 : SEL_FADE); gl.uniform1i(R.ps.u.u_only_sel, 0); gl.uniform1i(R.ps.u.u_edge, opts.edge === undefined ? -1 : opts.edge); gl.uniform3fv(R.ps.u.u_sun, sun); gl.uniform3fv(R.ps.u.u_eye, cam.eye);
             gl.bindVertexArray(R.vao_splat);
             gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, R.n);
             gl.disable(gl.BLEND); gl.depthMask(true);
@@ -443,19 +443,19 @@ function render_frame(R, cam, opts)
             lines_draw(R, pts, gl.POINTS, vp, opts.mode === 2 ? 5 * dpr : 3 * dpr);
             gl.enable(gl.DEPTH_TEST);
         }
-        // Selection, always on top: per splat as in the contour view (sections), and/or one metaball outline around all
-        // selected splats. opts.sel_style: 0 sections, 1 outline, 2 both.
-        const ss = opts.sel_style === undefined ? 0 : opts.sel_style;
-        // opts.tuning (an outline slider is being dragged): selected splats drawn normally, no sections, only the outlines.
-        if (opts.nsel && ss !== 1 && !opts.tuning) {
+        // Selection, always on top: per splat as in the contour view (ellipses: opts.show_ell), and the outlines
+        // around all selected splats (opts.show_outline). opts.tuning (an outline slider is being dragged): selected
+        // splats drawn normally, no ellipses, only the outlines.
+        const show_ell = opts.show_ell !== false && !opts.tuning, show_outline = opts.show_outline !== false || opts.tuning;
+        if (opts.nsel && show_ell) {
             gl.disable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
             rings_draw(R, cam, vp, h, 0, true, (opts.slice_px || 20) * dpr, opts.list);
             gl.disable(gl.BLEND); gl.enable(gl.DEPTH_TEST);
         }
-        if (opts.nsel && (ss !== 0 || opts.tuning)) outline_draw(R, cam, w, h, opts.outline_lv, { lit: opts.lit, edge: opts.edge, sun: sun });   // [close, in-between, far]
+        if (opts.nsel && show_outline) outline_draw(R, cam, w, h, opts.outline_lv, { lit: opts.lit, edge: opts.edge, sun: sun });   // [close, in-between, far]
         // Hover: the splat a click would pick, in a colour telling what the click would do, on top of everything.
         // opts.hover: [{ t: splat, col, a }], the current one (a = 1) and ones fading out after the mouse left them.
-        if (opts.hover && opts.hover.length) {
+        if (opts.hover && opts.hover.length && show_ell) {
             gl.disable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
             for (const hv of opts.hover) rings_draw(R, cam, vp, h, 0, false, (opts.slice_px || 20) * dpr, [hv.t], 2, hv.col, hv.a);
             gl.disable(gl.BLEND); gl.enable(gl.DEPTH_TEST);

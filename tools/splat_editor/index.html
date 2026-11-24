@@ -32,12 +32,11 @@
         <option value="0">all Gaussian</option><option value="1">all saturated</option>
         <option value="2">all generalized</option><option value="3">all cut-off</option>
       </select></div>
-    <div class="vs_row"><span class="pname">lighting</span><button id="btn_lit" title="L: sun lighting of flat splats">Lighting</button></div>
+    <div class="vs_row"><span class="pname">lighting</span><button id="btn_lit" title="L: sun lighting of flat splats">Lighting (L)</button></div>
     <div class="vs_row"><span class="pname">ground grid</span><button id="btn_grid">Grid</button></div>
     <div class="vs_row"><span class="pname">selection</span>
-      <select id="sel_style" title="each splat's sections, one outline around all selected splats (metaballs), or both">
-        <option value="0">sections</option><option value="1">outline</option><option value="2" selected>both</option>
-      </select></div>
+      <button id="btn_ell" title="I: ellipses of the selected splats and of the hover highlight">Ellipses (I)</button>
+      <button id="btn_outline" title="O: contours (outlines) around the selected splats">Contours (O)</button></div>
     <div class="vs_row" title="selection outline: where the coverage (final alpha, as drawn) of the selected splats falls to this level; right = lower level = larger contour">
       <span class="pname">outline close</span><input id="outline_k" type="range" min="0" max="100" step="1"> <span id="outline_val"></span></div>
     <div class="vs_row" title="outermost selection outline (coverage level); the third one lies between, at the geometric mean of close and far">
