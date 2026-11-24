@@ -39,12 +39,12 @@ void main() {
     v_uv = a_corner * 3.0;
     vec3 col = i_col.rgb;
     if (u_lit == 1) {
-        // Material splat lit by the sun: normal = the shortest axis (flat splats), facing the camera.
+        // Material splat lit by the sun: normal = the shortest axis (flat splats). Two-sided: both faces get the same light
+        // (|n.sun|), so nothing changes when the camera crosses the splat's plane.
         vec3 n = i_scale.x < i_scale.y ? (i_scale.x < i_scale.z ? R[0] : R[2]) : (i_scale.y < i_scale.z ? R[1] : R[2]);
         float flat_ = 1.0 - min(i_scale.x, min(i_scale.y, i_scale.z)) / max(i_scale.x, max(i_scale.y, i_scale.z));
-        if (dot(n, u_eye - i_pos) < 0.0) n = -n;
-        float d = max(dot(n, u_sun), 0.0), back = max(-dot(n, u_sun), 0.0);
-        float lit = mix(0.95, 0.42 + 0.85 * d + 0.25 * back, flat_);
+        float d = abs(dot(n, u_sun));
+        float lit = mix(0.95, 0.42 + 0.85 * d, flat_);
         col *= lit;
     }
     v_col = vec4(col, i_col.a * keep);

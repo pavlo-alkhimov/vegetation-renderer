@@ -22,7 +22,7 @@ Splats are sorted back to front and alpha-blended, the correctness reference of 
 | two small | soft line | needle, thin stem |
 | all similar | soft ball | blob, flower head, haze |
 
-**Lighting (L)** treats splats as material splats lit by a sun: the normal is the shortest axis, flipped towards the camera. Round splats stay unlit.
+**Lighting (L)** treats splats as material splats lit by a sun: the normal is the shortest axis, and both faces are lit the same (two-sided), so a splat looks the same from either side of its plane. Round splats stay unlit.
 
 ## Controls
 
