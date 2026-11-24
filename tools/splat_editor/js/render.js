@@ -153,7 +153,8 @@ void main() {
     vec2 c = a_pos.xy * sqrt(max(1.0 - f * f, 0.0));
     vec3 loc = r == 0 ? vec3(c.x, c.y, f) : r == 1 ? vec3(f, c.x, c.y) : vec3(c.x, f, c.y);
     gl_Position = u_vp * vec4(i_pos + qmat(normalize(i_rot)) * (loc * i_scale * 2.0), 1.0);
-    const vec3 SEL = vec3(1.0, 0.62, 0.15);
+    // selected: the splat colour brightened (max channel ~0.95), like the selection outline; others as in view 2
+    vec3 sc = i_col.rgb, SEL = min(sc * max(1.25, 0.95 / max(max(sc.r, sc.g), max(sc.b, 1e-3))) + 0.05, vec3(1.0));
     vec3 col = i_col.a > 1.5 ? u_hover : i_col.a > 0.5 ? SEL : min(i_col.rgb * 1.25 + 0.08, vec3(1.0));
     float alpha = i_col.a > 1.5 ? 0.5 * u_hover_a : i_col.a > 0.5 ? 0.5 : 1.0;   // selection and hover rings: 50 %
     v_col = vec4(f == 0.0 ? col : col * 0.6, alpha);
@@ -161,14 +162,15 @@ void main() {
 
 // Selection outline (metaballs). Every selected splat adds its screen-space Gaussian with peak 1, exp(-r^2 / 2) with r
 // in sigma units (the EWA covariance, as drawn), to an offscreen field; the outline is the iso-line field = exp(-k^2/2),
-// which for a lone splat is exactly its k-sigma ellipse (k = 2 would match the contour rings; set in the toolbar, 1..3, default 1.2). Splats
-// that overlap or nearly touch add up and merge into one smooth shape. Quads go to 4 sigma so neighbours reach each other.
+// which for a lone splat is exactly its k-sigma ellipse (k = 2 would match the contour rings). Three lines: close and far
+// set in the view settings (defaults 1.2 and 2.5 sigma), in-between their mean. Splats that overlap or nearly touch add up
+// and merge into one smooth shape. Quads go to 4 sigma so neighbours reach each other.
 const VS_FIELD = `#version 300 es
 layout(location=0) in vec2 a_corner;
 layout(location=1) in vec3 i_pos; layout(location=2) in vec3 i_scale; layout(location=3) in vec4 i_rot;
-layout(location=5) in float i_sel;
+layout(location=4) in vec4 i_col; layout(location=5) in float i_sel;
 uniform mat4 u_view, u_proj; uniform vec2 u_vp; uniform float u_focal;
-out vec2 v_uv;
+out vec2 v_uv; flat out vec3 v_rgb;
 mat3 qmat(vec4 q) {
     float w = q.x, x = q.y, y = q.z, z = q.w;
     return mat3(1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y + w * z), 2.0 * (x * z - w * y),
@@ -193,24 +195,34 @@ void main() {
     clip.xy += (a_corner.x * sqrt(l1) * e1 + a_corner.y * sqrt(l2) * e2) * 4.0 * 2.0 / u_vp * clip.w;
     gl_Position = clip;
     v_uv = a_corner * 4.0;
+    v_rgb = i_col.rgb;
 }`;
 const FS_FIELD = `#version 300 es
 precision highp float;
-in vec2 v_uv; out vec4 o;
-void main() { o = vec4(exp(-0.5 * dot(v_uv, v_uv)), 0.0, 0.0, 1.0); }`;
+in vec2 v_uv; flat in vec3 v_rgb; out vec4 o;
+// rgb: colour weighted by the field, a: the field (colour at a pixel = rgb / a, the field-weighted mean of the splats)
+void main() { float g = exp(-0.5 * dot(v_uv, v_uv)); o = vec4(v_rgb * g, g); }`;
 const VS_FULL = `#version 300 es
 void main() { vec2 p = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.0 : -1.0); gl_Position = vec4(p, 0.0, 1.0); }`;
-// Outline: ~2 px anti-aliased line on the iso-line, plus a faint fill inside.
+// Outline, in the colour of the splats it surrounds: three ~2 px anti-aliased iso-lines, close / in-between / far (u_k, in sigma of a lone splat), fading with
+// distance, plus a faint fill inside the close one.
 const FS_OUTLINE = `#version 300 es
 precision highp float;
-uniform sampler2D u_field; uniform vec3 u_col; uniform float u_k; out vec4 o;
+uniform sampler2D u_field; uniform vec3 u_k; out vec4 o;
+float iso(float f, float fw, float k) {
+    float d = abs(f - exp(-0.5 * k * k)) / fw;                      // distance to the iso-line in pixels
+    return 1.0 - clamp(d - 0.6, 0.0, 1.0);
+}
 void main() {
-    float f = texelFetch(u_field, ivec2(gl_FragCoord.xy), 0).r, t = exp(-0.5 * u_k * u_k);
-    float d = abs(f - t) / max(fwidth(f), 1e-6);                   // distance to the iso-line in pixels
-    float line = 1.0 - clamp(d - 0.6, 0.0, 1.0), fill = f > t ? 0.08 : 0.0;
-    float a = max(line, fill);
+    vec4 F = texelFetch(u_field, ivec2(gl_FragCoord.xy), 0);
+    float f = F.a, fw = max(fwidth(f), 1e-6);
+    float a = max(max(iso(f, fw, u_k.x), 0.6 * iso(f, fw, u_k.y)), 0.35 * iso(f, fw, u_k.z));
+    a = max(a, f > exp(-0.5 * u_k.x * u_k.x) ? 0.08 : 0.0);
     if (a < 0.004) discard;
-    o = vec4(u_col, a);
+    // colour of the splats there (field-weighted mean), brightened so the line reads on the dark background
+    vec3 c = F.rgb / max(f, 1e-6);
+    c = min(c * max(1.25, 0.95 / max(max(c.r, c.g), max(c.b, 1e-3))) + 0.05, vec3(1.0));
+    o = vec4(c, a);
 }`;
 
 const VS_LINE = `#version 300 es
@@ -391,8 +403,8 @@ function field_target(R, w, h)
 }
 
 // Metaball outline of the selected splats (see VS_FIELD).
-// col: line colour (the editor passes the brightened average colour of the selected splats).
-function outline_draw(R, cam, w, h, col, k)
+// k: [close, in-between, far] sigma. The line colour comes from the splats (see FS_FIELD).
+function outline_draw(R, cam, w, h, k)
 {
     const gl = R.gl, F = field_target(R, w, h);
     gl.bindFramebuffer(gl.FRAMEBUFFER, F.fbo); gl.viewport(0, 0, w, h);
@@ -407,7 +419,7 @@ function outline_draw(R, cam, w, h, col, k)
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.useProgram(R.pout.p);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, F.tex); gl.uniform1i(R.pout.u.u_field, 0);
-    gl.uniform3fv(R.pout.u.u_col, col || [1.0, 0.62, 0.15]); gl.uniform1f(R.pout.u.u_k, k || 2);
+    gl.uniform3fv(R.pout.u.u_k, k || [1.2, 1.85, 2.5]);
     gl.bindVertexArray(null);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.disable(gl.BLEND); gl.enable(gl.DEPTH_TEST);
@@ -464,7 +476,7 @@ function render_frame(R, cam, opts)
             rings_draw(R, cam, vp, h, 0, true, (opts.slice_px || 20) * dpr, opts.list);
             gl.disable(gl.BLEND); gl.enable(gl.DEPTH_TEST);
         }
-        if (opts.nsel && ss !== 0) outline_draw(R, cam, w, h, opts.outline_col, opts.outline_k);
+        if (opts.nsel && ss !== 0) outline_draw(R, cam, w, h, opts.outline_k);   // [close, in-between, far]
         // Hover: the splat a click would pick, in a colour telling what the click would do, on top of everything.
         // opts.hover: [{ t: splat, col, a }], the current one (a = 1) and ones fading out after the mouse left them.
         if (opts.hover && opts.hover.length) {

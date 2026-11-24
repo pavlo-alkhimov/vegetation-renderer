@@ -5,7 +5,7 @@ const STORE_MODEL = 'splat_editor.model', STORE_TITLE = 'splat_editor.title';
 const FOV = 45 * Math.PI / 180;
 
 const E = {
-    list: [], title: 'meadow_plant', cursor: [0, 0, 0], mode: 0, edge: -1, slice_px: 20, sel_style: 2, outline_k: 1.2, lit: true, grid: true, centres: false,
+    list: [], title: 'meadow_plant', cursor: [0, 0, 0], mode: 0, edge: -1, slice_px: 20, sel_style: 2, outline_k: 1.2, outline_far: 2.5, lit: true, grid: true, centres: false,
     tool: 'chain', tool_P: {}, box: null, hover: -1, hover_cur: null, fading: [], mouse_in: false, dragging: false, mods: { shift: false, ctrl: false, alt: false }, undo: [], redo: [], xf: null, editing: false, mouse: [0, 0],
     cam: { az: 0.7, el: 0.35, dist: 1.2, target: [0, 0.12, 0] }, R: null, view_key: '', data_dirty: true, msg: '', msg_t: 0,
 };
@@ -429,7 +429,7 @@ function help_text()
         'VIEW     RMB drag orbit, MMB (or Shift+RMB) drag pan, wheel zoom, F frame selection (or all)\n' +
         '         1 splats, 2 contours (sections of the 2-sigma ellipsoid parallel to the splat\'s own planes: the central one,\n' +
         '         then every "Slice distance" pixels (view settings, V) out to the edge; planes with an axis under 3 px hidden). The selection\n' +
-        '         is always drawn this way, in orange.\n         3 centres; L lighting (normal = shortest axis); grid in the view settings (V)\n' +
+        '         is always drawn this way, in its own colour, brightened.\n         3 centres; L lighting (normal = shortest axis); grid in the view settings (V)\n' +
         'EDGE     each splat has an edge mode and a "hardness" (0..1), both in the panel. The view settings list (V) or E shows\n' +
         '         each splat in its own mode ("per splat") or forces one mode on all. Compare: four copies of the model\n' +
         '         side by side (Gaussian, saturated, generalized, cut-off), each adapted to its mode.\n' +
@@ -603,6 +603,8 @@ function ui_init()
     sl.addEventListener('input', slv); sl.addEventListener('change', () => sl.blur()); slv();
     const ok = $('outline_k'), okv = () => { E.outline_k = parseFloat(ok.value); $('outline_val').textContent = E.outline_k.toFixed(1) + ' σ'; };
     ok.addEventListener('input', okv); ok.addEventListener('change', () => ok.blur()); okv();
+    const of = $('outline_far'), ofv = () => { E.outline_far = parseFloat(of.value); $('outline_far_val').textContent = E.outline_far.toFixed(1) + ' σ'; };
+    of.addEventListener('input', ofv); of.addEventListener('change', () => of.blur()); ofv();
     $('view_mode').addEventListener('change', ev => { E.mode = parseInt(ev.target.value, 10); note_mode(); ev.target.blur(); });
     $('sel_style').addEventListener('change', ev => { E.sel_style = parseInt(ev.target.value, 10); note_sel(); ev.target.blur(); });
     $('edge').addEventListener('change', ev => { E.edge = parseInt(ev.target.value, 10); note_edge(); ev.target.blur(); });
@@ -628,15 +630,12 @@ function main()
         const cam = camera(), key = cam.view.map(v => v.toFixed(5)).join(',');
         if (E.data_dirty || key !== E.view_key) { render_upload(E.R, E.list, cam.view); E.view_key = key; E.data_dirty = false; }
         const nsel = E.list.reduce((n, t) => n + (t.sel ? 1 : 0), 0);
-        // Outline colour: average colour of the selected splats, brightened so the line reads on the dark background.
-        let oc = [0, 0, 0];
-        if (nsel) { for (const t of E.list) if (t.sel) oc = vadd(oc, t.c); oc = vscale(oc, 1 / nsel); const mx = Math.max(...oc, 1e-3); oc = oc.map(x => Math.min(1, x * Math.max(1.25, 0.95 / mx) + 0.05)); }
         // hover: the splat a click at the mouse would pick (not while transforming, box selecting or orbiting)
         E.hover = E.mouse_in && !E.xf && !E.box && !E.dragging && $('help').classList.contains('hidden') ? pick(E.mouse[0], E.mouse[1]).i : -1;
         const hv = E.hover >= 0 ? E.list[E.hover] : null;
         // The highlight is constant while the mouse is over the splat; when the mouse leaves an unselected splat (or a
         // modifier changes the click's effect), its highlight fades out over HOVER_FADE ms. Selected splats go straight
-        // back to orange.
+        // back to their selection look.
         const now = performance.now(), hcol = hv ? HOVER_COL[click_op(hv)] : null;
         if (E.hover_cur && !E.hover_cur.t.sel && (E.hover_cur.t !== hv || E.hover_cur.col !== hcol)) E.fading.push({ t: E.hover_cur.t, col: E.hover_cur.col, t0: now });
         E.hover_cur = hv ? { t: hv, col: hcol } : null;
@@ -645,7 +644,7 @@ function main()
         if (hv) hover.push({ t: hv, col: hcol, a: 1 });
         $('btn_grid').classList.toggle('on', E.grid); $('btn_lit').classList.toggle('on', E.lit);   // toggle state (also changed by keys)
         if ($('view_mode').value !== '' + E.mode && document.activeElement !== $('view_mode')) $('view_mode').value = E.mode;
-        render_frame(E.R, cam, { mode: E.mode, edge: E.edge, slice_px: E.slice_px, sel_style: E.sel_style, outline_col: oc, outline_k: E.outline_k, lit: E.lit, grid: E.grid, cursor: E.cursor, list: E.list, nsel: nsel, hover: hover, bg: [0.16, 0.17, 0.19] });
+        render_frame(E.R, cam, { mode: E.mode, edge: E.edge, slice_px: E.slice_px, sel_style: E.sel_style, outline_k: [E.outline_k, 0.5 * (E.outline_k + E.outline_far), E.outline_far], lit: E.lit, grid: E.grid, cursor: E.cursor, list: E.list, nsel: nsel, hover: hover, bg: [0.16, 0.17, 0.19] });
         let s = E.list.length + ' splats · ' + nsel + ' selected · sort ' + E.R.sort_ms.toFixed(1) + ' ms · view ' + ['splats', 'contours', 'centres'][E.mode] +
                 (E.lit ? ' (lit)' : '') + ' · edge ' + (E.edge < 0 ? 'per splat' : EDGE_NAMES[E.edge] + ' (all)') + ' · cursor ' + E.cursor.map(v => v.toFixed(3)).join(' ');
         if (E.xf) s += ' · ' + E.xf.mode + (E.xf.axis >= 0 ? ' ' + 'XYZ'[E.xf.axis] : '') + (E.xf.factor ? ' ×' + E.xf.factor.toFixed(3) : '') + (E.xf.angle ? ' ' + E.xf.angle.toFixed(1) + '°' : '');
