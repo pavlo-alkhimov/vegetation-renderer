@@ -138,9 +138,9 @@ const RINGS_MAX = 150000;         // per frame, a safety limit (camera inside la
 const VS_RING = `#version 300 es
 layout(location=0) in vec3 a_pos;                                     // unit circle in xy
 layout(location=1) in vec3 i_pos; layout(location=2) in vec3 i_scale; layout(location=3) in vec4 i_rot;
-layout(location=4) in vec4 i_col;                                     // rgb, selected
+layout(location=4) in vec4 i_col;                                     // rgb, flag: 0 normal, 1 selected, 2 hover
 layout(location=5) in vec2 i_ring;                                    // plane, offset
-uniform mat4 u_vp;
+uniform mat4 u_vp; uniform vec3 u_hover;
 out vec4 v_col;
 mat3 qmat(vec4 q) {
     float w = q.x, x = q.y, y = q.z, z = q.w;
@@ -153,7 +153,7 @@ void main() {
     vec2 c = a_pos.xy * sqrt(max(1.0 - f * f, 0.0));
     vec3 loc = r == 0 ? vec3(c.x, c.y, f) : r == 1 ? vec3(f, c.x, c.y) : vec3(c.x, f, c.y);
     gl_Position = u_vp * vec4(i_pos + qmat(normalize(i_rot)) * (loc * i_scale * 2.0), 1.0);
-    vec3 col = i_col.a > 0.5 ? vec3(1.0, 0.62, 0.15) : min(i_col.rgb * 1.25 + 0.08, vec3(1.0));
+    vec3 col = i_col.a > 1.5 ? u_hover : i_col.a > 0.5 ? vec3(1.0, 0.62, 0.15) : min(i_col.rgb * 1.25 + 0.08, vec3(1.0));
     v_col = vec4(f == 0.0 ? col : col * 0.6, 1.0);
 }`;
 
@@ -291,7 +291,7 @@ function grid_lines()
 // is under minpx pixels across (2-sigma diameter); otherwise the central section, then pairs at m * space pixels from
 // the centre along the normal axis (nominal size, m = 1, 2, ...) while inside the 2-sigma edge. The spacing is fixed on
 // screen, not fitted to the splat, so the outermost sections fall wherever the edge is. At most SLICES_MAX per axis.
-function rings_build(list, cam, h, minpx, only_sel, space)
+function rings_build(list, cam, h, minpx, only_sel, space, flag)
 {
     const v = cam.view, F = cam.focal * h, out = [];
     let count = 0;
@@ -307,7 +307,7 @@ function rings_build(list, cam, h, minpx, only_sel, space)
             const pairs = Math.max(0, Math.min((SLICES_MAX - 1) >> 1, Math.ceil(half / sp) - 1));   // m * sp < half
             for (let m = -pairs; m <= pairs; m++) {
                 if (count >= RINGS_MAX) break;
-                out.push(t.p[0], t.p[1], t.p[2], t.s[0], t.s[1], t.s[2], t.q[0], t.q[1], t.q[2], t.q[3], t.c[0], t.c[1], t.c[2], t.sel ? 1 : 0, r, m * sp / half);
+                out.push(t.p[0], t.p[1], t.p[2], t.s[0], t.s[1], t.s[2], t.q[0], t.q[1], t.q[2], t.q[3], t.c[0], t.c[1], t.c[2], flag !== undefined ? flag : t.sel ? 1 : 0, r, m * sp / half);
                 count++;
             }
         }
@@ -315,14 +315,15 @@ function rings_build(list, cam, h, minpx, only_sel, space)
     return new Float32Array(out);
 }
 
-function rings_draw(R, cam, vp, h, minpx, only_sel, space, list)
+// flag / hover_col: draw all rings of the list in hover_col (the splat a click would pick).
+function rings_draw(R, cam, vp, h, minpx, only_sel, space, list, flag, hover_col)
 {
-    const gl = R.gl, data = rings_build(list, cam, h, minpx, only_sel, space), n = data.length / 16;
+    const gl = R.gl, data = rings_build(list, cam, h, minpx, only_sel, space, flag), n = data.length / 16;
     R.rings = n;
     if (!n) return;
     gl.bindBuffer(gl.ARRAY_BUFFER, R.ring_inst); gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
     gl.useProgram(R.pr.p);
-    gl.uniformMatrix4fv(R.pr.u.u_vp, false, vp);
+    gl.uniformMatrix4fv(R.pr.u.u_vp, false, vp); gl.uniform3fv(R.pr.u.u_hover, hover_col || [1, 1, 1]);
     gl.bindVertexArray(R.vao_ring);
     gl.drawArraysInstanced(gl.LINES, 0, R.ring_count, n);
 }
@@ -361,6 +362,12 @@ function render_frame(R, cam, opts)
         if (opts.nsel) {
             gl.disable(gl.DEPTH_TEST);
             rings_draw(R, cam, vp, h, 0, true, (opts.slice_px || 20) * dpr, opts.list);
+            gl.enable(gl.DEPTH_TEST);
+        }
+        // Hover: the splat a click would pick, in a colour telling what the click would do, on top of everything.
+        if (opts.hover) {
+            gl.disable(gl.DEPTH_TEST);
+            rings_draw(R, cam, vp, h, 0, false, (opts.slice_px || 20) * dpr, [opts.hover], 2, opts.hover_col);
             gl.enable(gl.DEPTH_TEST);
         }
     }

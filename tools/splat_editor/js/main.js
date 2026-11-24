@@ -6,7 +6,7 @@ const FOV = 45 * Math.PI / 180;
 
 const E = {
     list: [], title: 'meadow_plant', cursor: [0, 0, 0], mode: 0, edge: -1, slice_px: 20, lit: true, grid: true, centres: false,
-    tool: 'chain', tool_P: {}, box: null, mods: { shift: false, ctrl: false, alt: false }, undo: [], redo: [], xf: null, editing: false, mouse: [0, 0],
+    tool: 'chain', tool_P: {}, box: null, hover: -1, mouse_in: false, dragging: false, mods: { shift: false, ctrl: false, alt: false }, undo: [], redo: [], xf: null, editing: false, mouse: [0, 0],
     cam: { az: 0.7, el: 0.35, dist: 1.2, target: [0, 0.12, 0] }, R: null, view_key: '', data_dirty: true, msg: '', msg_t: 0,
 };
 
@@ -220,13 +220,18 @@ function box_overlay(B, m)
     d.className = 'box ' + sel_op(m) + (m.alt ? ' enclosed' : '');
 }
 
+// What a click on splat t would do with the current modifiers, and the hover colour for it.
+function click_op(t) { const m = E.mods; return m.ctrl ? 'remove' : m.shift ? (t.sel ? 'remove' : 'add') : 'select'; }
+const HOVER_COL = { select: [0.45, 0.85, 1.0], add: [0.55, 0.95, 0.5], remove: [1.0, 0.45, 0.4] };
+
 // Status line part describing selection: mode and the modifier keys with their effect (held ones highlighted).
 function sel_status()
 {
     const m = E.mods, on = (b, s) => b ? '<b class="on">' + s + '</b>' : s;
     const head = E.box && E.box.active ? 'BOX SELECT' : 'select: click / drag box';
     return '<b>' + head + '</b> ' + sel_op(m) + ', ' + (m.alt ? 'enclosed only' : 'touching') +
-           ' [' + on(m.shift, 'Shift add') + ' · ' + on(m.ctrl, 'Ctrl remove') + ' · ' + on(m.alt, 'Alt enclosed only') + ']';
+           ' [' + on(m.shift, 'Shift add') + ' · ' + on(m.ctrl, 'Ctrl remove') + ' · ' + on(m.alt, 'Alt enclosed only') + ']' +
+           (E.hover >= 0 && E.list[E.hover] ? ' · click: ' + click_op(E.list[E.hover]) + ' #' + E.hover : '');
 }
 
 function add_splat()
@@ -426,6 +431,8 @@ function view_input()
     const c = E.R.canvas;
     let drag = null;
     c.addEventListener('contextmenu', e => e.preventDefault());
+    c.addEventListener('mouseenter', () => { E.mouse_in = true; });
+    c.addEventListener('mouseleave', () => { E.mouse_in = false; });
     const mods = e => { E.mods = { shift: e.shiftKey, ctrl: e.ctrlKey || e.metaKey, alt: e.altKey }; if (E.box) box_overlay(E.box, E.mods); };
     window.addEventListener('keydown', e => { mods(e); if (e.key === 'Alt') e.preventDefault(); });
     window.addEventListener('keyup', e => { mods(e); if (e.key === 'Alt') e.preventDefault(); });
@@ -439,11 +446,11 @@ function view_input()
             e.preventDefault();
             return;
         }
-        drag = { x: e.clientX, y: e.clientY, pan: e.button === 1 || e.shiftKey };
+        drag = { x: e.clientX, y: e.clientY, pan: e.button === 1 || e.shiftKey }; E.dragging = true;
         e.preventDefault();
     });
     window.addEventListener('mouseup', e => {
-        drag = null;
+        drag = null; E.dragging = false;
         if (e.button !== 0 || !E.box) return;
         mods(e);
         const B = E.box; E.box = null; box_overlay(null);
@@ -596,8 +603,11 @@ function main()
         const cam = camera(), key = cam.view.map(v => v.toFixed(5)).join(',');
         if (E.data_dirty || key !== E.view_key) { render_upload(E.R, E.list, cam.view); E.view_key = key; E.data_dirty = false; }
         const nsel = E.list.reduce((n, t) => n + (t.sel ? 1 : 0), 0);
+        // hover: the splat a click at the mouse would pick (not while transforming, box selecting or orbiting)
+        E.hover = E.mouse_in && !E.xf && !E.box && !E.dragging && $('help').classList.contains('hidden') ? pick(E.mouse[0], E.mouse[1]).i : -1;
+        const hv = E.hover >= 0 ? E.list[E.hover] : null;
         $('btn_grid').classList.toggle('on', E.grid); $('btn_lit').classList.toggle('on', E.lit);   // toggle state (also changed by keys)
-        render_frame(E.R, cam, { mode: E.mode, edge: E.edge, slice_px: E.slice_px, lit: E.lit, grid: E.grid, cursor: E.cursor, list: E.list, nsel: nsel, bg: [0.16, 0.17, 0.19] });
+        render_frame(E.R, cam, { mode: E.mode, edge: E.edge, slice_px: E.slice_px, lit: E.lit, grid: E.grid, cursor: E.cursor, list: E.list, nsel: nsel, hover: hv, hover_col: hv ? HOVER_COL[click_op(hv)] : null, bg: [0.16, 0.17, 0.19] });
         let s = E.list.length + ' splats · ' + nsel + ' selected · sort ' + E.R.sort_ms.toFixed(1) + ' ms · view ' + ['splats', 'contours', 'centres'][E.mode] +
                 (E.lit ? ' (lit)' : '') + ' · edge ' + (E.edge < 0 ? 'per splat' : EDGE_NAMES[E.edge] + ' (all)') + ' · cursor ' + E.cursor.map(v => v.toFixed(3)).join(' ');
         if (E.xf) s += ' · ' + E.xf.mode + (E.xf.axis >= 0 ? ' ' + 'XYZ'[E.xf.axis] : '') + (E.xf.factor ? ' ×' + E.xf.factor.toFixed(3) : '') + (E.xf.angle ? ' ' + E.xf.angle.toFixed(1) + '°' : '');
