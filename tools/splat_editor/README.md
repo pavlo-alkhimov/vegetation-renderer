@@ -20,7 +20,7 @@ Splats are sorted back to front and alpha-blended, the correctness reference of 
 | two small | soft line | needle, thin stem |
 | all similar | soft ball | blob, flower head, haze |
 
-**Lighting (L)** treats splats as material splats lit by a sun: the normal is the shortest axis, and both faces are lit the same (two-sided), so a splat looks the same from either side of its plane. Round splats stay unlit.
+**Lighting (L)** treats splats as material splats lit by a sun: the normal is the shortest axis. Splats are two-sided: the face towards the sun gets direct light, the other face ambient light plus some light coming through. When the camera crosses a splat's plane, the light changes smoothly, over an angle that depends on how flat the splat is. A gizmo in the lower left corner shows the world axes (X red, Y green, Z blue), the horizon and the sun direction (yellow). Round splats stay unlit.
 
 ## Controls
 

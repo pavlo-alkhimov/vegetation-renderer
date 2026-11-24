@@ -1,6 +1,9 @@
 // WebGL2 renderer: Gaussian splats (EWA projection, sorted back to front, premultiplied alpha), contour rings, centres,
 // ground grid, 3D cursor, selection rings.
 
+// Sun direction (towards the sun), world space, y up.
+const SUN = vnorm([0.45, 0.8, 0.35]);
+
 const VS_SPLAT = `#version 300 es
 layout(location=0) in vec2 a_corner;
 layout(location=1) in vec3 i_pos; layout(location=2) in vec3 i_scale; layout(location=3) in vec4 i_rot; layout(location=4) in vec4 i_col;
@@ -34,12 +37,19 @@ void main() {
     v_uv = a_corner * 3.0;
     vec3 col = i_col.rgb;
     if (u_lit == 1) {
-        // Material splat lit by the sun: normal = the shortest axis (flat splats). Two-sided: both faces get the same light
-        // (|n.sun|), so nothing changes when the camera crosses the splat's plane.
+        // Material splat lit by the sun: normal = the shortest axis (flat splats). Two-sided: each face is lit on its own,
+        // the face towards the sun gets direct light, the other ambient plus some light through the leaf. The visible face
+        // is blended across the plane over an angle band set by the splat's thickness ratio (seen edge-on, a thick splat
+        // shows both faces), so crossing the plane changes the light smoothly instead of jumping.
+        float smin = min(i_scale.x, min(i_scale.y, i_scale.z)), smax = max(i_scale.x, max(i_scale.y, i_scale.z));
         vec3 n = i_scale.x < i_scale.y ? (i_scale.x < i_scale.z ? R[0] : R[2]) : (i_scale.y < i_scale.z ? R[1] : R[2]);
-        float flat_ = 1.0 - min(i_scale.x, min(i_scale.y, i_scale.z)) / max(i_scale.x, max(i_scale.y, i_scale.z));
-        float d = abs(dot(n, u_sun));
-        float lit = mix(0.95, 0.42 + 0.85 * d, flat_);
+        float flat_ = 1.0 - smin / smax;
+        float ns = dot(n, u_sun);
+        float face_a = 0.42 + 0.85 * max(ns, 0.0) + 0.25 * max(-ns, 0.0);   // face along +n
+        float face_b = 0.42 + 0.85 * max(-ns, 0.0) + 0.25 * max(ns, 0.0);   // face along -n
+        float band = max(smin / smax, 0.05);
+        float front = smoothstep(-band, band, dot(n, normalize(u_eye - i_pos)));
+        float lit = mix(0.95, mix(face_b, face_a, front), flat_);
         col *= lit;
     }
     v_col = vec4(col, i_col.a);
@@ -308,7 +318,7 @@ function render_frame(R, cam, opts)
     if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
     gl.viewport(0, 0, w, h);
     gl.clearColor(opts.bg[0], opts.bg[1], opts.bg[2], 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    const vp = m4_mul(cam.proj, cam.view), sun = vnorm([0.45, 0.8, 0.35]);
+    const vp = m4_mul(cam.proj, cam.view), sun = SUN;
     gl.enable(gl.DEPTH_TEST); gl.depthMask(true); gl.disable(gl.BLEND);
     if (opts.grid) lines_draw(R, R.grid || (R.grid = grid_lines()), gl.LINES, vp);
     if (R.n) {
@@ -352,5 +362,28 @@ function render_frame(R, cam, opts)
     lines_draw(R, [p[0] - k, p[1], p[2], ...cc, p[0] + k, p[1], p[2], ...cc, p[0], p[1] - k, p[2], ...cc, p[0], p[1] + k, p[2], ...cc,
                    p[0], p[1], p[2] - k, ...cc, p[0], p[1], p[2] + k, ...cc], gl.LINES, vp);
     gl.enable(gl.DEPTH_TEST);
+    if (opts.lit) sun_gizmo(R, cam, dpr);
     gl.bindVertexArray(null);
+}
+
+// Light gizmo in the lower left corner: world axes (X red, Y green, Z blue), the horizon circle and a yellow line from the
+// centre to the sun, all turning with the camera.
+function sun_gizmo(R, cam, dpr)
+{
+    const gl = R.gl, size = Math.round(110 * dpr), pad = Math.round(8 * dpr);
+    const rot = Array.from(cam.view); rot[12] = rot[13] = rot[14] = 0;
+    const vp = m4_mul([0.8, 0, 0, 0, 0, 0.8, 0, 0, 0, 0, -0.4, 0, 0, 0, 0, 1], rot);
+    const L = [], ax = (d, c) => L.push(0, 0, 0, ...c, ...d, ...c);
+    ax([0.6, 0, 0], [0.9, 0.3, 0.3, 1]); ax([0, 0.6, 0], [0.4, 0.85, 0.4, 1]); ax([0, 0, 0.6], [0.35, 0.55, 1, 1]);
+    for (let i = 0; i < 48; i++) { const a = i / 48 * 6.2832, b = (i + 1) / 48 * 6.2832, g = [0.45, 0.47, 0.5, 1];
+        L.push(Math.cos(a), 0, Math.sin(a), ...g, Math.cos(b), 0, Math.sin(b), ...g); }
+    const y = [1, 0.85, 0.2, 1], s = SUN;
+    L.push(0, 0, 0, ...y, s[0], s[1], s[2], ...y);
+    L.push(s[0], 0, s[2], 0.6, 0.5, 0.15, 1, s[0], s[1], s[2], 0.6, 0.5, 0.15, 1);   // drop line to the horizon: elevation
+    gl.disable(gl.DEPTH_TEST);
+    gl.viewport(pad, pad, size, size);
+    lines_draw(R, L, gl.LINES, vp);
+    lines_draw(R, [s[0], s[1], s[2], ...y], gl.POINTS, vp, 9 * dpr);
+    gl.viewport(0, 0, R.canvas.width, R.canvas.height);
+    gl.enable(gl.DEPTH_TEST);
 }
