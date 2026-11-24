@@ -29,7 +29,7 @@ button.on { background: #2f5f9e; border-color: #7fb0f0; }
 .sedit { position: absolute; inset: 0; width: 100%; box-sizing: border-box; }
 .crow { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
 .pname { width: 110px; color: #c8ccd4; }
-#keybar { flex: none; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 3px 10px; padding: 5px 8px;
+#keybar { flex: none; box-sizing: border-box; align-content: start; overflow: hidden; display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 3px 10px; padding: 5px 8px;
           background: #1b1c20; border-top: 1px solid #33363c; font: 12px monospace; color: #c8ccd4; }
 #keybar .slot { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 #keybar .mode { color: #9ad08a; font-weight: bold; }

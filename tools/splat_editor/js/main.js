@@ -367,12 +367,24 @@ function keybar_update()
 {
     const mode = !$('help').classList.contains('hidden') ? 'help' : E.xf ? 'xf' : E.box && E.box.active ? 'box' : 'edit';
     const key = mode + (E.xf ? E.xf.mode + E.xf.axis : '');
-    if (E.keybar_key === key) return;
+    if (E.keybar_key === key && E.keybar_w === window.innerWidth) return;
+    E.keybar_w = window.innerWidth;
     E.keybar_key = key;
-    const k = KEYBAR[mode];
-    let h = '<span class="slot mode">' + (E.xf ? E.xf.mode.toUpperCase() + (E.xf.axis >= 0 ? ' ' + 'XYZ'[E.xf.axis] : '') : k[0]) + '</span>';
+    const k = KEYBAR[mode], bar = $('keybar');
+    bar.innerHTML = keybar_html(k, E.xf ? E.xf.mode.toUpperCase() + (E.xf.axis >= 0 ? ' ' + 'XYZ'[E.xf.axis] : '') : k[0]);
+    // The bar keeps the height of the (tallest) edit page whatever page it shows, so the viewport never resizes when a
+    // transform or a box selection starts. Measured on a hidden copy at the bar's width.
+    const probe = document.createElement('div');
+    probe.id = 'keybar'; probe.style.cssText = 'position:absolute; visibility:hidden; left:0; top:0; width:' + bar.offsetWidth + 'px; min-height:0';
+    probe.innerHTML = keybar_html(KEYBAR.edit, KEYBAR.edit[0]);
+    document.body.appendChild(probe); const hh = probe.offsetHeight; probe.remove();
+    bar.style.minHeight = bar.style.height = hh + 'px';
+}
+function keybar_html(k, title)
+{
+    let h = '<span class="slot mode">' + title + '</span>';
     for (const e of k.slice(1)) h += '<span class="slot"><kbd>' + e[0] + '</kbd>' + e[1] + '</span>';
-    $('keybar').innerHTML = h;
+    return h;
 }
 
 function help_text()
