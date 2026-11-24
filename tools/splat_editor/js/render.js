@@ -155,7 +155,7 @@ void main() {
     gl_Position = u_vp * vec4(i_pos + qmat(normalize(i_rot)) * (loc * i_scale * 2.0), 1.0);
     const vec3 SEL = vec3(1.0, 0.62, 0.15);
     vec3 col = i_col.a > 1.5 ? u_hover : i_col.a > 0.5 ? SEL : min(i_col.rgb * 1.25 + 0.08, vec3(1.0));
-    float alpha = i_col.a > 1.5 ? u_hover_a : 1.0;
+    float alpha = i_col.a > 1.5 ? 0.5 * u_hover_a : i_col.a > 0.5 ? 0.5 : 1.0;   // selection and hover rings: 50 %
     v_col = vec4(f == 0.0 ? col : col * 0.6, alpha);
 }`;
 
@@ -391,7 +391,8 @@ function field_target(R, w, h)
 }
 
 // Metaball outline of the selected splats (see VS_FIELD).
-function outline_draw(R, cam, w, h)
+// col: line colour (the editor passes the brightened average colour of the selected splats).
+function outline_draw(R, cam, w, h, col)
 {
     const gl = R.gl, F = field_target(R, w, h);
     gl.bindFramebuffer(gl.FRAMEBUFFER, F.fbo); gl.viewport(0, 0, w, h);
@@ -406,7 +407,7 @@ function outline_draw(R, cam, w, h)
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.useProgram(R.pout.p);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, F.tex); gl.uniform1i(R.pout.u.u_field, 0);
-    gl.uniform3f(R.pout.u.u_col, 1.0, 0.62, 0.15);
+    gl.uniform3fv(R.pout.u.u_col, col || [1.0, 0.62, 0.15]);
     gl.bindVertexArray(null);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.disable(gl.BLEND); gl.enable(gl.DEPTH_TEST);
@@ -459,11 +460,11 @@ function render_frame(R, cam, opts)
         // selected splats. opts.sel_style: 0 sections, 1 outline, 2 both.
         const ss = opts.sel_style === undefined ? 0 : opts.sel_style;
         if (opts.nsel && ss !== 1) {
-            gl.disable(gl.DEPTH_TEST);
+            gl.disable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
             rings_draw(R, cam, vp, h, 0, true, (opts.slice_px || 20) * dpr, opts.list);
-            gl.enable(gl.DEPTH_TEST);
+            gl.disable(gl.BLEND); gl.enable(gl.DEPTH_TEST);
         }
-        if (opts.nsel && ss !== 0) outline_draw(R, cam, w, h);
+        if (opts.nsel && ss !== 0) outline_draw(R, cam, w, h, opts.outline_col);
         // Hover: the splat a click would pick, in a colour telling what the click would do, on top of everything.
         // opts.hover: [{ t: splat, col, a }], the current one (a = 1) and ones fading out after the mouse left them.
         if (opts.hover && opts.hover.length) {
