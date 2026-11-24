@@ -428,6 +428,7 @@ function ui_init()
     $('btn_save').addEventListener('click', () => download(E.title + '.splats', splats_write(E.list, E.title), 'text/plain'));
     $('btn_ply').addEventListener('click', () => download(E.title + '.ply', ply_write(E.list)));
     $('btn_grid').addEventListener('click', () => { E.grid = !E.grid; });
+    $('btn_lit').addEventListener('click', () => { E.lit = !E.lit; });
     $('btn_help').addEventListener('click', () => { $('help').classList.toggle('hidden'); $('btn_help').blur(); });
     $('title').addEventListener('change', e => { E.title = e.target.value.trim().replace(/[^\w-]/g, '_') || 'model'; e.target.value = E.title; changed(false); });
     $('help_text').textContent = help_text();
@@ -450,6 +451,7 @@ function main()
         const cam = camera(), key = cam.view.map(v => v.toFixed(5)).join(',');
         if (E.data_dirty || key !== E.view_key) { render_upload(E.R, E.list, cam.view); E.view_key = key; E.data_dirty = false; }
         const nsel = E.list.reduce((n, t) => n + (t.sel ? 1 : 0), 0);
+        $('btn_grid').classList.toggle('on', E.grid); $('btn_lit').classList.toggle('on', E.lit);   // toggle state (also changed by keys)
         render_frame(E.R, cam, { mode: E.mode, lit: E.lit, grid: E.grid, cursor: E.cursor, list: E.list, nsel: nsel, bg: [0.16, 0.17, 0.19] });
         let s = E.list.length + ' splats · ' + nsel + ' selected · sort ' + E.R.sort_ms.toFixed(1) + ' ms · view ' + ['splats', 'contours', 'centres'][E.mode] +
                 (E.lit ? ' (lit)' : '') + ' · cursor ' + E.cursor.map(v => v.toFixed(3)).join(' ');
