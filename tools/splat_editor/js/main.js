@@ -536,7 +536,7 @@ function on_key(e)
     else if (k === '1' || k === '2' || k === '3') { E.mode = parseInt(k, 10) - 1; toast(k + ' · ' + ['splats', 'contours', 'centres'][E.mode]); }
     else if (k === 'v' || k === 'V') $('viewset').classList.toggle('hidden');
     else if (k === 'l' || k === 'L') E.lit = !E.lit;
-    else if (k === 'e' || k === 'E') { E.edge = E.edge >= 3 ? -1 : E.edge + 1; $('edge').value = E.edge; }
+    else if (k === 'e' || k === 'E') { E.edge = E.edge >= 3 ? -1 : E.edge + 1; $('edge').value = E.edge; toast('E · edge: ' + (E.edge < 0 ? 'per splat' : 'all ' + EDGE_NAMES[E.edge])); }
     else if (k === 'f' || k === 'F') frame_view();
     else if (k === 'h' || k === 'H') help.classList.remove('hidden');
     else return;
