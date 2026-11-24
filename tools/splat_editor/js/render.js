@@ -140,7 +140,7 @@ layout(location=0) in vec3 a_pos;                                     // unit ci
 layout(location=1) in vec3 i_pos; layout(location=2) in vec3 i_scale; layout(location=3) in vec4 i_rot;
 layout(location=4) in vec4 i_col;                                     // rgb, flag: 0 normal, 1 selected, 2 hover
 layout(location=5) in vec2 i_ring;                                    // plane, offset
-uniform mat4 u_vp; uniform vec3 u_hover;
+uniform mat4 u_vp; uniform vec3 u_hover; uniform float u_hover_a;
 out vec4 v_col;
 mat3 qmat(vec4 q) {
     float w = q.x, x = q.y, y = q.z, z = q.w;
@@ -154,7 +154,7 @@ void main() {
     vec3 loc = r == 0 ? vec3(c.x, c.y, f) : r == 1 ? vec3(f, c.x, c.y) : vec3(c.x, f, c.y);
     gl_Position = u_vp * vec4(i_pos + qmat(normalize(i_rot)) * (loc * i_scale * 2.0), 1.0);
     vec3 col = i_col.a > 1.5 ? u_hover : i_col.a > 0.5 ? vec3(1.0, 0.62, 0.15) : min(i_col.rgb * 1.25 + 0.08, vec3(1.0));
-    v_col = vec4(f == 0.0 ? col : col * 0.6, 1.0);
+    v_col = vec4(f == 0.0 ? col : col * 0.6, i_col.a > 1.5 ? u_hover_a : 1.0);
 }`;
 
 const VS_LINE = `#version 300 es
@@ -316,14 +316,14 @@ function rings_build(list, cam, h, minpx, only_sel, space, flag)
 }
 
 // flag / hover_col: draw all rings of the list in hover_col (the splat a click would pick).
-function rings_draw(R, cam, vp, h, minpx, only_sel, space, list, flag, hover_col)
+function rings_draw(R, cam, vp, h, minpx, only_sel, space, list, flag, hover_col, hover_a)
 {
     const gl = R.gl, data = rings_build(list, cam, h, minpx, only_sel, space, flag), n = data.length / 16;
     R.rings = n;
     if (!n) return;
     gl.bindBuffer(gl.ARRAY_BUFFER, R.ring_inst); gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
     gl.useProgram(R.pr.p);
-    gl.uniformMatrix4fv(R.pr.u.u_vp, false, vp); gl.uniform3fv(R.pr.u.u_hover, hover_col || [1, 1, 1]);
+    gl.uniformMatrix4fv(R.pr.u.u_vp, false, vp); gl.uniform3fv(R.pr.u.u_hover, hover_col || [1, 1, 1]); gl.uniform1f(R.pr.u.u_hover_a, hover_a === undefined ? 1 : hover_a);
     gl.bindVertexArray(R.vao_ring);
     gl.drawArraysInstanced(gl.LINES, 0, R.ring_count, n);
 }
@@ -365,10 +365,10 @@ function render_frame(R, cam, opts)
             gl.enable(gl.DEPTH_TEST);
         }
         // Hover: the splat a click would pick, in a colour telling what the click would do, on top of everything.
-        if (opts.hover) {
-            gl.disable(gl.DEPTH_TEST);
-            rings_draw(R, cam, vp, h, 0, false, (opts.slice_px || 20) * dpr, [opts.hover], 2, opts.hover_col);
-            gl.enable(gl.DEPTH_TEST);
+        if (opts.hover && opts.hover_a > 0) {
+            gl.disable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+            rings_draw(R, cam, vp, h, 0, false, (opts.slice_px || 20) * dpr, [opts.hover], 2, opts.hover_col, opts.hover_a);
+            gl.disable(gl.BLEND); gl.enable(gl.DEPTH_TEST);
         }
     }
     // 3D cursor.

@@ -222,6 +222,7 @@ function box_overlay(B, m)
 
 // What a click on splat t would do with the current modifiers, and the hover colour for it.
 function click_op(t) { const m = E.mods; return m.ctrl ? 'remove' : m.shift ? (t.sel ? 'remove' : 'add') : 'select'; }
+const HOVER_FADE = 3000;
 const HOVER_COL = { select: [0.45, 0.85, 1.0], add: [0.55, 0.95, 0.5], remove: [1.0, 0.45, 0.4] };
 
 // Status line part describing selection: mode and the modifier keys with their effect (held ones highlighted).
@@ -606,8 +607,12 @@ function main()
         // hover: the splat a click at the mouse would pick (not while transforming, box selecting or orbiting)
         E.hover = E.mouse_in && !E.xf && !E.box && !E.dragging && $('help').classList.contains('hidden') ? pick(E.mouse[0], E.mouse[1]).i : -1;
         const hv = E.hover >= 0 ? E.list[E.hover] : null;
+        // The highlight fades out over HOVER_FADE ms; it restarts when the picked splat or the click's effect changes.
+        const hkey = hv ? E.hover + click_op(hv) : '';
+        if (hkey !== E.hover_key) { E.hover_key = hkey; E.hover_t0 = performance.now(); }
+        const hover_a = hv ? Math.max(0, 1 - (performance.now() - E.hover_t0) / HOVER_FADE) : 0;
         $('btn_grid').classList.toggle('on', E.grid); $('btn_lit').classList.toggle('on', E.lit);   // toggle state (also changed by keys)
-        render_frame(E.R, cam, { mode: E.mode, edge: E.edge, slice_px: E.slice_px, lit: E.lit, grid: E.grid, cursor: E.cursor, list: E.list, nsel: nsel, hover: hv, hover_col: hv ? HOVER_COL[click_op(hv)] : null, bg: [0.16, 0.17, 0.19] });
+        render_frame(E.R, cam, { mode: E.mode, edge: E.edge, slice_px: E.slice_px, lit: E.lit, grid: E.grid, cursor: E.cursor, list: E.list, nsel: nsel, hover: hv, hover_col: hv ? HOVER_COL[click_op(hv)] : null, hover_a: hover_a, bg: [0.16, 0.17, 0.19] });
         let s = E.list.length + ' splats · ' + nsel + ' selected · sort ' + E.R.sort_ms.toFixed(1) + ' ms · view ' + ['splats', 'contours', 'centres'][E.mode] +
                 (E.lit ? ' (lit)' : '') + ' · edge ' + (E.edge < 0 ? 'per splat' : EDGE_NAMES[E.edge] + ' (all)') + ' · cursor ' + E.cursor.map(v => v.toFixed(3)).join(' ');
         if (E.xf) s += ' · ' + E.xf.mode + (E.xf.axis >= 0 ? ' ' + 'XYZ'[E.xf.axis] : '') + (E.xf.factor ? ' ×' + E.xf.factor.toFixed(3) : '') + (E.xf.angle ? ' ' + E.xf.angle.toFixed(1) + '°' : '');
