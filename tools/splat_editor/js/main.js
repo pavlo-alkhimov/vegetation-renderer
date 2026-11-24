@@ -601,10 +601,15 @@ function ui_init()
     $('btn_lit').addEventListener('click', ev => { E.lit = !E.lit; note_lit(); ev.target.blur(); });
     const sl = $('slice_px'), slv = () => { E.slice_px = parseInt(sl.value, 10); $('slice_val').textContent = E.slice_px + ' px'; };
     sl.addEventListener('input', slv); sl.addEventListener('change', () => sl.blur()); slv();
-    // outline levels: coverage (final alpha) of the selection in %; the in-between line at their geometric mean
-    const ok = $('outline_k'), okv = () => { E.outline_close = parseFloat(ok.value) / 100; $('outline_val').textContent = ok.value + ' %'; };
+    // Outline levels: coverage (final alpha) of the selection; the in-between line at their geometric mean. The sliders
+    // run towards lower levels (s 0..100 -> hi..lo, logarithmic), so moving right makes the contour larger.
+    const lv_of = (s, hi, lo) => hi * Math.pow(lo / hi, s / 100), lv_txt = v => (v < 0.1 ? (v * 100).toFixed(1) : Math.round(v * 100)) + ' %';
+    const s_of = (v, hi, lo) => Math.round(100 * Math.log(v / hi) / Math.log(lo / hi));
+    const ok = $('outline_k'), okv = () => { E.outline_close = lv_of(+ok.value, 0.95, 0.02); $('outline_val').textContent = lv_txt(E.outline_close); };
+    ok.value = s_of(E.outline_close, 0.95, 0.02);
     ok.addEventListener('input', okv); ok.addEventListener('change', () => ok.blur()); okv();
-    const of = $('outline_far'), ofv = () => { E.outline_far = parseFloat(of.value) / 100; $('outline_far_val').textContent = of.value + ' %'; };
+    const of = $('outline_far'), ofv = () => { E.outline_far = lv_of(+of.value, 0.5, 0.003); $('outline_far_val').textContent = lv_txt(E.outline_far); };
+    of.value = s_of(E.outline_far, 0.5, 0.003);
     of.addEventListener('input', ofv); of.addEventListener('change', () => of.blur()); ofv();
     // While an outline slider is dragged, the selection is shown plainly (splats at full opacity, no sections) with only
     // the outlines, so their placement can be judged; released, the usual selection look returns.
