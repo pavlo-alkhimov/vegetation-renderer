@@ -160,9 +160,9 @@ void main() {
 }`;
 
 // Selection outline (metaballs). Every selected splat adds its screen-space Gaussian with peak 1, exp(-r^2 / 2) with r
-// in sigma units (the EWA covariance, as drawn), to an offscreen field; the outline is the iso-line field = e^-2, which
-// for a lone splat is exactly its 2-sigma ellipse (the contour rings). Splats that overlap or nearly touch add up and
-// merge into one smooth shape. Quads go to 3.5 sigma so neighbours reach each other.
+// in sigma units (the EWA covariance, as drawn), to an offscreen field; the outline is the iso-line field = exp(-k^2/2),
+// which for a lone splat is exactly its k-sigma ellipse (k = 2: the contour rings; set in the toolbar, 1..3). Splats
+// that overlap or nearly touch add up and merge into one smooth shape. Quads go to 4 sigma so neighbours reach each other.
 const VS_FIELD = `#version 300 es
 layout(location=0) in vec2 a_corner;
 layout(location=1) in vec3 i_pos; layout(location=2) in vec3 i_scale; layout(location=3) in vec4 i_rot;
@@ -190,9 +190,9 @@ void main() {
     float l1 = mid + r, l2 = max(mid - r, 0.05);
     vec2 e1 = abs(b) > 1e-9 ? normalize(vec2(b, l1 - a)) : (a >= c ? vec2(1.0, 0.0) : vec2(0.0, 1.0)), e2 = vec2(-e1.y, e1.x);
     vec4 clip = u_proj * vc;
-    clip.xy += (a_corner.x * sqrt(l1) * e1 + a_corner.y * sqrt(l2) * e2) * 3.5 * 2.0 / u_vp * clip.w;
+    clip.xy += (a_corner.x * sqrt(l1) * e1 + a_corner.y * sqrt(l2) * e2) * 4.0 * 2.0 / u_vp * clip.w;
     gl_Position = clip;
-    v_uv = a_corner * 3.5;
+    v_uv = a_corner * 4.0;
 }`;
 const FS_FIELD = `#version 300 es
 precision highp float;
@@ -203,9 +203,9 @@ void main() { vec2 p = vec2(gl_VertexID == 1 ? 3.0 : -1.0, gl_VertexID == 2 ? 3.
 // Outline: ~2 px anti-aliased line on the iso-line, plus a faint fill inside.
 const FS_OUTLINE = `#version 300 es
 precision highp float;
-uniform sampler2D u_field; uniform vec3 u_col; out vec4 o;
+uniform sampler2D u_field; uniform vec3 u_col; uniform float u_k; out vec4 o;
 void main() {
-    float f = texelFetch(u_field, ivec2(gl_FragCoord.xy), 0).r, t = exp(-2.0);
+    float f = texelFetch(u_field, ivec2(gl_FragCoord.xy), 0).r, t = exp(-0.5 * u_k * u_k);
     float d = abs(f - t) / max(fwidth(f), 1e-6);                   // distance to the iso-line in pixels
     float line = 1.0 - clamp(d - 0.6, 0.0, 1.0), fill = f > t ? 0.08 : 0.0;
     float a = max(line, fill);
@@ -392,7 +392,7 @@ function field_target(R, w, h)
 
 // Metaball outline of the selected splats (see VS_FIELD).
 // col: line colour (the editor passes the brightened average colour of the selected splats).
-function outline_draw(R, cam, w, h, col)
+function outline_draw(R, cam, w, h, col, k)
 {
     const gl = R.gl, F = field_target(R, w, h);
     gl.bindFramebuffer(gl.FRAMEBUFFER, F.fbo); gl.viewport(0, 0, w, h);
@@ -407,7 +407,7 @@ function outline_draw(R, cam, w, h, col)
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.useProgram(R.pout.p);
     gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, F.tex); gl.uniform1i(R.pout.u.u_field, 0);
-    gl.uniform3fv(R.pout.u.u_col, col || [1.0, 0.62, 0.15]);
+    gl.uniform3fv(R.pout.u.u_col, col || [1.0, 0.62, 0.15]); gl.uniform1f(R.pout.u.u_k, k || 2);
     gl.bindVertexArray(null);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.disable(gl.BLEND); gl.enable(gl.DEPTH_TEST);
@@ -464,7 +464,7 @@ function render_frame(R, cam, opts)
             rings_draw(R, cam, vp, h, 0, true, (opts.slice_px || 20) * dpr, opts.list);
             gl.disable(gl.BLEND); gl.enable(gl.DEPTH_TEST);
         }
-        if (opts.nsel && ss !== 0) outline_draw(R, cam, w, h, opts.outline_col);
+        if (opts.nsel && ss !== 0) outline_draw(R, cam, w, h, opts.outline_col, opts.outline_k);
         // Hover: the splat a click would pick, in a colour telling what the click would do, on top of everything.
         // opts.hover: [{ t: splat, col, a }], the current one (a = 1) and ones fading out after the mouse left them.
         if (opts.hover && opts.hover.length) {
