@@ -5,7 +5,7 @@ const STORE_MODEL = 'splat_editor.model', STORE_TITLE = 'splat_editor.title';
 const FOV = 45 * Math.PI / 180;
 
 const E = {
-    list: [], title: 'meadow_plant', cursor: [0, 0, 0], mode: 0, edge: -1, slice_px: 20, sel_style: 2, outline_k: 1.2, outline_far: 2.5, lit: true, grid: true, centres: false,
+    list: [], title: 'meadow_plant', cursor: [0, 0, 0], mode: 0, edge: -1, slice_px: 20, sel_style: 2, outline_close: 0.45, outline_far: 0.04, lit: true, grid: true, centres: false,
     tool: 'chain', tool_P: {}, box: null, hover: -1, hover_cur: null, fading: [], mouse_in: false, dragging: false, mods: { shift: false, ctrl: false, alt: false }, undo: [], redo: [], xf: null, editing: false, mouse: [0, 0],
     cam: { az: 0.7, el: 0.35, dist: 1.2, target: [0, 0.12, 0] }, R: null, view_key: '', data_dirty: true, msg: '', msg_t: 0,
 };
@@ -601,9 +601,10 @@ function ui_init()
     $('btn_lit').addEventListener('click', ev => { E.lit = !E.lit; note_lit(); ev.target.blur(); });
     const sl = $('slice_px'), slv = () => { E.slice_px = parseInt(sl.value, 10); $('slice_val').textContent = E.slice_px + ' px'; };
     sl.addEventListener('input', slv); sl.addEventListener('change', () => sl.blur()); slv();
-    const ok = $('outline_k'), okv = () => { E.outline_k = parseFloat(ok.value); $('outline_val').textContent = E.outline_k.toFixed(1) + ' σ'; };
+    // outline levels: coverage (final alpha) of the selection in %; the in-between line at their geometric mean
+    const ok = $('outline_k'), okv = () => { E.outline_close = parseFloat(ok.value) / 100; $('outline_val').textContent = ok.value + ' %'; };
     ok.addEventListener('input', okv); ok.addEventListener('change', () => ok.blur()); okv();
-    const of = $('outline_far'), ofv = () => { E.outline_far = parseFloat(of.value); $('outline_far_val').textContent = E.outline_far.toFixed(1) + ' σ'; };
+    const of = $('outline_far'), ofv = () => { E.outline_far = parseFloat(of.value) / 100; $('outline_far_val').textContent = of.value + ' %'; };
     of.addEventListener('input', ofv); of.addEventListener('change', () => of.blur()); ofv();
     // While an outline slider is dragged, the selection is shown plainly (splats at full opacity, no sections) with only
     // the outlines, so their placement can be judged; released, the usual selection look returns.
@@ -648,7 +649,7 @@ function main()
         if (hv) hover.push({ t: hv, col: hcol, a: 1 });
         $('btn_grid').classList.toggle('on', E.grid); $('btn_lit').classList.toggle('on', E.lit);   // toggle state (also changed by keys)
         if ($('view_mode').value !== '' + E.mode && document.activeElement !== $('view_mode')) $('view_mode').value = E.mode;
-        render_frame(E.R, cam, { mode: E.mode, edge: E.edge, slice_px: E.slice_px, sel_style: E.sel_style, tuning: E.tuning, outline_k: [E.outline_k, 0.5 * (E.outline_k + E.outline_far), E.outline_far], lit: E.lit, grid: E.grid, cursor: E.cursor, list: E.list, nsel: nsel, hover: hover, bg: [0.16, 0.17, 0.19] });
+        render_frame(E.R, cam, { mode: E.mode, edge: E.edge, slice_px: E.slice_px, sel_style: E.sel_style, tuning: E.tuning, outline_lv: [E.outline_close, Math.sqrt(E.outline_close * E.outline_far), E.outline_far], lit: E.lit, grid: E.grid, cursor: E.cursor, list: E.list, nsel: nsel, hover: hover, bg: [0.16, 0.17, 0.19] });
         let s = E.list.length + ' splats · ' + nsel + ' selected · sort ' + E.R.sort_ms.toFixed(1) + ' ms · view ' + ['splats', 'contours', 'centres'][E.mode] +
                 (E.lit ? ' (lit)' : '') + ' · edge ' + (E.edge < 0 ? 'per splat' : EDGE_NAMES[E.edge] + ' (all)') + ' · cursor ' + E.cursor.map(v => v.toFixed(3)).join(' ');
         if (E.xf) s += ' · ' + E.xf.mode + (E.xf.axis >= 0 ? ' ' + 'XYZ'[E.xf.axis] : '') + (E.xf.factor ? ' ×' + E.xf.factor.toFixed(3) : '') + (E.xf.angle ? ' ' + E.xf.angle.toFixed(1) + '°' : '');

@@ -38,10 +38,10 @@
       <select id="sel_style" title="each splat's sections, one outline around all selected splats (metaballs), or both">
         <option value="0">sections</option><option value="1">outline</option><option value="2" selected>both</option>
       </select></div>
-    <div class="vs_row" title="selection outline: where the summed field of the selected splats equals exp(-k&sup2;/2); for a lone splat its k-sigma ellipse">
-      <span class="pname">outline close</span><input id="outline_k" type="range" min="0.5" max="3" step="0.1" value="1.2"> <span id="outline_val"></span></div>
-    <div class="vs_row" title="farthest of the three selection outlines; the third one lies half-way (in sigma) between close and far">
-      <span class="pname">outline far</span><input id="outline_far" type="range" min="1" max="3.5" step="0.1" value="2.5"> <span id="outline_far_val"></span></div>
+    <div class="vs_row" title="selection outline: where the coverage (final alpha, as drawn) of the selected splats is this much">
+      <span class="pname">outline close</span><input id="outline_k" type="range" min="5" max="95" step="1" value="45"> <span id="outline_val"></span></div>
+    <div class="vs_row" title="outermost selection outline (coverage level); the third one lies between, at the geometric mean of close and far">
+      <span class="pname">outline far</span><input id="outline_far" type="range" min="1" max="50" step="1" value="4"> <span id="outline_far_val"></span></div>
     <div class="vs_row" title="distance on screen between contour sections, from the central one outwards (view 2 and the selection)">
       <span class="pname">slice distance</span><input id="slice_px" type="range" min="6" max="80" step="1" value="20"> <span id="slice_val"></span></div>
   </div>
