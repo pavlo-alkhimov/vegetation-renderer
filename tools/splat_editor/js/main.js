@@ -5,7 +5,7 @@ const STORE_MODEL = 'splat_editor.model', STORE_TITLE = 'splat_editor.title';
 const FOV = 45 * Math.PI / 180;
 
 const E = {
-    list: [], title: 'meadow_plant', cursor: [0, 0, 0], mode: 0, edge: -1, lit: true, grid: true, centres: false,
+    list: [], title: 'meadow_plant', cursor: [0, 0, 0], mode: 0, edge: -1, slice_px: 20, lit: true, grid: true, centres: false,
     tool: 'chain', tool_P: {}, undo: [], redo: [], xf: null, editing: false, mouse: [0, 0],
     cam: { az: 0.7, el: 0.35, dist: 1.2, target: [0, 0.12, 0] }, R: null, view_key: '', data_dirty: true, msg: '', msg_t: 0,
 };
@@ -313,7 +313,9 @@ function help_text()
         'TOOLS    panel on the right: Chain (blade, stem), Leaf, Blob build at the cursor; Radial copies, Mirror and Colour\n' +
         '         variation work on the selection with the cursor as pivot. T applies the current tool.\n' +
         'VIEW     RMB drag orbit, MMB (or Shift+RMB) drag pan, wheel zoom, F frame selection (or all)\n' +
-        '         1 splats, 2 contours (2-sigma ellipses in the splat\'s own planes; planes with an axis under 3 px hidden),\n         3 centres; L lighting (normal = shortest axis); G grid via toolbar\n' +
+        '         1 splats, 2 contours (sections of the 2-sigma ellipsoid parallel to the splat\'s own planes, spaced by the\n' +
+        '         toolbar "Slices" distance, central one with a grid; planes with an axis under 3 px hidden). The selection\n' +
+        '         is always drawn this way, in orange.\n         3 centres; L lighting (normal = shortest axis); G grid via toolbar\n' +
         'EDGE     each splat has an edge mode and a "hardness" (0..1), both in the panel. The toolbar list (or E) shows\n' +
         '         each splat in its own mode ("per splat") or forces one mode on all. Compare: four copies of the model\n' +
         '         side by side (Gaussian, saturated, generalized, cut-off), each adapted to its mode.\n' +
@@ -459,6 +461,8 @@ function ui_init()
     $('btn_ply').addEventListener('click', () => download(E.title + '.ply', ply_write(E.list)));
     $('btn_grid').addEventListener('click', () => { E.grid = !E.grid; });
     $('btn_lit').addEventListener('click', () => { E.lit = !E.lit; });
+    const sl = $('slice_px'), slv = () => { E.slice_px = parseInt(sl.value, 10); $('slice_val').textContent = E.slice_px + ' px'; };
+    sl.addEventListener('input', slv); sl.addEventListener('change', () => sl.blur()); slv();
     $('edge').addEventListener('change', ev => { E.edge = parseInt(ev.target.value, 10); ev.target.blur(); });
     $('btn_help').addEventListener('click', () => { $('help').classList.toggle('hidden'); $('btn_help').blur(); });
     $('title').addEventListener('change', e => { E.title = e.target.value.trim().replace(/[^\w-]/g, '_') || 'model'; e.target.value = E.title; changed(false); });
@@ -483,7 +487,7 @@ function main()
         if (E.data_dirty || key !== E.view_key) { render_upload(E.R, E.list, cam.view); E.view_key = key; E.data_dirty = false; }
         const nsel = E.list.reduce((n, t) => n + (t.sel ? 1 : 0), 0);
         $('btn_grid').classList.toggle('on', E.grid); $('btn_lit').classList.toggle('on', E.lit);   // toggle state (also changed by keys)
-        render_frame(E.R, cam, { mode: E.mode, edge: E.edge, lit: E.lit, grid: E.grid, cursor: E.cursor, list: E.list, nsel: nsel, bg: [0.16, 0.17, 0.19] });
+        render_frame(E.R, cam, { mode: E.mode, edge: E.edge, slice_px: E.slice_px, lit: E.lit, grid: E.grid, cursor: E.cursor, list: E.list, nsel: nsel, bg: [0.16, 0.17, 0.19] });
         let s = E.list.length + ' splats · ' + nsel + ' selected · sort ' + E.R.sort_ms.toFixed(1) + ' ms · view ' + ['splats', 'contours', 'centres'][E.mode] +
                 (E.lit ? ' (lit)' : '') + ' · edge ' + (E.edge < 0 ? 'per splat' : EDGE_NAMES[E.edge] + ' (all)') + ' · cursor ' + E.cursor.map(v => v.toFixed(3)).join(' ');
         if (E.mode === 1) {
