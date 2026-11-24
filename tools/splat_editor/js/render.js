@@ -21,8 +21,13 @@ void main() {
     vec4 vc = u_view * vec4(i_pos, 1.0);
     if (vc.z > -0.005) { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); return; }
     // EWA: 2D covariance (pixels^2) = J W Sigma W^T J^T, J = Jacobian of the perspective projection at the centre.
+    // The Jacobian is linear only near the view axis: for a splat beside the camera (centre just in front of the camera
+    // plane, far off to the side) the vc.x / tz terms explode and the quad covers the whole screen. As in 3DGS, the
+    // direction used for J is clamped to 1.3 x the frustum half-angle; the quad stays at the true centre, off screen.
     float tz = -vc.z;
-    mat3 J = mat3(u_focal / tz, 0.0, 0.0, 0.0, u_focal / tz, 0.0, u_focal * vc.x / (tz * tz), u_focal * vc.y / (tz * tz), 0.0);
+    vec2 lim = 1.3 * 0.5 * u_vp / u_focal;                            // 1.3 x tan(half fov) in x and y
+    vec2 txy = clamp(vc.xy / tz, -lim, lim) * tz;
+    mat3 J = mat3(u_focal / tz, 0.0, 0.0, 0.0, u_focal / tz, 0.0, u_focal * txy.x / (tz * tz), u_focal * txy.y / (tz * tz), 0.0);
     mat3 T = J * mat3(u_view) * M;
     mat3 cov = T * transpose(T);
     float a = cov[0][0] + 0.3, b = cov[0][1], c = cov[1][1] + 0.3;     // + 0.3 px^2: no splat thinner than ~a pixel
