@@ -288,9 +288,9 @@ function grid_lines()
 }
 
 // Ring instances for the splats (only_sel: selected ones). Per splat and local plane: skipped when either in-plane axis
-// is under minpx pixels across (2-sigma diameter); otherwise sections spread evenly from edge to edge along the normal
-// axis, at least space pixels apart: an odd count n (the central one always, then pairs), up to SLICES_MAX, at offsets
-// 2 m / (n + 1) of 2 sigma, m = -(n-1)/2 .. (n-1)/2.
+// is under minpx pixels across (2-sigma diameter); otherwise the central section, then pairs at m * space pixels from
+// the centre along the normal axis (nominal size, m = 1, 2, ...) while inside the 2-sigma edge. The spacing is fixed on
+// screen, not fitted to the splat, so the outermost sections fall wherever the edge is. At most SLICES_MAX per axis.
 function rings_build(list, cam, h, minpx, only_sel, space)
 {
     const v = cam.view, F = cam.focal * h, out = [];
@@ -303,11 +303,11 @@ function rings_build(list, cam, h, minpx, only_sel, space)
         for (let r = 0; r < 3; r++) {
             const a = r === 0 ? [0, 1] : r === 1 ? [1, 2] : [0, 2], nk = r === 0 ? 2 : r === 1 ? 0 : 1;
             if (Math.min(px[a[0]], px[a[1]]) < minpx) continue;
-            const pairs = Math.max(0, Math.min((SLICES_MAX - 1) >> 1, Math.floor((px[nk] / Math.max(space, 1) - 1) / 2)));
-            const n = 1 + 2 * pairs;
+            const half = 0.5 * px[nk], sp = Math.max(space, 1);
+            const pairs = Math.max(0, Math.min((SLICES_MAX - 1) >> 1, Math.ceil(half / sp) - 1));   // m * sp < half
             for (let m = -pairs; m <= pairs; m++) {
                 if (count >= RINGS_MAX) break;
-                out.push(t.p[0], t.p[1], t.p[2], t.s[0], t.s[1], t.s[2], t.q[0], t.q[1], t.q[2], t.q[3], t.c[0], t.c[1], t.c[2], t.sel ? 1 : 0, r, 2 * m / (n + 1));
+                out.push(t.p[0], t.p[1], t.p[2], t.s[0], t.s[1], t.s[2], t.q[0], t.q[1], t.q[2], t.q[3], t.c[0], t.c[1], t.c[2], t.sel ? 1 : 0, r, m * sp / half);
                 count++;
             }
         }

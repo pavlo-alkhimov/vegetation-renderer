@@ -313,8 +313,8 @@ function help_text()
         'TOOLS    panel on the right: Chain (blade, stem), Leaf, Blob build at the cursor; Radial copies, Mirror and Colour\n' +
         '         variation work on the selection with the cursor as pivot. T applies the current tool.\n' +
         'VIEW     RMB drag orbit, MMB (or Shift+RMB) drag pan, wheel zoom, F frame selection (or all)\n' +
-        '         1 splats, 2 contours (sections of the 2-sigma ellipsoid parallel to the splat\'s own planes, spaced by the\n' +
-        '         toolbar "Slices" distance; planes with an axis under 3 px hidden). The selection\n' +
+        '         1 splats, 2 contours (sections of the 2-sigma ellipsoid parallel to the splat\'s own planes: the central one,\n' +
+        '         then every "Slice distance" pixels (toolbar) out to the edge; planes with an axis under 3 px hidden). The selection\n' +
         '         is always drawn this way, in orange.\n         3 centres; L lighting (normal = shortest axis); G grid via toolbar\n' +
         'EDGE     each splat has an edge mode and a "hardness" (0..1), both in the panel. The toolbar list (or E) shows\n' +
         '         each splat in its own mode ("per splat") or forces one mode on all. Compare: four copies of the model\n' +
