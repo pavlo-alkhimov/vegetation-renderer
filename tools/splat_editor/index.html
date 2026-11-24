@@ -25,7 +25,7 @@
   <div id="viewset" class="hidden">
     <div class="vs_title">View settings <span class="hint">V or Esc closes</span></div>
     <div class="vs_row"><span class="pname">splats presentation</span>
-      <select id="view_mode" title="1 / 2 / 3 / 4"><option value="0">1 splats</option><option value="1">2 contours</option><option value="2">3 centres</option><option value="3">4 lines</option></select></div>
+      <select id="view_mode" title="1 / 2 / 3 / 4"><option value="0">1 splats</option><option value="1">2 ellipses</option><option value="2">3 centres</option><option value="3">4 lines</option></select></div>
     <div class="vs_row"><span class="pname">edge rendering mode</span>
       <select id="edge" title="E: how the splats' hardness shapes their edge">
         <option value="-1">per splat</option>
@@ -41,8 +41,8 @@
       <span class="pname">outline close</span><input id="outline_k" type="range" min="0" max="100" step="1"> <span id="outline_val"></span></div>
     <div class="vs_row" title="outermost selection outline (coverage level); the third one lies between, at the geometric mean of close and far">
       <span class="pname">outline far</span><input id="outline_far" type="range" min="0" max="100" step="1"> <span id="outline_far_val"></span></div>
-    <div class="vs_row"><span class="pname">slices</span><button id="btn_slices" title="P: off-centre sections (slices) of the ellipses, in the contours view and on the selection">Slices (P)</button></div>
-    <div class="vs_row" title="distance on screen between contour sections, from the central one outwards (view 2 and the selection)">
+    <div class="vs_row"><span class="pname">slices</span><button id="btn_slices" title="P: additional ellipses (slices) parallel to the main ones, in the ellipses presentation and on the selection">Slices (P)</button></div>
+    <div class="vs_row" title="distance on screen between the slices, from the main ellipse outwards">
       <span class="pname">slice distance</span><input id="slice_px" type="range" min="6" max="80" step="1" value="20"> <span id="slice_val"></span></div>
   </div>
   <div id="panel">

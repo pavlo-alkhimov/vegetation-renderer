@@ -25,7 +25,7 @@ function toast(s)
 }
 
 // Notes for the view toggles (keys and the view settings panel).
-const MODE_NAMES = ['splats', 'contours', 'centres', 'lines'];
+const MODE_NAMES = ['splats', 'ellipses', 'centres', 'lines'];
 function note_mode() { toast((E.mode + 1) + ' · ' + MODE_NAMES[E.mode]); }
 function note_edge() { toast('E · edge: ' + (E.edge < 0 ? 'per splat' : 'all ' + EDGE_NAMES[E.edge])); }
 function note_lit() { toast('L · lighting ' + (E.lit ? 'on' : 'off')); }
@@ -430,7 +430,7 @@ function help_text()
         'TOOLS    panel on the right: Chain (blade, stem), Leaf, Blob build at the cursor; Radial copies, Mirror and Colour\n' +
         '         variation work on the selection with the cursor as pivot. T applies the current tool.\n' +
         'VIEW     RMB drag orbit, MMB (or Shift+RMB) drag pan, wheel zoom, F frame selection (or all)\n' +
-        '         1 splats, 2 contours (the 2-sigma ellipse in each of the splat\'s own planes when both its axes are at least 6 px;\n' +
+        '         1 splats, 2 ellipses (the 2-sigma ellipse in each of the splat\'s own planes when both its axes are at least 6 px;\n' +
         '         a splat with only one such axis as a line; P adds slices every "slice distance" px). The selection\n' +
         '         is always drawn this way, in its own colour, brightened.\n         3 centres, 4 lines (longest axis of each splat, out to the "outline close" level); L lighting (normal = shortest axis); grid in the view settings (V)\n' +
         'EDGE     each splat has an edge mode and a "hardness" (0..1), both in the panel. The view settings list (V) or E shows\n' +

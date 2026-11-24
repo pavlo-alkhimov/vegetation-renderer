@@ -149,9 +149,10 @@ void main() {
 // Contour rings: sections of the 2-sigma ellipsoid by planes parallel to the splat's three local planes. The sections
 // are worked out on the CPU (rings_build), one instance per ring: splat data plus (plane, offset). Plane 0 = xy,
 // 1 = yz, 2 = zx; offset f along the plane's normal axis in units of 2 sigma (0 = central section).
-// Contours view: an ellipse needs both its axes at least this many pixels across (2-sigma diameter); a splat with only
-// one such axis is drawn as a line, smaller ones not at all.
-const CONTOUR_MINPX = 6;
+// Ellipses (presentation 2, selection, hover): an ellipse needs both its axes at least this many pixels across (2-sigma
+// diameter); a splat with only one such axis is drawn as a line along it, smaller ones not at all (selected and hovered
+// ones as a line along their longest axis, so they never vanish).
+const ELLIPSE_MINPX = 6;
 const SLICES_MAX = 200;           // sections per axis
 const RINGS_MAX = 150000;         // per frame, a safety limit (camera inside large splats)
 const VS_RING = `#version 300 es
@@ -172,7 +173,7 @@ void main() {
     vec2 c = a_pos.xy * sqrt(max(1.0 - f * f, 0.0));
     vec3 loc = r == 0 ? vec3(c.x, c.y, f) : r == 1 ? vec3(f, c.x, c.y) : vec3(c.x, f, c.y);
     gl_Position = u_vp * vec4(i_pos + qmat(normalize(i_rot)) * (loc * i_scale * 2.0), 1.0);
-    // selected: the splat colour brightened (max channel ~0.95), like the selection outline; others as in view 2
+    // selected: the splat colour brightened (max channel ~0.95), like the selection outline; others as in presentation 2
     vec3 sc = i_col.rgb, SEL = min(sc * max(1.25, 0.95 / max(max(sc.r, sc.g), max(sc.b, 1e-3))) + 0.05, vec3(1.0));
     vec3 col = i_col.a > 1.5 ? u_hover : i_col.a > 0.5 ? SEL : min(i_col.rgb * 1.25 + 0.08, vec3(1.0));
     float alpha = i_col.a > 1.5 ? 0.5 * u_hover_a : i_col.a > 0.5 ? 0.5 : 1.0;   // selection and hover rings: 50 %
@@ -386,7 +387,8 @@ function rings_build(list, cam, h, minpx, only_sel, space, flag)
         const fl = flag !== undefined ? flag : t.sel ? 1 : 0;
         // Only one axis at least minpx long: the splat is drawn as a line along it (its 2-sigma ellipse in a plane through
         // that axis with the other in-plane axis collapsed).
-        const longs = [0, 1, 2].filter(k => px[k] >= minpx);
+        let longs = [0, 1, 2].filter(k => px[k] >= minpx);
+        if (!longs.length && (only_sel || flag === 2)) longs = [px[0] >= px[1] ? (px[0] >= px[2] ? 0 : 2) : (px[1] >= px[2] ? 1 : 2)];
         if (minpx > 0 && longs.length === 1) {
             if (count >= RINGS_MAX) break;
             const k = longs[0], s = t.s.slice();
@@ -486,7 +488,7 @@ function render_frame(R, cam, opts)
             gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, R.n);
             gl.disable(gl.BLEND); gl.depthMask(true);
         } else if (opts.mode === 1) {
-            rings_draw(R, cam, vp, h, CONTOUR_MINPX * dpr, false, (opts.slice_px || 20) * dpr, opts.list);
+            rings_draw(R, cam, vp, h, ELLIPSE_MINPX * dpr, false, (opts.slice_px || 20) * dpr, opts.list);
         }
         if (opts.mode === 3) {                                       // lines: longest axis per splat
             gl.useProgram(R.pax.p); gl.uniformMatrix4fv(R.pax.u.u_vp, false, vp);
@@ -501,13 +503,13 @@ function render_frame(R, cam, opts)
             lines_draw(R, pts, gl.POINTS, vp, opts.mode === 2 ? 5 * dpr : 3 * dpr);
             gl.enable(gl.DEPTH_TEST);
         }
-        // Selection, always on top: per splat as in the contour view (ellipses: opts.show_ell), and the outlines
+        // Selection, always on top: per splat as in presentation 2 (ellipses: opts.show_ell), and the outlines
         // around all selected splats (opts.show_outline). opts.tuning (an outline slider is being dragged): selected
         // splats drawn normally, no ellipses, only the outlines.
         const show_ell = opts.show_ell !== false && !opts.tuning, show_outline = opts.show_outline !== false || opts.tuning;
         if (opts.nsel && show_ell) {
             gl.disable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-            rings_draw(R, cam, vp, h, 0, true, (opts.slice_px || 20) * dpr, opts.list);
+            rings_draw(R, cam, vp, h, ELLIPSE_MINPX * dpr, true, (opts.slice_px || 20) * dpr, opts.list);
             gl.disable(gl.BLEND); gl.enable(gl.DEPTH_TEST);
         }
         if (opts.nsel && show_outline) outline_draw(R, cam, w, h, opts.outline_lv, { lit: opts.lit, edge: opts.edge, sun: sun });   // [close, in-between, far]
@@ -515,7 +517,7 @@ function render_frame(R, cam, opts)
         // opts.hover: [{ t: splat, col, a }], the current one (a = 1) and ones fading out after the mouse left them.
         if (opts.hover && opts.hover.length && show_ell) {
             gl.disable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-            for (const hv of opts.hover) rings_draw(R, cam, vp, h, 0, false, (opts.slice_px || 20) * dpr, [hv.t], 2, hv.col, hv.a);
+            for (const hv of opts.hover) rings_draw(R, cam, vp, h, ELLIPSE_MINPX * dpr, false, (opts.slice_px || 20) * dpr, [hv.t], 2, hv.col, hv.a);
             gl.disable(gl.BLEND); gl.enable(gl.DEPTH_TEST);
         }
     }
