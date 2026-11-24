@@ -262,7 +262,7 @@ function tools_build()
 
 const KEYBAR = {
     edit: ['EDIT', ['LMB', 'select (Shift: add)'], ['G R S', 'move / rotate / scale'], ['N', 'new splat'], ['Shift+D', 'duplicate'], ['Del', 'delete'],
-           ['A', 'select all'], ['Alt+A', 'none'], ['C', 'cursor to mouse'], ['T', 'apply tool'], ['1 2 3', 'splats / ellipsoids / centres'],
+           ['A', 'select all'], ['Alt+A', 'none'], ['C', 'cursor to mouse'], ['T', 'apply tool'], ['1 2 3', 'splats / contours / centres'],
            ['L', 'lighting'], ['F', 'frame'], ['Ctrl+Z / Y', 'undo / redo'], ['RMB', 'orbit'], ['MMB', 'pan'], ['Wheel', 'zoom'], ['H', 'help']],
     xf: ['TRANSFORM', ['X Y Z', 'axis (scale: local axis)'], ['Shift', 'fine'], ['LMB / Enter', 'confirm'], ['RMB / Esc', 'cancel']],
     help: ['HELP', ['PgUp/PgDn', 'scroll'], ['Esc', 'close']],
@@ -295,7 +295,7 @@ function help_text()
         'TOOLS    panel on the right: Chain (blade, stem), Leaf, Blob build at the cursor; Radial copies, Mirror and Colour\n' +
         '         variation work on the selection with the cursor as pivot. T applies the current tool.\n' +
         'VIEW     RMB drag orbit, MMB (or Shift+RMB) drag pan, wheel zoom, F frame selection (or all)\n' +
-        '         1 splats, 2 ellipsoids (2 sigma), 3 centres; L lighting (normal = shortest axis); G grid via toolbar\n' +
+        '         1 splats, 2 contours (2-sigma ellipses in the splat\'s own planes; planes with an axis under 3 px hidden),\n         3 centres; L lighting (normal = shortest axis); G grid via toolbar\n' +
         'UNDO     Ctrl+Z, Ctrl+Y (or Ctrl+Shift+Z)\n' +
         'FILES    .splats: one splat per line "x y z  sx sy sz  qw qx qy qz  #rrggbb  opacity" (metres, sigma)\n' +
         '         .ply: INRIA 3D Gaussian Splatting format (SH degree 0), opens in SuperSplat / SIBR; import reads it back\n';
@@ -451,7 +451,7 @@ function main()
         if (E.data_dirty || key !== E.view_key) { render_upload(E.R, E.list, cam.view); E.view_key = key; E.data_dirty = false; }
         const nsel = E.list.reduce((n, t) => n + (t.sel ? 1 : 0), 0);
         render_frame(E.R, cam, { mode: E.mode, lit: E.lit, grid: E.grid, cursor: E.cursor, list: E.list, nsel: nsel, bg: [0.16, 0.17, 0.19] });
-        let s = E.list.length + ' splats · ' + nsel + ' selected · sort ' + E.R.sort_ms.toFixed(1) + ' ms · view ' + ['splats', 'ellipsoids', 'centres'][E.mode] +
+        let s = E.list.length + ' splats · ' + nsel + ' selected · sort ' + E.R.sort_ms.toFixed(1) + ' ms · view ' + ['splats', 'contours', 'centres'][E.mode] +
                 (E.lit ? ' (lit)' : '') + ' · cursor ' + E.cursor.map(v => v.toFixed(3)).join(' ');
         if (E.xf) s += ' · ' + E.xf.mode + (E.xf.axis >= 0 ? ' ' + 'XYZ'[E.xf.axis] : '') + (E.xf.factor ? ' ×' + E.xf.factor.toFixed(3) : '') + (E.xf.angle ? ' ' + E.xf.angle.toFixed(1) + '°' : '');
         if (E.msg && performance.now() - E.msg_t < 4000) s += ' · ' + E.msg;

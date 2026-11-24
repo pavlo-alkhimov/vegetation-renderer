@@ -1,4 +1,4 @@
-// WebGL2 renderer: Gaussian splats (EWA projection, sorted back to front, premultiplied alpha), ellipsoids, centres,
+// WebGL2 renderer: Gaussian splats (EWA projection, sorted back to front, premultiplied alpha), contour rings, centres,
 // ground grid, 3D cursor, selection rings.
 
 const VS_SPLAT = `#version 300 es
@@ -87,6 +87,33 @@ void main() {
     o = vec4(c, 1.0);
 }`;
 
+// Contour rings: the 2-sigma ellipses in the splat's three local planes (a_pos.w = ring: 0 xy, 1 yz, 2 zx). A ring is
+// dropped when either of its two axes is under u_minpx pixels across (diameter at 2 sigma): flat splats show only
+// their outline, tiny splats nothing.
+const VS_RING = `#version 300 es
+layout(location=0) in vec4 a_pos;
+layout(location=1) in vec3 i_pos; layout(location=2) in vec3 i_scale; layout(location=3) in vec4 i_rot; layout(location=4) in vec4 i_col;
+layout(location=5) in float i_sel;
+uniform mat4 u_vp, u_view; uniform float u_focal, u_minpx; uniform int u_only_sel;
+out vec4 v_col;
+mat3 qmat(vec4 q) {
+    float w = q.x, x = q.y, y = q.z, z = q.w;
+    return mat3(1.0 - 2.0 * (y * y + z * z), 2.0 * (x * y + w * z), 2.0 * (x * z - w * y),
+                2.0 * (x * y - w * z), 1.0 - 2.0 * (x * x + z * z), 2.0 * (y * z + w * x),
+                2.0 * (x * z + w * y), 2.0 * (y * z - w * x), 1.0 - 2.0 * (x * x + y * y));
+}
+void main() {
+    gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+    if (u_only_sel == 1 && i_sel < 0.5) return;
+    float depth = max(-(u_view * vec4(i_pos, 1.0)).z, 1e-4);
+    vec3 px = 4.0 * i_scale * u_focal / depth;                       // 2-sigma diameter of each axis in pixels
+    int r = int(a_pos.w + 0.5);
+    vec2 ax = r == 0 ? px.xy : r == 1 ? px.yz : px.xz;
+    if (min(ax.x, ax.y) < u_minpx) return;
+    gl_Position = u_vp * vec4(i_pos + qmat(normalize(i_rot)) * (a_pos.xyz * i_scale * 2.0), 1.0);
+    v_col = i_sel > 0.5 ? vec4(1.0, 0.62, 0.15, 1.0) : vec4(min(i_col.rgb * 1.25 + 0.08, vec3(1.0)), 1.0);
+}`;
+
 const VS_LINE = `#version 300 es
 layout(location=0) in vec3 a_pos; layout(location=1) in vec4 a_col;
 uniform mat4 u_vp; uniform float u_psize; out vec4 v_col;
@@ -122,7 +149,7 @@ function sphere_mesh()
         for (let i = 0; i < 32; i++)
             for (const a of [i, i + 1]) {
                 const c = Math.cos(a / 32 * 2 * Math.PI), s = Math.sin(a / 32 * 2 * Math.PI);
-                ring.push(...(k === 0 ? [c, s, 0] : k === 1 ? [0, c, s] : [c, 0, s]));
+                ring.push(...(k === 0 ? [c, s, 0] : k === 1 ? [0, c, s] : [c, 0, s]), k);
             }
     return { tri: new Float32Array(tri), ring: new Float32Array(ring) };
 }
@@ -135,6 +162,7 @@ function render_init(canvas)
     R.ps = gl_prog(gl, VS_SPLAT, FS_SPLAT);
     R.pe = gl_prog(gl, VS_ELL, FS_ELL);
     R.pl = gl_prog(gl, VS_LINE, FS_LINE);
+    R.pr = gl_prog(gl, VS_RING, FS_LINE);
     R.inst = gl.createBuffer();
     const mesh = sphere_mesh();
     const vao_for = function (verts, comps, inst_sel) {
@@ -151,7 +179,7 @@ function render_init(canvas)
     };
     R.vao_splat = vao_for(new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), 2, false);
     R.vao_ell = vao_for(mesh.tri, 3, true); R.ell_count = mesh.tri.length / 3;
-    R.vao_ring = vao_for(mesh.ring, 3, true); R.ring_count = mesh.ring.length / 3;
+    R.vao_ring = vao_for(mesh.ring, 4, true); R.ring_count = mesh.ring.length / 4;
     R.vao_line = gl.createVertexArray(); gl.bindVertexArray(R.vao_line);
     R.line_vb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, R.line_vb);
     gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 28, 0);
@@ -211,7 +239,17 @@ function grid_lines()
     return d;
 }
 
-// mode: 0 splats, 1 ellipsoids (2 sigma), 2 centres. view: camera {view, proj, eye, focal}.
+function rings_draw(R, cam, vp, h, minpx, only_sel)
+{
+    const gl = R.gl, u = R.pr.u;
+    gl.useProgram(R.pr.p);
+    gl.uniformMatrix4fv(u.u_vp, false, vp); gl.uniformMatrix4fv(u.u_view, false, cam.view);
+    gl.uniform1f(u.u_focal, cam.focal * h); gl.uniform1f(u.u_minpx, minpx); gl.uniform1i(u.u_only_sel, only_sel ? 1 : 0);
+    gl.bindVertexArray(R.vao_ring);
+    gl.drawArraysInstanced(gl.LINES, 0, R.ring_count, R.n);
+}
+
+// mode: 0 splats, 1 contours (2-sigma ellipses in the local planes), 2 centres. view: camera {view, proj, eye, focal}.
 function render_frame(R, cam, opts)
 {
     const gl = R.gl, c = R.canvas, dpr = window.devicePixelRatio || 1;
@@ -233,11 +271,7 @@ function render_frame(R, cam, opts)
             gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, R.n);
             gl.disable(gl.BLEND); gl.depthMask(true);
         } else if (opts.mode === 1) {
-            gl.useProgram(R.pe.p);
-            gl.uniformMatrix4fv(R.pe.u.u_vp, false, vp); gl.uniform1f(R.pe.u.u_k, 2); gl.uniform1i(R.pe.u.u_only_sel, 0);
-            gl.uniform3fv(R.pe.u.u_sun, sun); gl.uniform1i(R.pe.u.u_mode, 0);
-            gl.bindVertexArray(R.vao_ell);
-            gl.drawArraysInstanced(gl.TRIANGLES, 0, R.ell_count, R.n);
+            rings_draw(R, cam, vp, h, 3 * dpr, false);
         }
         if (opts.mode === 2 || opts.centres) {
             const pts = [];
@@ -249,10 +283,7 @@ function render_frame(R, cam, opts)
         // Selection: three 2-sigma rings per selected splat, always on top.
         if (opts.nsel) {
             gl.disable(gl.DEPTH_TEST);
-            gl.useProgram(R.pe.p);
-            gl.uniformMatrix4fv(R.pe.u.u_vp, false, vp); gl.uniform1f(R.pe.u.u_k, 2); gl.uniform1i(R.pe.u.u_only_sel, 1); gl.uniform1i(R.pe.u.u_mode, 1);
-            gl.bindVertexArray(R.vao_ring);
-            gl.drawArraysInstanced(gl.LINES, 0, R.ring_count, R.n);
+            rings_draw(R, cam, vp, h, 0, true);
             gl.enable(gl.DEPTH_TEST);
         }
     }
