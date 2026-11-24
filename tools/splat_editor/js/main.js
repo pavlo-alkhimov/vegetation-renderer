@@ -24,6 +24,13 @@ function toast(s)
     d.style.transition = 'opacity 2s linear'; d.style.opacity = '0';
 }
 
+// Notes for the view toggles (keys and the view settings panel).
+function note_mode() { toast((E.mode + 1) + ' · ' + ['splats', 'contours', 'centres'][E.mode]); }
+function note_edge() { toast('E · edge: ' + (E.edge < 0 ? 'per splat' : 'all ' + EDGE_NAMES[E.edge])); }
+function note_lit() { toast('L · lighting ' + (E.lit ? 'on' : 'off')); }
+function note_grid() { toast('ground grid ' + (E.grid ? 'on' : 'off')); }
+function note_sel() { toast('selection: ' + ['sections', 'outline', 'sections + outline'][E.sel_style]); }
+
 // ---------------------------------------------------------------------------------------------------------------
 // Undo, change notification, autosave
 
@@ -533,10 +540,10 @@ function on_key(e)
     else if (k === 'a' || k === 'A') { select_only(E.list); changed(true); }
     else if (k === 'c' || k === 'C') { const h = pick(E.mouse[0], E.mouse[1]); E.cursor = h.p || ground_hit(); msg('cursor ' + E.cursor.map(v => v.toFixed(3)).join(' ')); }
     else if (k === 't' || k === 'T') apply_tool();
-    else if (k === '1' || k === '2' || k === '3') { E.mode = parseInt(k, 10) - 1; toast(k + ' · ' + ['splats', 'contours', 'centres'][E.mode]); }
+    else if (k === '1' || k === '2' || k === '3') { E.mode = parseInt(k, 10) - 1; note_mode(); }
     else if (k === 'v' || k === 'V') $('viewset').classList.toggle('hidden');
-    else if (k === 'l' || k === 'L') E.lit = !E.lit;
-    else if (k === 'e' || k === 'E') { E.edge = E.edge >= 3 ? -1 : E.edge + 1; $('edge').value = E.edge; toast('E · edge: ' + (E.edge < 0 ? 'per splat' : 'all ' + EDGE_NAMES[E.edge])); }
+    else if (k === 'l' || k === 'L') { E.lit = !E.lit; note_lit(); }
+    else if (k === 'e' || k === 'E') { E.edge = E.edge >= 3 ? -1 : E.edge + 1; $('edge').value = E.edge; note_edge(); }
     else if (k === 'f' || k === 'F') frame_view();
     else if (k === 'h' || k === 'H') help.classList.remove('hidden');
     else return;
@@ -590,15 +597,15 @@ function ui_init()
     $('btn_load').addEventListener('click', load_file);
     $('btn_save').addEventListener('click', () => download(E.title + '.splats', splats_write(E.list, E.title), 'text/plain'));
     $('btn_ply').addEventListener('click', () => download(E.title + '.ply', ply_write(E.list)));
-    $('btn_grid').addEventListener('click', () => { E.grid = !E.grid; });
-    $('btn_lit').addEventListener('click', () => { E.lit = !E.lit; });
+    $('btn_grid').addEventListener('click', ev => { E.grid = !E.grid; note_grid(); ev.target.blur(); });
+    $('btn_lit').addEventListener('click', ev => { E.lit = !E.lit; note_lit(); ev.target.blur(); });
     const sl = $('slice_px'), slv = () => { E.slice_px = parseInt(sl.value, 10); $('slice_val').textContent = E.slice_px + ' px'; };
     sl.addEventListener('input', slv); sl.addEventListener('change', () => sl.blur()); slv();
     const ok = $('outline_k'), okv = () => { E.outline_k = parseFloat(ok.value); $('outline_val').textContent = E.outline_k.toFixed(1) + ' σ'; };
     ok.addEventListener('input', okv); ok.addEventListener('change', () => ok.blur()); okv();
-    $('view_mode').addEventListener('change', ev => { E.mode = parseInt(ev.target.value, 10); ev.target.blur(); });
-    $('sel_style').addEventListener('change', ev => { E.sel_style = parseInt(ev.target.value, 10); ev.target.blur(); });
-    $('edge').addEventListener('change', ev => { E.edge = parseInt(ev.target.value, 10); ev.target.blur(); });
+    $('view_mode').addEventListener('change', ev => { E.mode = parseInt(ev.target.value, 10); note_mode(); ev.target.blur(); });
+    $('sel_style').addEventListener('change', ev => { E.sel_style = parseInt(ev.target.value, 10); note_sel(); ev.target.blur(); });
+    $('edge').addEventListener('change', ev => { E.edge = parseInt(ev.target.value, 10); note_edge(); ev.target.blur(); });
     $('btn_help').addEventListener('click', () => { $('help').classList.toggle('hidden'); $('btn_help').blur(); });
     $('title').addEventListener('change', e => { E.title = e.target.value.trim().replace(/[^\w-]/g, '_') || 'model'; e.target.value = E.title; changed(false); });
     $('help_text').textContent = help_text();

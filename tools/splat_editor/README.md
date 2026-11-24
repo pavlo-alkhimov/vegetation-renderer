@@ -58,6 +58,7 @@ r is in sigma units. Rims stay at least about 1–2 px wide: the generalized β 
 | E | next edge rendering mode: per splat, then all Gaussian / saturated / generalized / cut-off (also in the view settings); shown large at the bottom of the viewport like 1 / 2 / 3 |
 | (selection) | selected splats are always drawn on top, chosen in the view settings (**selection**): **sections** (each splat as in view 2, in orange at 50 % opacity; the hover highlight is 50 % too), **outline** (one contour around all selected splats, in their average colour, brightened) or **both** (default). The outline works like metaballs: every selected splat adds its screen-space Gaussian with peak 1 to a field, and the outline is where the field equals exp(−k²/2), with k set by the **outline at** slider in the view settings (1–3 σ, default 1.2σ: field ≈ 0.49). For a lone splat that is exactly its kσ ellipse (2σ matches the contour rings); splats that overlap or nearly touch merge into one smooth shape. In view 1 the selected splats themselves are faded to 20 % opacity |
 | L | lighting on/off (on by default) |
+| (notes) | every view toggle (1 / 2 / 3, E, L, and the lists and buttons in the view settings) shows its new state in large bold dark red at the bottom middle of the viewport, fading out over 2 s |
 | V | view settings: a panel over the viewport with rendering (1/2/3), edge mode, lighting, ground grid, selection display, outline threshold and slice distance; hidden by default, V or Esc closes it |
 | F | frame the selection (or everything) |
 | Ctrl+Z, Ctrl+Y | undo, redo |
