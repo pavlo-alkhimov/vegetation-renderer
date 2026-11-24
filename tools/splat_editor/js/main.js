@@ -363,7 +363,7 @@ const EDGE_NAMES = ['Gaussian', 'saturated', 'generalized', 'cut-off'];
 const KEYBAR = {
     edit: ['EDIT', ['LMB', 'select / drag box'], ['G R S', 'move / rotate / scale'], ['N', 'new splat'], ['Shift+D', 'duplicate'], ['Del', 'delete'],
            ['A', 'select all'], ['Alt+A', 'none'], ['C', 'cursor to mouse'], ['T', 'apply tool'], ['1 2 3', 'splats / contours / centres'],
-           ['L', 'lighting'], ['E', 'edge mode'], ['F', 'frame'], ['Ctrl+Z / Y', 'undo / redo'], ['RMB', 'orbit'], ['MMB', 'pan'], ['Wheel', 'zoom'], ['H', 'help']],
+           ['L', 'lighting'], ['E', 'edge mode'], ['V', 'view settings'], ['F', 'frame'], ['Ctrl+Z / Y', 'undo / redo'], ['RMB', 'orbit'], ['MMB', 'pan'], ['Wheel', 'zoom'], ['H', 'help']],
     xf: ['TRANSFORM', ['X Y Z', 'axis (scale: local axis)'], ['Shift', 'fine'], ['LMB / Enter', 'confirm'], ['RMB / Esc', 'cancel']],
     help: ['HELP', ['PgUp/PgDn', 'scroll'], ['Esc', 'close']],
     box: ['BOX SELECT', ['Shift', 'add'], ['Ctrl', 'remove'], ['Alt', 'only enclosed splats'], ['release', 'apply'], ['Esc', 'cancel']],
@@ -411,14 +411,15 @@ function help_text()
         '         variation work on the selection with the cursor as pivot. T applies the current tool.\n' +
         'VIEW     RMB drag orbit, MMB (or Shift+RMB) drag pan, wheel zoom, F frame selection (or all)\n' +
         '         1 splats, 2 contours (sections of the 2-sigma ellipsoid parallel to the splat\'s own planes: the central one,\n' +
-        '         then every "Slice distance" pixels (toolbar) out to the edge; planes with an axis under 3 px hidden). The selection\n' +
-        '         is always drawn this way, in orange.\n         3 centres; L lighting (normal = shortest axis); G grid via toolbar\n' +
-        'EDGE     each splat has an edge mode and a "hardness" (0..1), both in the panel. The toolbar list (or E) shows\n' +
+        '         then every "Slice distance" pixels (view settings, V) out to the edge; planes with an axis under 3 px hidden). The selection\n' +
+        '         is always drawn this way, in orange.\n         3 centres; L lighting (normal = shortest axis); grid in the view settings (V)\n' +
+        'EDGE     each splat has an edge mode and a "hardness" (0..1), both in the panel. The view settings list (V) or E shows\n' +
         '         each splat in its own mode ("per splat") or forces one mode on all. Compare: four copies of the model\n' +
         '         side by side (Gaussian, saturated, generalized, cut-off), each adapted to its mode.\n' +
         '         Gaussian: hardness ignored. Saturated: opacity x (1 + 7 h), clamped: flat top, steeper rim.\n' +
         '         Generalized: exp(-2 (r/2)^(2 beta)), beta = 2^(4 h) = 1..16: flat top, sharp rim at 2 sigma.\n' +
         '         Cut-off: solid inside the 2-sigma contour, rim width (1 - h); at least ~1 px everywhere.\n' +
+        'SETTINGS V: view settings (rendering, edge mode, lighting, grid, selection display, outline, slice distance)\n' +
         'UNDO     Ctrl+Z, Ctrl+Y (or Ctrl+Shift+Z)\n' +
         'FILES    .splats: one splat per line "x y z  sx sy sz  qw qx qy qz  #rrggbb  opacity  hardness  mode" (metres, sigma)\n' +
         '         .ply: INRIA 3D Gaussian Splatting format (SH degree 0), opens in SuperSplat / SIBR; import reads it back\n';
@@ -485,6 +486,7 @@ function view_input()
 function on_key(e)
 {
     const k = e.key, ae = document.activeElement, tag = ae ? ae.tagName : '';
+    if (k === 'Escape' && !$('viewset').classList.contains('hidden') && !E.box && !E.xf) { $('viewset').classList.add('hidden'); if (ae) ae.blur(); e.preventDefault(); return; }
     if (E.box && k === 'Escape') { E.box = null; box_overlay(null); msg('box select cancelled'); e.preventDefault(); return; }
     const help = $('help');
     if (!help.classList.contains('hidden')) {
@@ -522,6 +524,7 @@ function on_key(e)
     else if (k === 'c' || k === 'C') { const h = pick(E.mouse[0], E.mouse[1]); E.cursor = h.p || ground_hit(); msg('cursor ' + E.cursor.map(v => v.toFixed(3)).join(' ')); }
     else if (k === 't' || k === 'T') apply_tool();
     else if (k === '1' || k === '2' || k === '3') { E.mode = parseInt(k, 10) - 1; }
+    else if (k === 'v' || k === 'V') $('viewset').classList.toggle('hidden');
     else if (k === 'l' || k === 'L') E.lit = !E.lit;
     else if (k === 'e' || k === 'E') { E.edge = E.edge >= 3 ? -1 : E.edge + 1; $('edge').value = E.edge; }
     else if (k === 'f' || k === 'F') frame_view();
@@ -583,6 +586,7 @@ function ui_init()
     sl.addEventListener('input', slv); sl.addEventListener('change', () => sl.blur()); slv();
     const ok = $('outline_k'), okv = () => { E.outline_k = parseFloat(ok.value); $('outline_val').textContent = E.outline_k.toFixed(1) + ' σ'; };
     ok.addEventListener('input', okv); ok.addEventListener('change', () => ok.blur()); okv();
+    $('view_mode').addEventListener('change', ev => { E.mode = parseInt(ev.target.value, 10); ev.target.blur(); });
     $('sel_style').addEventListener('change', ev => { E.sel_style = parseInt(ev.target.value, 10); ev.target.blur(); });
     $('edge').addEventListener('change', ev => { E.edge = parseInt(ev.target.value, 10); ev.target.blur(); });
     $('btn_help').addEventListener('click', () => { $('help').classList.toggle('hidden'); $('btn_help').blur(); });
@@ -623,6 +627,7 @@ function main()
         const hover = E.fading.map(f => ({ t: f.t, col: f.col, a: 1 - (now - f.t0) / HOVER_FADE }));
         if (hv) hover.push({ t: hv, col: hcol, a: 1 });
         $('btn_grid').classList.toggle('on', E.grid); $('btn_lit').classList.toggle('on', E.lit);   // toggle state (also changed by keys)
+        if ($('view_mode').value !== '' + E.mode && document.activeElement !== $('view_mode')) $('view_mode').value = E.mode;
         render_frame(E.R, cam, { mode: E.mode, edge: E.edge, slice_px: E.slice_px, sel_style: E.sel_style, outline_col: oc, outline_k: E.outline_k, lit: E.lit, grid: E.grid, cursor: E.cursor, list: E.list, nsel: nsel, hover: hover, bg: [0.16, 0.17, 0.19] });
         let s = E.list.length + ' splats · ' + nsel + ' selected · sort ' + E.R.sort_ms.toFixed(1) + ' ms · view ' + ['splats', 'contours', 'centres'][E.mode] +
                 (E.lit ? ' (lit)' : '') + ' · edge ' + (E.edge < 0 ? 'per splat' : EDGE_NAMES[E.edge] + ' (all)') + ' · cursor ' + E.cursor.map(v => v.toFixed(3)).join(' ');

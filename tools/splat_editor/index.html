@@ -16,24 +16,32 @@
   <button id="btn_save">Save .splats</button>
   <button id="btn_ply">Export .ply</button>
   <span class="sep"></span>
-  <button id="btn_grid" title="ground grid">Grid</button>
-  <button id="btn_lit" title="sun lighting of flat splats (L)">Lighting</button>
-  <select id="edge" title="edge mode (E): how the splats' hardness shapes their edge">
-    <option value="-1">Edge: per splat</option>
-    <option value="0">Edge: all Gaussian</option><option value="1">Edge: all saturated</option>
-    <option value="2">Edge: all generalized</option><option value="3">Edge: all cut-off</option>
-  </select>
-  <select id="sel_style" title="how the selection is shown: each splat's sections, one outline around all selected splats (metaballs), or both">
-    <option value="0">Selection: sections</option><option value="1">Selection: outline</option><option value="2" selected>Selection: both</option>
-  </select>
-  <label class="tlabel" title="selection outline: where the summed field of the selected splats equals exp(-k&sup2;/2); for a lone splat its k-sigma ellipse">Outline at
-    <input id="outline_k" type="range" min="1" max="3" step="0.1" value="1.2"> <span id="outline_val"></span></label>
-  <label class="tlabel" title="distance on screen between contour sections, from the central one outwards (view 2 and the selection)">Slice distance
-    <input id="slice_px" type="range" min="6" max="80" step="1" value="20"> <span id="slice_val"></span></label>
   <button id="btn_help">Help</button>
 </div>
 <div id="main">
   <canvas id="view" tabindex="0"></canvas>
+  <!-- View settings (V): hidden by default, over the top left of the viewport -->
+  <div id="viewset" class="hidden">
+    <div class="vs_title">View settings <span class="hint">V or Esc closes</span></div>
+    <div class="vs_row"><span class="pname">rendering</span>
+      <select id="view_mode" title="1 / 2 / 3"><option value="0">1 splats</option><option value="1">2 contours</option><option value="2">3 centres</option></select></div>
+    <div class="vs_row"><span class="pname">edge</span>
+      <select id="edge" title="E: how the splats' hardness shapes their edge">
+        <option value="-1">per splat</option>
+        <option value="0">all Gaussian</option><option value="1">all saturated</option>
+        <option value="2">all generalized</option><option value="3">all cut-off</option>
+      </select></div>
+    <div class="vs_row"><span class="pname">lighting</span><button id="btn_lit" title="L: sun lighting of flat splats">Lighting</button></div>
+    <div class="vs_row"><span class="pname">ground grid</span><button id="btn_grid">Grid</button></div>
+    <div class="vs_row"><span class="pname">selection</span>
+      <select id="sel_style" title="each splat's sections, one outline around all selected splats (metaballs), or both">
+        <option value="0">sections</option><option value="1">outline</option><option value="2" selected>both</option>
+      </select></div>
+    <div class="vs_row" title="selection outline: where the summed field of the selected splats equals exp(-k&sup2;/2); for a lone splat its k-sigma ellipse">
+      <span class="pname">outline at</span><input id="outline_k" type="range" min="1" max="3" step="0.1" value="1.2"> <span id="outline_val"></span></div>
+    <div class="vs_row" title="distance on screen between contour sections, from the central one outwards (view 2 and the selection)">
+      <span class="pname">slice distance</span><input id="slice_px" type="range" min="6" max="80" step="1" value="20"> <span id="slice_val"></span></div>
+  </div>
   <div id="panel">
     <div id="selection"></div>
     <div id="tools"></div>
