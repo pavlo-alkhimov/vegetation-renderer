@@ -5,7 +5,7 @@ const STORE_MODEL = 'splat_editor.model', STORE_TITLE = 'splat_editor.title';
 const FOV = 45 * Math.PI / 180;
 
 const E = {
-    list: [], title: 'meadow_plant', cursor: [0, 0, 0], mode: 0, lit: true, grid: true, centres: false,
+    list: [], title: 'meadow_plant', cursor: [0, 0, 0], mode: 0, edge: 0, lit: true, grid: true, centres: false,
     tool: 'chain', tool_P: {}, undo: [], redo: [], xf: null, editing: false, mouse: [0, 0],
     cam: { az: 0.7, el: 0.35, dist: 1.2, target: [0, 0.12, 0] }, R: null, view_key: '', data_dirty: true, msg: '', msg_t: 0,
 };
@@ -228,12 +228,14 @@ function inspector_build()
         grp('rotation (deg, X then Y then Z)', [0, 1, 2].map(k => ui_bar('r' + 'xyz'[k], { min: -180, max: 180, step: 0.5, get: () => q_to_euler(t.q)[k],
             set: (v, f) => { edit(f); const e = q_to_euler(t.q); e[k] = v; t.q = q_from_euler(e); changed(false); } })));
         grp('appearance', [ui_color('colour', () => rgb_hex(t.c), (v, f) => { edit(f); t.c = hex_rgb(v); changed(false); }),
-                           ui_bar('opacity', { min: 0, max: 1, step: 0.01, get: () => t.a, set: (v, f) => { edit(f); t.a = v; changed(false); } })]);
+                           ui_bar('opacity', { min: 0, max: 1, step: 0.01, get: () => t.a, set: (v, f) => { edit(f); t.a = v; changed(false); } }),
+                           ui_bar('hardness', { min: 0, max: 1, step: 0.01, get: () => t.h, set: (v, f) => { edit(f); t.h = v; changed(false); } })]);
     } else {
         const g = el('div', 'pgroup');
         g.appendChild(el('div', 'gtitle', 'all selected'));
         g.appendChild(ui_color('colour', () => rgb_hex(s[0].c), (v, f) => set_all(t => { t.c = hex_rgb(v); }, f)));
         g.appendChild(ui_bar('opacity', { min: 0, max: 1, step: 0.01, get: () => s[0].a, set: (v, f) => set_all(t => { t.a = v; }, f) }));
+        g.appendChild(ui_bar('hardness', { min: 0, max: 1, step: 0.01, get: () => s[0].h, set: (v, f) => set_all(t => { t.h = v; }, f) }));
         box.appendChild(g);
     }
 }
@@ -260,10 +262,12 @@ function tools_build()
 // ---------------------------------------------------------------------------------------------------------------
 // Key bar and help
 
+const EDGE_NAMES = ['Gaussian', 'saturated', 'generalized', 'cut-off'];
+
 const KEYBAR = {
     edit: ['EDIT', ['LMB', 'select (Shift: add)'], ['G R S', 'move / rotate / scale'], ['N', 'new splat'], ['Shift+D', 'duplicate'], ['Del', 'delete'],
            ['A', 'select all'], ['Alt+A', 'none'], ['C', 'cursor to mouse'], ['T', 'apply tool'], ['1 2 3', 'splats / contours / centres'],
-           ['L', 'lighting'], ['F', 'frame'], ['Ctrl+Z / Y', 'undo / redo'], ['RMB', 'orbit'], ['MMB', 'pan'], ['Wheel', 'zoom'], ['H', 'help']],
+           ['L', 'lighting'], ['E', 'edge mode'], ['F', 'frame'], ['Ctrl+Z / Y', 'undo / redo'], ['RMB', 'orbit'], ['MMB', 'pan'], ['Wheel', 'zoom'], ['H', 'help']],
     xf: ['TRANSFORM', ['X Y Z', 'axis (scale: local axis)'], ['Shift', 'fine'], ['LMB / Enter', 'confirm'], ['RMB / Esc', 'cancel']],
     help: ['HELP', ['PgUp/PgDn', 'scroll'], ['Esc', 'close']],
 };
@@ -296,8 +300,12 @@ function help_text()
         '         variation work on the selection with the cursor as pivot. T applies the current tool.\n' +
         'VIEW     RMB drag orbit, MMB (or Shift+RMB) drag pan, wheel zoom, F frame selection (or all)\n' +
         '         1 splats, 2 contours (2-sigma ellipses in the splat\'s own planes; planes with an axis under 3 px hidden),\n         3 centres; L lighting (normal = shortest axis); G grid via toolbar\n' +
+        'EDGE     E or the toolbar list: how each splat\'s "hardness" (0..1, panel) shapes its edge.\n' +
+        '         Gaussian: hardness ignored. Saturated: opacity x (1 + 7 h), clamped: flat top, steeper rim.\n' +
+        '         Generalized: exp(-2 (r/2)^(2 beta)), beta = 2^(4 h) = 1..16: flat top, sharp rim at 2 sigma.\n' +
+        '         Cut-off: solid inside the 2-sigma contour, rim width (1 - h); at least ~1 px everywhere.\n' +
         'UNDO     Ctrl+Z, Ctrl+Y (or Ctrl+Shift+Z)\n' +
-        'FILES    .splats: one splat per line "x y z  sx sy sz  qw qx qy qz  #rrggbb  opacity" (metres, sigma)\n' +
+        'FILES    .splats: one splat per line "x y z  sx sy sz  qw qx qy qz  #rrggbb  opacity  hardness" (metres, sigma)\n' +
         '         .ply: INRIA 3D Gaussian Splatting format (SH degree 0), opens in SuperSplat / SIBR; import reads it back\n';
 }
 
@@ -379,6 +387,7 @@ function on_key(e)
     else if (k === 't' || k === 'T') apply_tool();
     else if (k === '1' || k === '2' || k === '3') { E.mode = parseInt(k, 10) - 1; }
     else if (k === 'l' || k === 'L') E.lit = !E.lit;
+    else if (k === 'e' || k === 'E') { E.edge = (E.edge + 1) % 4; $('edge').value = E.edge; }
     else if (k === 'f' || k === 'F') frame_view();
     else if (k === 'h' || k === 'H') help.classList.remove('hidden');
     else return;
@@ -429,6 +438,7 @@ function ui_init()
     $('btn_ply').addEventListener('click', () => download(E.title + '.ply', ply_write(E.list)));
     $('btn_grid').addEventListener('click', () => { E.grid = !E.grid; });
     $('btn_lit').addEventListener('click', () => { E.lit = !E.lit; });
+    $('edge').addEventListener('change', ev => { E.edge = parseInt(ev.target.value, 10); ev.target.blur(); });
     $('btn_help').addEventListener('click', () => { $('help').classList.toggle('hidden'); $('btn_help').blur(); });
     $('title').addEventListener('change', e => { E.title = e.target.value.trim().replace(/[^\w-]/g, '_') || 'model'; e.target.value = E.title; changed(false); });
     $('help_text').textContent = help_text();
@@ -452,9 +462,9 @@ function main()
         if (E.data_dirty || key !== E.view_key) { render_upload(E.R, E.list, cam.view); E.view_key = key; E.data_dirty = false; }
         const nsel = E.list.reduce((n, t) => n + (t.sel ? 1 : 0), 0);
         $('btn_grid').classList.toggle('on', E.grid); $('btn_lit').classList.toggle('on', E.lit);   // toggle state (also changed by keys)
-        render_frame(E.R, cam, { mode: E.mode, lit: E.lit, grid: E.grid, cursor: E.cursor, list: E.list, nsel: nsel, bg: [0.16, 0.17, 0.19] });
+        render_frame(E.R, cam, { mode: E.mode, edge: E.edge, lit: E.lit, grid: E.grid, cursor: E.cursor, list: E.list, nsel: nsel, bg: [0.16, 0.17, 0.19] });
         let s = E.list.length + ' splats · ' + nsel + ' selected · sort ' + E.R.sort_ms.toFixed(1) + ' ms · view ' + ['splats', 'contours', 'centres'][E.mode] +
-                (E.lit ? ' (lit)' : '') + ' · cursor ' + E.cursor.map(v => v.toFixed(3)).join(' ');
+                (E.lit ? ' (lit)' : '') + ' · edge ' + EDGE_NAMES[E.edge] + ' · cursor ' + E.cursor.map(v => v.toFixed(3)).join(' ');
         if (E.mode === 1) {
             // Contour grid cell at the camera target distance (the same 1-2-5 rule as the shader).
             const x = 20 * E.cam.dist / (camera().focal * E.R.canvas.clientHeight), b = Math.pow(10, Math.floor(Math.log10(x))), m = x / b;

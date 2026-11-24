@@ -20,6 +20,19 @@ Splats are sorted back to front and alpha-blended, the correctness reference of 
 | two small | soft line | needle, thin stem |
 | all similar | soft ball | blob, flower head, haze |
 
+## Edge modes
+
+Each splat has a **hardness** from 0 to 1 (panel; default 0.5). The edge mode, chosen in the toolbar list or with **E**, decides how hardness shapes the edge. It is a viewing choice, not stored in the model.
+
+| Mode | Falloff | Hardness | Cost |
+|---|---|---|---|
+| Gaussian | exp(−r²/2) | ignored | baseline |
+| Saturated | opacity × (1 + 7h), clamped: flat top, steeper rim, tail beyond 2σ | gain 1…8 | same; quad grows to ~3.9σ at h = 1 |
+| Generalized | exp(−2 (r/2)^(2β)), β = 2^(4h) = 1…16: flat top, sharp rim **at the 2σ contour** | β | a pow per pixel; quad shrinks towards 2σ, so hard splats are cheaper |
+| Cut-off | solid inside the 2σ contour, smoothstep rim of width (1 − h) | rim width | a smoothstep; quad shrinks to ~2σ |
+
+r is in sigma units. Rims stay at least about 1–2 px wide: the generalized β is limited by the splat's size on screen, and the cut-off rim by fwidth. h = 0 gives the plain Gaussian in all modes except cut-off. The Gaussian, generalized and cut-off modes all keep the edge at the 2σ contour (view 2); saturated pushes it outwards.
+
 **Lighting (L)** treats splats as material splats lit by a sun: the normal is the shortest axis. Splats are two-sided: the face towards the sun gets direct light, the other face ambient light plus some light coming through. When the camera crosses a splat's plane, the light changes smoothly, over an angle that depends on how flat the splat is. A gizmo in the lower left corner shows the world axes (X red, Y green, Z blue), the horizon and the sun direction (yellow). Round splats stay unlit.
 
 ## Controls
@@ -38,13 +51,14 @@ Splats are sorted back to front and alpha-blended, the correctness reference of 
 | C | put the 3D cursor where the mouse points (on a splat, else on the ground) |
 | T | apply the current tool |
 | 1 / 2 / 3 | view splats / contours / centres. Contours: the 2-sigma ellipse in each of the splat's three local planes, in the splat's colour; a plane is hidden when one of its two axes is under 3 px across, so a flat splat shows only its outline and tiny splats disappear. Inside each contour a grid in the same colour at 50 % opacity, cells about 20 px wide in 1-2-5 steps (1 mm, 2 mm, 5 mm, 1 cm, ?); the status bar shows the cell size at the view centre |
+| E | next edge mode (also the toolbar list) |
 | L | lighting on/off (on by default; also the **Lighting** button) |
 | F | frame the selection (or everything) |
 | Ctrl+Z, Ctrl+Y | undo, redo |
 | RMB drag, MMB (Shift+RMB) drag, wheel | orbit, pan, zoom |
 | H | help (Esc closes, PgUp/PgDn scroll) |
 
-The right panel shows the selection. With one splat selected: position, sigma (logarithmic bars), rotation as Euler angles, colour and opacity. With several: colour and opacity for all of them. Bars work as in the plant editor: drag inside the frame (Ctrl: fine), double-click to type a value.
+The right panel shows the selection. With one splat selected: position, sigma (logarithmic bars), rotation as Euler angles, colour, opacity and hardness. With several: colour, opacity and hardness for all of them. Bars work as in the plant editor: drag inside the frame (Ctrl: fine), double-click to type a value.
 
 ## Construction tools
 
@@ -63,8 +77,8 @@ The **Example** model (a grass tuft, a leaf rosette and a flower on a stalk, 209
 
 ## Files
 
-- **.splats:** text, one splat per line: `x y z  sx sy sz  qw qx qy qz  #rrggbb  opacity` (metres, sigma). It is readable and diffable, the editor's own format.
-- **.ply export:** the INRIA 3D Gaussian Splatting format, with SH degree 0 colour, logit opacity, log scales and rotation `w x y z`. It opens in SuperSplat, SIBR and other 3DGS viewers. **Load** reads such files back too.
+- **.splats:** text, one splat per line: `x y z  sx sy sz  qw qx qy qz  #rrggbb  opacity  hardness` (metres, sigma; files without hardness load with 0.5). It is readable and diffable, the editor's own format.
+- **.ply export:** the INRIA 3D Gaussian Splatting format, with SH degree 0 colour, logit opacity, log scales and rotation `w x y z`, plus an extra `hardness` property that other viewers ignore. It opens in SuperSplat, SIBR and other 3DGS viewers. **Load** reads such files back too.
 
 ## Limits (v1)
 
