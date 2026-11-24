@@ -8,11 +8,10 @@ const SUN = vnorm([0.45, 0.8, 0.35]);
 const SEL_FADE = 0.2;
 
 const VS_SPLAT = `#version 300 es
-#define SEL_FADE ${SEL_FADE.toFixed(3)}
 layout(location=0) in vec2 a_corner;
 layout(location=1) in vec3 i_pos; layout(location=2) in vec3 i_scale; layout(location=3) in vec4 i_rot; layout(location=4) in vec4 i_col;
 layout(location=5) in float i_sel; layout(location=6) in float i_hard; layout(location=7) in float i_mode;
-uniform mat4 u_view, u_proj; uniform vec2 u_vp; uniform float u_focal; uniform int u_lit, u_edge; uniform vec3 u_sun, u_eye;
+uniform mat4 u_view, u_proj; uniform vec2 u_vp; uniform float u_focal, u_selfade; uniform int u_lit, u_edge; uniform vec3 u_sun, u_eye;
 out vec4 v_col; out vec2 v_uv; flat out vec2 v_edge; flat out int v_mode;    // edge parameter per mode (see FS_SPLAT), hardness
 mat3 qmat(vec4 q) {
     float w = q.x, x = q.y, y = q.z, z = q.w;
@@ -79,7 +78,7 @@ void main() {
         float lit = mix(0.95, mix(face_b, face_a, front), flat_);
         col *= lit;
     }
-    v_col = vec4(col, i_col.a * (i_sel > 0.5 ? SEL_FADE : 1.0));     // selected: faded, so its grid overlay reads
+    v_col = vec4(col, i_col.a * (i_sel > 0.5 ? u_selfade : 1.0));    // selected: faded (SEL_FADE) so its sections read
 }`;
 
 const FS_SPLAT = `#version 300 es
@@ -454,7 +453,7 @@ function render_frame(R, cam, opts)
             gl.useProgram(R.ps.p);
             gl.uniformMatrix4fv(R.ps.u.u_view, false, cam.view); gl.uniformMatrix4fv(R.ps.u.u_proj, false, cam.proj);
             gl.uniform2f(R.ps.u.u_vp, w, h); gl.uniform1f(R.ps.u.u_focal, cam.focal * h);
-            gl.uniform1i(R.ps.u.u_lit, opts.lit ? 1 : 0); gl.uniform1i(R.ps.u.u_edge, opts.edge === undefined ? -1 : opts.edge); gl.uniform3fv(R.ps.u.u_sun, sun); gl.uniform3fv(R.ps.u.u_eye, cam.eye);
+            gl.uniform1i(R.ps.u.u_lit, opts.lit ? 1 : 0); gl.uniform1f(R.ps.u.u_selfade, opts.tuning ? 1.0 : SEL_FADE); gl.uniform1i(R.ps.u.u_edge, opts.edge === undefined ? -1 : opts.edge); gl.uniform3fv(R.ps.u.u_sun, sun); gl.uniform3fv(R.ps.u.u_eye, cam.eye);
             gl.bindVertexArray(R.vao_splat);
             gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, R.n);
             gl.disable(gl.BLEND); gl.depthMask(true);
@@ -471,12 +470,13 @@ function render_frame(R, cam, opts)
         // Selection, always on top: per splat as in the contour view (sections), and/or one metaball outline around all
         // selected splats. opts.sel_style: 0 sections, 1 outline, 2 both.
         const ss = opts.sel_style === undefined ? 0 : opts.sel_style;
-        if (opts.nsel && ss !== 1) {
+        // opts.tuning (an outline slider is being dragged): selected splats drawn normally, no sections, only the outlines.
+        if (opts.nsel && ss !== 1 && !opts.tuning) {
             gl.disable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
             rings_draw(R, cam, vp, h, 0, true, (opts.slice_px || 20) * dpr, opts.list);
             gl.disable(gl.BLEND); gl.enable(gl.DEPTH_TEST);
         }
-        if (opts.nsel && ss !== 0) outline_draw(R, cam, w, h, opts.outline_k);   // [close, in-between, far]
+        if (opts.nsel && (ss !== 0 || opts.tuning)) outline_draw(R, cam, w, h, opts.outline_k);   // [close, in-between, far]
         // Hover: the splat a click would pick, in a colour telling what the click would do, on top of everything.
         // opts.hover: [{ t: splat, col, a }], the current one (a = 1) and ones fading out after the mouse left them.
         if (opts.hover && opts.hover.length) {

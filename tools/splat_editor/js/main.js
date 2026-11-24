@@ -605,6 +605,10 @@ function ui_init()
     ok.addEventListener('input', okv); ok.addEventListener('change', () => ok.blur()); okv();
     const of = $('outline_far'), ofv = () => { E.outline_far = parseFloat(of.value); $('outline_far_val').textContent = E.outline_far.toFixed(1) + ' σ'; };
     of.addEventListener('input', ofv); of.addEventListener('change', () => of.blur()); ofv();
+    // While an outline slider is dragged, the selection is shown plainly (splats at full opacity, no sections) with only
+    // the outlines, so their placement can be judged; released, the usual selection look returns.
+    for (const s of [ok, of]) s.addEventListener('pointerdown', () => { E.tuning = true; });
+    window.addEventListener('pointerup', () => { E.tuning = false; });
     $('view_mode').addEventListener('change', ev => { E.mode = parseInt(ev.target.value, 10); note_mode(); ev.target.blur(); });
     $('sel_style').addEventListener('change', ev => { E.sel_style = parseInt(ev.target.value, 10); note_sel(); ev.target.blur(); });
     $('edge').addEventListener('change', ev => { E.edge = parseInt(ev.target.value, 10); note_edge(); ev.target.blur(); });
@@ -644,7 +648,7 @@ function main()
         if (hv) hover.push({ t: hv, col: hcol, a: 1 });
         $('btn_grid').classList.toggle('on', E.grid); $('btn_lit').classList.toggle('on', E.lit);   // toggle state (also changed by keys)
         if ($('view_mode').value !== '' + E.mode && document.activeElement !== $('view_mode')) $('view_mode').value = E.mode;
-        render_frame(E.R, cam, { mode: E.mode, edge: E.edge, slice_px: E.slice_px, sel_style: E.sel_style, outline_k: [E.outline_k, 0.5 * (E.outline_k + E.outline_far), E.outline_far], lit: E.lit, grid: E.grid, cursor: E.cursor, list: E.list, nsel: nsel, hover: hover, bg: [0.16, 0.17, 0.19] });
+        render_frame(E.R, cam, { mode: E.mode, edge: E.edge, slice_px: E.slice_px, sel_style: E.sel_style, tuning: E.tuning, outline_k: [E.outline_k, 0.5 * (E.outline_k + E.outline_far), E.outline_far], lit: E.lit, grid: E.grid, cursor: E.cursor, list: E.list, nsel: nsel, hover: hover, bg: [0.16, 0.17, 0.19] });
         let s = E.list.length + ' splats · ' + nsel + ' selected · sort ' + E.R.sort_ms.toFixed(1) + ' ms · view ' + ['splats', 'contours', 'centres'][E.mode] +
                 (E.lit ? ' (lit)' : '') + ' · edge ' + (E.edge < 0 ? 'per splat' : EDGE_NAMES[E.edge] + ' (all)') + ' · cursor ' + E.cursor.map(v => v.toFixed(3)).join(' ');
         if (E.xf) s += ' · ' + E.xf.mode + (E.xf.axis >= 0 ? ' ' + 'XYZ'[E.xf.axis] : '') + (E.xf.factor ? ' ×' + E.xf.factor.toFixed(3) : '') + (E.xf.angle ? ' ' + E.xf.angle.toFixed(1) + '°' : '');
