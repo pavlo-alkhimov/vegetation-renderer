@@ -365,9 +365,10 @@ function render_frame(R, cam, opts)
             gl.enable(gl.DEPTH_TEST);
         }
         // Hover: the splat a click would pick, in a colour telling what the click would do, on top of everything.
-        if (opts.hover && opts.hover_a > 0) {
+        // opts.hover: [{ t: splat, col, a }], the current one (a = 1) and ones fading out after the mouse left them.
+        if (opts.hover && opts.hover.length) {
             gl.disable(gl.DEPTH_TEST); gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-            rings_draw(R, cam, vp, h, 0, false, (opts.slice_px || 20) * dpr, [opts.hover], 2, opts.hover_col, opts.hover_a);
+            for (const hv of opts.hover) rings_draw(R, cam, vp, h, 0, false, (opts.slice_px || 20) * dpr, [hv.t], 2, hv.col, hv.a);
             gl.disable(gl.BLEND); gl.enable(gl.DEPTH_TEST);
         }
     }

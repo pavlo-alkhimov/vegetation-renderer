@@ -42,7 +42,7 @@ r is in sigma units. Rims stay at least about 1–2 px wide: the generalized β 
 | Keys | Action |
 |---|---|
 | LMB | select a splat (Shift: toggle, Ctrl: remove); on empty space: select none |
-| (hover) | the splat a click would pick is outlined (its sections) on top: blue = select, green = add, red = remove, following the held modifiers. It fades out over 3 s and comes back when the mouse moves to another splat or a modifier changes what a click would do. A click picks the splat whose 2σ ellipsoid the mouse ray enters first (the nearest along the ray; tiny splats count as at least 4 px wide), not the densest. The status line shows "click: select #i" |
+| (hover) | the splat a click would pick is outlined (its sections) on top: blue = select, green = add, red = remove, following the held modifiers. It stays while the mouse is over the splat and fades out over 3 s after the mouse leaves it. A click picks the splat whose 2σ ellipsoid the mouse ray enters first (the nearest along the ray; tiny splats count as at least 4 px wide), not the densest. The status line shows "click: select #i" |
 | LMB drag | box select: every splat the box touches (its 2σ ellipse on screen); **Alt** held: only splats completely inside. **Shift** adds, **Ctrl** removes, otherwise the box replaces the selection. Dashed box = touching, solid = enclosed; green = add, red = remove. Esc cancels. The status line shows the current selection mode and highlights held modifiers |
 | A / Alt+A | select all / none |
 | G, R, S | move / rotate / scale the selection with the mouse (Blender-style) |

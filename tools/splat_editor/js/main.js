@@ -6,7 +6,7 @@ const FOV = 45 * Math.PI / 180;
 
 const E = {
     list: [], title: 'meadow_plant', cursor: [0, 0, 0], mode: 0, edge: -1, slice_px: 20, lit: true, grid: true, centres: false,
-    tool: 'chain', tool_P: {}, box: null, hover: -1, mouse_in: false, dragging: false, mods: { shift: false, ctrl: false, alt: false }, undo: [], redo: [], xf: null, editing: false, mouse: [0, 0],
+    tool: 'chain', tool_P: {}, box: null, hover: -1, hover_cur: null, fading: [], mouse_in: false, dragging: false, mods: { shift: false, ctrl: false, alt: false }, undo: [], redo: [], xf: null, editing: false, mouse: [0, 0],
     cam: { az: 0.7, el: 0.35, dist: 1.2, target: [0, 0.12, 0] }, R: null, view_key: '', data_dirty: true, msg: '', msg_t: 0,
 };
 
@@ -607,12 +607,16 @@ function main()
         // hover: the splat a click at the mouse would pick (not while transforming, box selecting or orbiting)
         E.hover = E.mouse_in && !E.xf && !E.box && !E.dragging && $('help').classList.contains('hidden') ? pick(E.mouse[0], E.mouse[1]).i : -1;
         const hv = E.hover >= 0 ? E.list[E.hover] : null;
-        // The highlight fades out over HOVER_FADE ms; it restarts when the picked splat or the click's effect changes.
-        const hkey = hv ? E.hover + click_op(hv) : '';
-        if (hkey !== E.hover_key) { E.hover_key = hkey; E.hover_t0 = performance.now(); }
-        const hover_a = hv ? Math.max(0, 1 - (performance.now() - E.hover_t0) / HOVER_FADE) : 0;
+        // The highlight is constant while the mouse is over the splat; when the mouse leaves it (or a modifier changes the
+        // click's effect), the old highlight fades out over HOVER_FADE ms.
+        const now = performance.now(), hcol = hv ? HOVER_COL[click_op(hv)] : null;
+        if (E.hover_cur && (E.hover_cur.t !== hv || E.hover_cur.col !== hcol)) E.fading.push({ t: E.hover_cur.t, col: E.hover_cur.col, t0: now });
+        E.hover_cur = hv ? { t: hv, col: hcol } : null;
+        E.fading = E.fading.filter(f => now - f.t0 < HOVER_FADE && f.t !== hv && E.list.indexOf(f.t) >= 0);
+        const hover = E.fading.map(f => ({ t: f.t, col: f.col, a: 1 - (now - f.t0) / HOVER_FADE }));
+        if (hv) hover.push({ t: hv, col: hcol, a: 1 });
         $('btn_grid').classList.toggle('on', E.grid); $('btn_lit').classList.toggle('on', E.lit);   // toggle state (also changed by keys)
-        render_frame(E.R, cam, { mode: E.mode, edge: E.edge, slice_px: E.slice_px, lit: E.lit, grid: E.grid, cursor: E.cursor, list: E.list, nsel: nsel, hover: hv, hover_col: hv ? HOVER_COL[click_op(hv)] : null, hover_a: hover_a, bg: [0.16, 0.17, 0.19] });
+        render_frame(E.R, cam, { mode: E.mode, edge: E.edge, slice_px: E.slice_px, lit: E.lit, grid: E.grid, cursor: E.cursor, list: E.list, nsel: nsel, hover: hover, bg: [0.16, 0.17, 0.19] });
         let s = E.list.length + ' splats · ' + nsel + ' selected · sort ' + E.R.sort_ms.toFixed(1) + ' ms · view ' + ['splats', 'contours', 'centres'][E.mode] +
                 (E.lit ? ' (lit)' : '') + ' · edge ' + (E.edge < 0 ? 'per splat' : EDGE_NAMES[E.edge] + ' (all)') + ' · cursor ' + E.cursor.map(v => v.toFixed(3)).join(' ');
         if (E.xf) s += ' · ' + E.xf.mode + (E.xf.axis >= 0 ? ' ' + 'XYZ'[E.xf.axis] : '') + (E.xf.factor ? ' ×' + E.xf.factor.toFixed(3) : '') + (E.xf.angle ? ' ' + E.xf.angle.toFixed(1) + '°' : '');
