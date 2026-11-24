@@ -149,6 +149,9 @@ void main() {
 // Contour rings: sections of the 2-sigma ellipsoid by planes parallel to the splat's three local planes. The sections
 // are worked out on the CPU (rings_build), one instance per ring: splat data plus (plane, offset). Plane 0 = xy,
 // 1 = yz, 2 = zx; offset f along the plane's normal axis in units of 2 sigma (0 = central section).
+// Contours view: an ellipse needs both its axes at least this many pixels across (2-sigma diameter); a splat with only
+// one such axis is drawn as a line, smaller ones not at all.
+const CONTOUR_MINPX = 6;
 const SLICES_MAX = 200;           // sections per axis
 const RINGS_MAX = 150000;         // per frame, a safety limit (camera inside large splats)
 const VS_RING = `#version 300 es
@@ -380,6 +383,18 @@ function rings_build(list, cam, h, minpx, only_sel, space, flag)
         const z = -(v[2] * t.p[0] + v[6] * t.p[1] + v[10] * t.p[2] + v[14]), ext = 2 * Math.max(t.s[0], t.s[1], t.s[2]);
         if (z + ext <= 0) continue;                                   // entirely behind the camera
         const depth = Math.max(z, 1e-3), px = t.s.map(s => 4 * s * F / depth);
+        const fl = flag !== undefined ? flag : t.sel ? 1 : 0;
+        // Only one axis at least minpx long: the splat is drawn as a line along it (its 2-sigma ellipse in a plane through
+        // that axis with the other in-plane axis collapsed).
+        const longs = [0, 1, 2].filter(k => px[k] >= minpx);
+        if (minpx > 0 && longs.length === 1) {
+            if (count >= RINGS_MAX) break;
+            const k = longs[0], s = t.s.slice();
+            s[k === 1 ? 0 : 1] = 0;                                   // plane 0 (xy) for x / y, plane 1 (yz) for z
+            out.push(t.p[0], t.p[1], t.p[2], s[0], s[1], s[2], t.q[0], t.q[1], t.q[2], t.q[3], t.c[0], t.c[1], t.c[2], fl, k === 2 ? 1 : 0, 0);
+            count++;
+            continue;
+        }
         for (let r = 0; r < 3; r++) {
             const a = r === 0 ? [0, 1] : r === 1 ? [1, 2] : [0, 2], nk = r === 0 ? 2 : r === 1 ? 0 : 1;
             if (Math.min(px[a[0]], px[a[1]]) < minpx) continue;
@@ -387,7 +402,7 @@ function rings_build(list, cam, h, minpx, only_sel, space, flag)
             const pairs = Math.max(0, Math.min((SLICES_MAX - 1) >> 1, Math.ceil(half / sp) - 1));   // m * sp < half
             for (let m = -pairs; m <= pairs; m++) {
                 if (count >= RINGS_MAX) break;
-                out.push(t.p[0], t.p[1], t.p[2], t.s[0], t.s[1], t.s[2], t.q[0], t.q[1], t.q[2], t.q[3], t.c[0], t.c[1], t.c[2], flag !== undefined ? flag : t.sel ? 1 : 0, r, m * sp / half);
+                out.push(t.p[0], t.p[1], t.p[2], t.s[0], t.s[1], t.s[2], t.q[0], t.q[1], t.q[2], t.q[3], t.c[0], t.c[1], t.c[2], fl, r, m === 0 ? 0 : m * sp / half);   // space = Infinity: slices off
                 count++;
             }
         }
@@ -471,7 +486,7 @@ function render_frame(R, cam, opts)
             gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, R.n);
             gl.disable(gl.BLEND); gl.depthMask(true);
         } else if (opts.mode === 1) {
-            rings_draw(R, cam, vp, h, 3 * dpr, false, (opts.slice_px || 20) * dpr, opts.list);
+            rings_draw(R, cam, vp, h, CONTOUR_MINPX * dpr, false, (opts.slice_px || 20) * dpr, opts.list);
         }
         if (opts.mode === 3) {                                       // lines: longest axis per splat
             gl.useProgram(R.pax.p); gl.uniformMatrix4fv(R.pax.u.u_vp, false, vp);
